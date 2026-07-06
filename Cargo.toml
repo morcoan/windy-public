@@ -1,0 +1,11 @@
+[package]
+name = "windy"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+egui = "0.35.0"
+exe = "0.5.7"
+iced-x86 = "1.21.0"
+memmap2 = "0.9.11"
+petriage = "0.5.0"

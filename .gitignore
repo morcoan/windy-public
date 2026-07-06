@@ -1,0 +1,13 @@
+/target
+debug/
+*.exe
+*.pdb
+
+# IDE / tooling
+.vscode/
+.idea/
+.opencode/
+opencode.json
+*.swp
+
+# Cargo lock for bins (keep for apps, ignore for libs — keeping for a bin app)
