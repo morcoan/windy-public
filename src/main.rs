@@ -2,6 +2,7 @@ use eframe::NativeOptions;
 use egui::ViewportBuilder;
 use tracing_subscriber::EnvFilter;
 
+mod analysis;
 mod app;
 mod disasm;
 mod ir;

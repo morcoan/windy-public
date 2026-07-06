@@ -1,5 +1,7 @@
 #![allow(dead_code)] // IR seam; actively used in Phase 5
 
+pub mod export;
+
 use iced_x86::Instruction;
 
 /// Intermediate representation seam.

@@ -1,5 +1,6 @@
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum View {
+    // Triage panels (Phase 1)
     Headers,
     Sections,
     Imports,
@@ -8,6 +9,13 @@ pub enum View {
     RichHeader,
     Authenticode,
     OverlayAnomalies,
+
+    // Code browser panels (platform phase)
+    FunctionTree,
+    Disassembly,
+    Xrefs,
+    Hex,
+
     Console,
 }
 
@@ -22,6 +30,10 @@ impl View {
             View::RichHeader => "Rich Header",
             View::Authenticode => "Authenticode",
             View::OverlayAnomalies => "Overlay & Anomalies",
+            View::FunctionTree => "Functions",
+            View::Disassembly => "Disassembly",
+            View::Xrefs => "Xrefs",
+            View::Hex => "Hex",
             View::Console => "Console",
         }
     }

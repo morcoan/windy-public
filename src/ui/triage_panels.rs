@@ -1,14 +1,21 @@
 use egui::{RichText, ScrollArea, Separator, Ui};
 use egui_extras::{Column, TableBuilder};
 
+use crate::disasm::Disassembler;
 use crate::project::Project;
 use crate::ui::view::View;
+use crate::ui::{disasm_view, function_tree, hex_view, xrefs_view};
 
-pub fn render_view(ui: &mut Ui, view: &View, project: &Project, console: &mut [String]) {
-    // console is unused here in most views, but kept for future command output.
-    let _ = console;
-
+pub fn render_view(
+    ui: &mut Ui,
+    view: &View,
+    project: &mut Project,
+    console: &mut [String],
+    cursor: &mut u64,
+    disassembler: &Disassembler,
+) {
     match view {
+        // Phase 1 triage panels
         View::Headers => headers_panel(ui, project),
         View::Sections => sections_panel(ui, project),
         View::Imports => imports_panel(ui, project),
@@ -18,6 +25,12 @@ pub fn render_view(ui: &mut Ui, view: &View, project: &Project, console: &mut [S
         View::Authenticode => authenticode_panel(ui, project),
         View::OverlayAnomalies => overlay_anomalies_panel(ui, project),
         View::Console => console_panel(ui, console),
+
+        // Platform-phase code browser panels
+        View::FunctionTree => function_tree::show(ui, project, cursor),
+        View::Disassembly => disasm_view::show(ui, project, *cursor, disassembler),
+        View::Hex => hex_view::show(ui, project, *cursor),
+        View::Xrefs => xrefs_view::show(ui, project, *cursor),
     }
 }
 

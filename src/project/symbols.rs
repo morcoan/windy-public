@@ -44,4 +44,16 @@ impl SymbolTable {
     pub fn remove(&mut self, addr: u64) {
         self.by_addr.remove(&addr);
     }
+
+    /// Build an address → name map suitable for the iced-x86 symbol resolver.
+    pub fn to_resolver_map(&self) -> HashMap<u64, String> {
+        self.by_addr
+            .iter()
+            .map(|(&addr, sym)| (addr, sym.name.clone()))
+            .collect()
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = (u64, &Symbol)> {
+        self.by_addr.iter().map(|(&a, s)| (a, s))
+    }
 }

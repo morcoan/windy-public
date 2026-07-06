@@ -5,7 +5,10 @@ use std::path::Path;
 use anyhow::Result;
 use memmap2::Mmap;
 
+pub mod address_space;
 pub mod pe;
+
+pub use address_space::AddressSpace;
 
 /// A file-backed, read-only memory map.
 ///
