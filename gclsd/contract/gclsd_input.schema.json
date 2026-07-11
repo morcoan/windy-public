@@ -1,0 +1,279 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "GclsdInput",
+  "description": "Input to the GCLSD decompiler model.",
+  "type": "object",
+  "properties": {
+    "bitness": {
+      "type": "integer",
+      "format": "uint32",
+      "minimum": 0
+    },
+    "blocks": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/GclsdBlock"
+      }
+    },
+    "calling_conv": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "entry_va": {
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0
+    },
+    "image_base": {
+      "description": "PE ImageBase used to convert this absolute VA back to an RVA.",
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0
+    },
+    "instructions": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/GclsdInstr"
+      }
+    },
+    "name": {
+      "type": "string"
+    },
+    "params": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/Param"
+      }
+    },
+    "refine": {
+      "description": "Optional seed pseudo-code for the model to refine (e.g., Ghidra output).",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "return_type": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "xrefs_in": {
+      "type": "array",
+      "items": {
+        "type": "integer",
+        "format": "uint64",
+        "minimum": 0
+      }
+    },
+    "xrefs_out": {
+      "type": "array",
+      "items": {
+        "type": "integer",
+        "format": "uint64",
+        "minimum": 0
+      }
+    }
+  },
+  "required": [
+    "name",
+    "entry_va",
+    "image_base",
+    "bitness",
+    "params",
+    "instructions",
+    "blocks",
+    "xrefs_in",
+    "xrefs_out"
+  ],
+  "$defs": {
+    "GclsdBlock": {
+      "description": "One basic block node for the graph encoder.",
+      "type": "object",
+      "properties": {
+        "entry_va": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "instr_ips": {
+          "description": "Instruction IPs that belong to this block, in order.",
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "format": "uint64",
+            "minimum": 0
+          }
+        },
+        "successors": {
+          "description": "Outgoing edges with their original control-flow kind.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/GclsdEdge"
+          }
+        }
+      },
+      "required": [
+        "entry_va",
+        "instr_ips",
+        "successors"
+      ]
+    },
+    "GclsdEdge": {
+      "description": "A CFG edge. Target `0` means \"unknown\" (indirect branch/call/return).",
+      "type": "object",
+      "properties": {
+        "kind": {
+          "$ref": "#/$defs/GclsdEdgeKind"
+        },
+        "target": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "target",
+        "kind"
+      ]
+    },
+    "GclsdEdgeKind": {
+      "description": "Control-flow edge kinds, matching `analysis::functions::EdgeKind` but\nserialized as stable snake_case strings for the Python model.",
+      "type": "string",
+      "enum": [
+        "fallthrough",
+        "unconditional",
+        "conditional",
+        "call",
+        "tail_call",
+        "indirect",
+        "return"
+      ]
+    },
+    "GclsdInstr": {
+      "description": "One decoded instruction in the GCLSD input stream.",
+      "type": "object",
+      "properties": {
+        "bytes_hex": {
+          "type": "string"
+        },
+        "class": {
+          "type": "string"
+        },
+        "flow": {
+          "type": "string"
+        },
+        "ip": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "mem_refs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/MemRefExport"
+          }
+        },
+        "mnemonic": {
+          "type": "string"
+        },
+        "operands": {
+          "type": "string"
+        },
+        "operands_annotated": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "reads": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "writes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "ip",
+        "bytes_hex",
+        "mnemonic",
+        "operands",
+        "flow",
+        "class",
+        "reads",
+        "writes",
+        "mem_refs"
+      ]
+    },
+    "MemRefExport": {
+      "type": "object",
+      "properties": {
+        "access": {
+          "type": "string"
+        },
+        "base": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "displacement": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "index": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "scale": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "size": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "scale",
+        "displacement",
+        "size",
+        "access"
+      ]
+    },
+    "Param": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "reg": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "type": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "name"
+      ]
+    }
+  }
+}

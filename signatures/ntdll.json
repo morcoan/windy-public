@@ -1,0 +1,2680 @@
+[
+  {
+    "name": "NtCreateFile",
+    "dll": "ntdll",
+    "params": [
+      [
+        "FileHandle",
+        "PHANDLE"
+      ],
+      [
+        "DesiredAccess",
+        "ACCESS_MASK"
+      ],
+      [
+        "ObjectAttributes",
+        "POBJECT_ATTRIBUTES"
+      ],
+      [
+        "IoStatusBlock",
+        "PIO_STATUS_BLOCK"
+      ],
+      [
+        "AllocationSize",
+        "PLARGE_INTEGER"
+      ],
+      [
+        "FileAttributes",
+        "ULONG"
+      ],
+      [
+        "ShareAccess",
+        "ULONG"
+      ],
+      [
+        "CreateDisposition",
+        "ULONG"
+      ],
+      [
+        "CreateOptions",
+        "ULONG"
+      ],
+      [
+        "EaBuffer",
+        "PVOID"
+      ],
+      [
+        "EaLength",
+        "ULONG"
+      ]
+    ],
+    "ret": "NTSTATUS",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "NtOpenFile",
+    "dll": "ntdll",
+    "params": [
+      [
+        "FileHandle",
+        "PHANDLE"
+      ],
+      [
+        "DesiredAccess",
+        "ACCESS_MASK"
+      ],
+      [
+        "ObjectAttributes",
+        "POBJECT_ATTRIBUTES"
+      ],
+      [
+        "IoStatusBlock",
+        "PIO_STATUS_BLOCK"
+      ],
+      [
+        "ShareAccess",
+        "ULONG"
+      ],
+      [
+        "OpenOptions",
+        "ULONG"
+      ]
+    ],
+    "ret": "NTSTATUS",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "NtReadFile",
+    "dll": "ntdll",
+    "params": [
+      [
+        "FileHandle",
+        "HANDLE"
+      ],
+      [
+        "Event",
+        "HANDLE"
+      ],
+      [
+        "ApcRoutine",
+        "PVOID"
+      ],
+      [
+        "ApcContext",
+        "PVOID"
+      ],
+      [
+        "IoStatusBlock",
+        "PIO_STATUS_BLOCK"
+      ],
+      [
+        "Buffer",
+        "PVOID"
+      ],
+      [
+        "Length",
+        "ULONG"
+      ],
+      [
+        "ByteOffset",
+        "PLARGE_INTEGER"
+      ],
+      [
+        "Key",
+        "PULONG"
+      ]
+    ],
+    "ret": "NTSTATUS",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "NtWriteFile",
+    "dll": "ntdll",
+    "params": [
+      [
+        "FileHandle",
+        "HANDLE"
+      ],
+      [
+        "Event",
+        "HANDLE"
+      ],
+      [
+        "ApcRoutine",
+        "PVOID"
+      ],
+      [
+        "ApcContext",
+        "PVOID"
+      ],
+      [
+        "IoStatusBlock",
+        "PIO_STATUS_BLOCK"
+      ],
+      [
+        "Buffer",
+        "PVOID"
+      ],
+      [
+        "Length",
+        "ULONG"
+      ],
+      [
+        "ByteOffset",
+        "PLARGE_INTEGER"
+      ],
+      [
+        "Key",
+        "PULONG"
+      ]
+    ],
+    "ret": "NTSTATUS",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "NtClose",
+    "dll": "ntdll",
+    "params": [
+      [
+        "Handle",
+        "HANDLE"
+      ]
+    ],
+    "ret": "NTSTATUS",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "NtQueryInformationFile",
+    "dll": "ntdll",
+    "params": [
+      [
+        "FileHandle",
+        "HANDLE"
+      ],
+      [
+        "IoStatusBlock",
+        "PIO_STATUS_BLOCK"
+      ],
+      [
+        "FileInformation",
+        "PVOID"
+      ],
+      [
+        "Length",
+        "ULONG"
+      ],
+      [
+        "FileInformationClass",
+        "FILE_INFORMATION_CLASS"
+      ]
+    ],
+    "ret": "NTSTATUS",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "NtSetInformationFile",
+    "dll": "ntdll",
+    "params": [
+      [
+        "FileHandle",
+        "HANDLE"
+      ],
+      [
+        "IoStatusBlock",
+        "PIO_STATUS_BLOCK"
+      ],
+      [
+        "FileInformation",
+        "PVOID"
+      ],
+      [
+        "Length",
+        "ULONG"
+      ],
+      [
+        "FileInformationClass",
+        "FILE_INFORMATION_CLASS"
+      ]
+    ],
+    "ret": "NTSTATUS",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "NtCreateSection",
+    "dll": "ntdll",
+    "params": [
+      [
+        "SectionHandle",
+        "PHANDLE"
+      ],
+      [
+        "DesiredAccess",
+        "ACCESS_MASK"
+      ],
+      [
+        "ObjectAttributes",
+        "POBJECT_ATTRIBUTES"
+      ],
+      [
+        "MaximumSize",
+        "PLARGE_INTEGER"
+      ],
+      [
+        "SectionPageProtection",
+        "ULONG"
+      ],
+      [
+        "AllocationAttributes",
+        "ULONG"
+      ],
+      [
+        "FileHandle",
+        "HANDLE"
+      ]
+    ],
+    "ret": "NTSTATUS",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "NtMapViewOfSection",
+    "dll": "ntdll",
+    "params": [
+      [
+        "SectionHandle",
+        "HANDLE"
+      ],
+      [
+        "ProcessHandle",
+        "HANDLE"
+      ],
+      [
+        "BaseAddress",
+        "PVOID"
+      ],
+      [
+        "ZeroBits",
+        "ULONG_PTR"
+      ],
+      [
+        "CommitSize",
+        "SIZE_T"
+      ],
+      [
+        "SectionOffset",
+        "PLARGE_INTEGER"
+      ],
+      [
+        "ViewSize",
+        "PSIZE_T"
+      ],
+      [
+        "InheritDisposition",
+        "DWORD"
+      ],
+      [
+        "AllocationType",
+        "ULONG"
+      ],
+      [
+        "Win32Protect",
+        "ULONG"
+      ]
+    ],
+    "ret": "NTSTATUS",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "NtUnmapViewOfSection",
+    "dll": "ntdll",
+    "params": [
+      [
+        "ProcessHandle",
+        "HANDLE"
+      ],
+      [
+        "BaseAddress",
+        "PVOID"
+      ]
+    ],
+    "ret": "NTSTATUS",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "NtAllocateVirtualMemory",
+    "dll": "ntdll",
+    "params": [
+      [
+        "ProcessHandle",
+        "HANDLE"
+      ],
+      [
+        "BaseAddress",
+        "PVOID"
+      ],
+      [
+        "ZeroBits",
+        "ULONG_PTR"
+      ],
+      [
+        "RegionSize",
+        "PSIZE_T"
+      ],
+      [
+        "AllocationType",
+        "ULONG"
+      ],
+      [
+        "Protect",
+        "ULONG"
+      ]
+    ],
+    "ret": "NTSTATUS",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "NtFreeVirtualMemory",
+    "dll": "ntdll",
+    "params": [
+      [
+        "ProcessHandle",
+        "HANDLE"
+      ],
+      [
+        "BaseAddress",
+        "PVOID"
+      ],
+      [
+        "RegionSize",
+        "PSIZE_T"
+      ],
+      [
+        "FreeType",
+        "ULONG"
+      ]
+    ],
+    "ret": "NTSTATUS",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "NtProtectVirtualMemory",
+    "dll": "ntdll",
+    "params": [
+      [
+        "ProcessHandle",
+        "HANDLE"
+      ],
+      [
+        "BaseAddress",
+        "PVOID"
+      ],
+      [
+        "RegionSize",
+        "PSIZE_T"
+      ],
+      [
+        "NewProtect",
+        "ULONG"
+      ],
+      [
+        "OldProtect",
+        "PULONG"
+      ]
+    ],
+    "ret": "NTSTATUS",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "NtQueryVirtualMemory",
+    "dll": "ntdll",
+    "params": [
+      [
+        "ProcessHandle",
+        "HANDLE"
+      ],
+      [
+        "BaseAddress",
+        "PVOID"
+      ],
+      [
+        "MemoryInformationClass",
+        "DWORD"
+      ],
+      [
+        "MemoryInformation",
+        "PVOID"
+      ],
+      [
+        "MemoryInformationLength",
+        "SIZE_T"
+      ],
+      [
+        "ReturnLength",
+        "PSIZE_T"
+      ]
+    ],
+    "ret": "NTSTATUS",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "NtReadVirtualMemory",
+    "dll": "ntdll",
+    "params": [
+      [
+        "ProcessHandle",
+        "HANDLE"
+      ],
+      [
+        "BaseAddress",
+        "PVOID"
+      ],
+      [
+        "Buffer",
+        "PVOID"
+      ],
+      [
+        "BufferSize",
+        "SIZE_T"
+      ],
+      [
+        "NumberOfBytesRead",
+        "PSIZE_T"
+      ]
+    ],
+    "ret": "NTSTATUS",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "NtWriteVirtualMemory",
+    "dll": "ntdll",
+    "params": [
+      [
+        "ProcessHandle",
+        "HANDLE"
+      ],
+      [
+        "BaseAddress",
+        "PVOID"
+      ],
+      [
+        "Buffer",
+        "PVOID"
+      ],
+      [
+        "BufferSize",
+        "SIZE_T"
+      ],
+      [
+        "NumberOfBytesWritten",
+        "PSIZE_T"
+      ]
+    ],
+    "ret": "NTSTATUS",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "NtCreateThreadEx",
+    "dll": "ntdll",
+    "params": [
+      [
+        "ThreadHandle",
+        "PHANDLE"
+      ],
+      [
+        "DesiredAccess",
+        "ACCESS_MASK"
+      ],
+      [
+        "ObjectAttributes",
+        "POBJECT_ATTRIBUTES"
+      ],
+      [
+        "ProcessHandle",
+        "HANDLE"
+      ],
+      [
+        "StartRoutine",
+        "PVOID"
+      ],
+      [
+        "Argument",
+        "PVOID"
+      ],
+      [
+        "CreateFlags",
+        "ULONG"
+      ],
+      [
+        "ZeroBits",
+        "SIZE_T"
+      ],
+      [
+        "StackSize",
+        "SIZE_T"
+      ],
+      [
+        "MaximumStackSize",
+        "SIZE_T"
+      ],
+      [
+        "AttributeList",
+        "PVOID"
+      ]
+    ],
+    "ret": "NTSTATUS",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "NtOpenThread",
+    "dll": "ntdll",
+    "params": [
+      [
+        "ThreadHandle",
+        "PHANDLE"
+      ],
+      [
+        "DesiredAccess",
+        "ACCESS_MASK"
+      ],
+      [
+        "ObjectAttributes",
+        "POBJECT_ATTRIBUTES"
+      ],
+      [
+        "ClientId",
+        "PCLIENT_ID"
+      ]
+    ],
+    "ret": "NTSTATUS",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "NtTerminateThread",
+    "dll": "ntdll",
+    "params": [
+      [
+        "ThreadHandle",
+        "HANDLE"
+      ],
+      [
+        "ExitStatus",
+        "NTSTATUS"
+      ]
+    ],
+    "ret": "NTSTATUS",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "NtSuspendThread",
+    "dll": "ntdll",
+    "params": [
+      [
+        "ThreadHandle",
+        "HANDLE"
+      ],
+      [
+        "PreviousSuspendCount",
+        "PULONG"
+      ]
+    ],
+    "ret": "NTSTATUS",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "NtResumeThread",
+    "dll": "ntdll",
+    "params": [
+      [
+        "ThreadHandle",
+        "HANDLE"
+      ],
+      [
+        "PreviousSuspendCount",
+        "PULONG"
+      ]
+    ],
+    "ret": "NTSTATUS",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "NtGetContextThread",
+    "dll": "ntdll",
+    "params": [
+      [
+        "ThreadHandle",
+        "HANDLE"
+      ],
+      [
+        "ThreadContext",
+        "PCONTEXT"
+      ]
+    ],
+    "ret": "NTSTATUS",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "NtSetContextThread",
+    "dll": "ntdll",
+    "params": [
+      [
+        "ThreadHandle",
+        "HANDLE"
+      ],
+      [
+        "ThreadContext",
+        "PCONTEXT"
+      ]
+    ],
+    "ret": "NTSTATUS",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "NtQueryInformationThread",
+    "dll": "ntdll",
+    "params": [
+      [
+        "ThreadHandle",
+        "HANDLE"
+      ],
+      [
+        "ThreadInformationClass",
+        "THREADINFOCLASS"
+      ],
+      [
+        "ThreadInformation",
+        "PVOID"
+      ],
+      [
+        "ThreadInformationLength",
+        "ULONG"
+      ],
+      [
+        "ReturnLength",
+        "PULONG"
+      ]
+    ],
+    "ret": "NTSTATUS",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "NtSetInformationThread",
+    "dll": "ntdll",
+    "params": [
+      [
+        "ThreadHandle",
+        "HANDLE"
+      ],
+      [
+        "ThreadInformationClass",
+        "THREADINFOCLASS"
+      ],
+      [
+        "ThreadInformation",
+        "PVOID"
+      ],
+      [
+        "ThreadInformationLength",
+        "ULONG"
+      ]
+    ],
+    "ret": "NTSTATUS",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "NtOpenProcess",
+    "dll": "ntdll",
+    "params": [
+      [
+        "ProcessHandle",
+        "PHANDLE"
+      ],
+      [
+        "DesiredAccess",
+        "ACCESS_MASK"
+      ],
+      [
+        "ObjectAttributes",
+        "POBJECT_ATTRIBUTES"
+      ],
+      [
+        "ClientId",
+        "PCLIENT_ID"
+      ]
+    ],
+    "ret": "NTSTATUS",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "NtTerminateProcess",
+    "dll": "ntdll",
+    "params": [
+      [
+        "ProcessHandle",
+        "HANDLE"
+      ],
+      [
+        "ExitStatus",
+        "NTSTATUS"
+      ]
+    ],
+    "ret": "NTSTATUS",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "NtQueryInformationProcess",
+    "dll": "ntdll",
+    "params": [
+      [
+        "ProcessHandle",
+        "HANDLE"
+      ],
+      [
+        "ProcessInformationClass",
+        "PROCESSINFOCLASS"
+      ],
+      [
+        "ProcessInformation",
+        "PVOID"
+      ],
+      [
+        "ProcessInformationLength",
+        "ULONG"
+      ],
+      [
+        "ReturnLength",
+        "PULONG"
+      ]
+    ],
+    "ret": "NTSTATUS",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "NtSetInformationProcess",
+    "dll": "ntdll",
+    "params": [
+      [
+        "ProcessHandle",
+        "HANDLE"
+      ],
+      [
+        "ProcessInformationClass",
+        "PROCESSINFOCLASS"
+      ],
+      [
+        "ProcessInformation",
+        "PVOID"
+      ],
+      [
+        "ProcessInformationLength",
+        "ULONG"
+      ]
+    ],
+    "ret": "NTSTATUS",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "NtDelayExecution",
+    "dll": "ntdll",
+    "params": [
+      [
+        "Alertable",
+        "BOOLEAN"
+      ],
+      [
+        "DelayInterval",
+        "PLARGE_INTEGER"
+      ]
+    ],
+    "ret": "NTSTATUS",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "NtWaitForSingleObject",
+    "dll": "ntdll",
+    "params": [
+      [
+        "Handle",
+        "HANDLE"
+      ],
+      [
+        "Alertable",
+        "BOOLEAN"
+      ],
+      [
+        "Timeout",
+        "PLARGE_INTEGER"
+      ]
+    ],
+    "ret": "NTSTATUS",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "NtWaitForMultipleObjects",
+    "dll": "ntdll",
+    "params": [
+      [
+        "Count",
+        "ULONG"
+      ],
+      [
+        "Handles",
+        "PHANDLE"
+      ],
+      [
+        "WaitType",
+        "DWORD"
+      ],
+      [
+        "Alertable",
+        "BOOLEAN"
+      ],
+      [
+        "Timeout",
+        "PLARGE_INTEGER"
+      ]
+    ],
+    "ret": "NTSTATUS",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "NtCreateEvent",
+    "dll": "ntdll",
+    "params": [
+      [
+        "EventHandle",
+        "PHANDLE"
+      ],
+      [
+        "DesiredAccess",
+        "ACCESS_MASK"
+      ],
+      [
+        "ObjectAttributes",
+        "POBJECT_ATTRIBUTES"
+      ],
+      [
+        "EventType",
+        "DWORD"
+      ],
+      [
+        "InitialState",
+        "BOOLEAN"
+      ]
+    ],
+    "ret": "NTSTATUS",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "NtSetEvent",
+    "dll": "ntdll",
+    "params": [
+      [
+        "EventHandle",
+        "HANDLE"
+      ],
+      [
+        "PreviousState",
+        "PLONG"
+      ]
+    ],
+    "ret": "NTSTATUS",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "NtResetEvent",
+    "dll": "ntdll",
+    "params": [
+      [
+        "EventHandle",
+        "HANDLE"
+      ],
+      [
+        "PreviousState",
+        "PLONG"
+      ]
+    ],
+    "ret": "NTSTATUS",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "NtCreateMutant",
+    "dll": "ntdll",
+    "params": [
+      [
+        "MutantHandle",
+        "PHANDLE"
+      ],
+      [
+        "DesiredAccess",
+        "ACCESS_MASK"
+      ],
+      [
+        "ObjectAttributes",
+        "POBJECT_ATTRIBUTES"
+      ],
+      [
+        "InitialOwner",
+        "BOOLEAN"
+      ]
+    ],
+    "ret": "NTSTATUS",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "NtReleaseMutant",
+    "dll": "ntdll",
+    "params": [
+      [
+        "MutantHandle",
+        "HANDLE"
+      ],
+      [
+        "PreviousCount",
+        "PLONG"
+      ]
+    ],
+    "ret": "NTSTATUS",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "NtQuerySystemInformation",
+    "dll": "ntdll",
+    "params": [
+      [
+        "SystemInformationClass",
+        "SYSTEM_INFORMATION_CLASS"
+      ],
+      [
+        "SystemInformation",
+        "PVOID"
+      ],
+      [
+        "SystemInformationLength",
+        "ULONG"
+      ],
+      [
+        "ReturnLength",
+        "PULONG"
+      ]
+    ],
+    "ret": "NTSTATUS",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "NtQueryObject",
+    "dll": "ntdll",
+    "params": [
+      [
+        "Handle",
+        "HANDLE"
+      ],
+      [
+        "ObjectInformationClass",
+        "OBJECT_INFORMATION_CLASS"
+      ],
+      [
+        "ObjectInformation",
+        "PVOID"
+      ],
+      [
+        "ObjectInformationLength",
+        "ULONG"
+      ],
+      [
+        "ReturnLength",
+        "PULONG"
+      ]
+    ],
+    "ret": "NTSTATUS",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "NtDuplicateObject",
+    "dll": "ntdll",
+    "params": [
+      [
+        "SourceProcessHandle",
+        "HANDLE"
+      ],
+      [
+        "SourceHandle",
+        "HANDLE"
+      ],
+      [
+        "TargetProcessHandle",
+        "HANDLE"
+      ],
+      [
+        "TargetHandle",
+        "PHANDLE"
+      ],
+      [
+        "DesiredAccess",
+        "ACCESS_MASK"
+      ],
+      [
+        "HandleAttributes",
+        "ULONG"
+      ],
+      [
+        "Options",
+        "ULONG"
+      ]
+    ],
+    "ret": "NTSTATUS",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "NtDeviceIoControlFile",
+    "dll": "ntdll",
+    "params": [
+      [
+        "FileHandle",
+        "HANDLE"
+      ],
+      [
+        "Event",
+        "HANDLE"
+      ],
+      [
+        "ApcRoutine",
+        "PVOID"
+      ],
+      [
+        "ApcContext",
+        "PVOID"
+      ],
+      [
+        "IoStatusBlock",
+        "PIO_STATUS_BLOCK"
+      ],
+      [
+        "IoControlCode",
+        "ULONG"
+      ],
+      [
+        "InputBuffer",
+        "PVOID"
+      ],
+      [
+        "InputBufferLength",
+        "ULONG"
+      ],
+      [
+        "OutputBuffer",
+        "PVOID"
+      ],
+      [
+        "OutputBufferLength",
+        "ULONG"
+      ]
+    ],
+    "ret": "NTSTATUS",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "NtCreateKey",
+    "dll": "ntdll",
+    "params": [
+      [
+        "KeyHandle",
+        "PHANDLE"
+      ],
+      [
+        "DesiredAccess",
+        "ACCESS_MASK"
+      ],
+      [
+        "ObjectAttributes",
+        "POBJECT_ATTRIBUTES"
+      ],
+      [
+        "TitleIndex",
+        "ULONG"
+      ],
+      [
+        "Class",
+        "PUNICODE_STRING"
+      ],
+      [
+        "CreateOptions",
+        "ULONG"
+      ],
+      [
+        "Disposition",
+        "PULONG"
+      ]
+    ],
+    "ret": "NTSTATUS",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "NtOpenKey",
+    "dll": "ntdll",
+    "params": [
+      [
+        "KeyHandle",
+        "PHANDLE"
+      ],
+      [
+        "DesiredAccess",
+        "ACCESS_MASK"
+      ],
+      [
+        "ObjectAttributes",
+        "POBJECT_ATTRIBUTES"
+      ]
+    ],
+    "ret": "NTSTATUS",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "NtQueryValueKey",
+    "dll": "ntdll",
+    "params": [
+      [
+        "KeyHandle",
+        "HANDLE"
+      ],
+      [
+        "ValueName",
+        "PUNICODE_STRING"
+      ],
+      [
+        "KeyValueInformationClass",
+        "KEY_VALUE_INFORMATION_CLASS"
+      ],
+      [
+        "KeyValueInformation",
+        "PVOID"
+      ],
+      [
+        "Length",
+        "ULONG"
+      ],
+      [
+        "ResultLength",
+        "PULONG"
+      ]
+    ],
+    "ret": "NTSTATUS",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "NtSetValueKey",
+    "dll": "ntdll",
+    "params": [
+      [
+        "KeyHandle",
+        "HANDLE"
+      ],
+      [
+        "ValueName",
+        "PUNICODE_STRING"
+      ],
+      [
+        "TitleIndex",
+        "ULONG"
+      ],
+      [
+        "Type",
+        "ULONG"
+      ],
+      [
+        "Data",
+        "PVOID"
+      ],
+      [
+        "DataSize",
+        "ULONG"
+      ]
+    ],
+    "ret": "NTSTATUS",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "NtDeleteKey",
+    "dll": "ntdll",
+    "params": [
+      [
+        "KeyHandle",
+        "HANDLE"
+      ]
+    ],
+    "ret": "NTSTATUS",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "NtDeleteValueKey",
+    "dll": "ntdll",
+    "params": [
+      [
+        "KeyHandle",
+        "HANDLE"
+      ],
+      [
+        "ValueName",
+        "PUNICODE_STRING"
+      ]
+    ],
+    "ret": "NTSTATUS",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "NtLoadDriver",
+    "dll": "ntdll",
+    "params": [
+      [
+        "DriverServiceName",
+        "PUNICODE_STRING"
+      ]
+    ],
+    "ret": "NTSTATUS",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "NtUnloadDriver",
+    "dll": "ntdll",
+    "params": [
+      [
+        "DriverServiceName",
+        "PUNICODE_STRING"
+      ]
+    ],
+    "ret": "NTSTATUS",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "NtRaiseException",
+    "dll": "ntdll",
+    "params": [
+      [
+        "ExceptionRecord",
+        "PEXCEPTION_RECORD"
+      ],
+      [
+        "ContextRecord",
+        "PCONTEXT"
+      ],
+      [
+        "FirstChance",
+        "BOOLEAN"
+      ]
+    ],
+    "ret": "NTSTATUS",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "NtContinue",
+    "dll": "ntdll",
+    "params": [
+      [
+        "ContextRecord",
+        "PCONTEXT"
+      ],
+      [
+        "TestAlert",
+        "BOOLEAN"
+      ]
+    ],
+    "ret": "NTSTATUS",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "RtlInitUnicodeString",
+    "dll": "ntdll",
+    "params": [
+      [
+        "DestinationString",
+        "PUNICODE_STRING"
+      ],
+      [
+        "SourceString",
+        "PCWSTR"
+      ]
+    ],
+    "ret": "void",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "RtlInitAnsiString",
+    "dll": "ntdll",
+    "params": [
+      [
+        "DestinationString",
+        "PANSI_STRING"
+      ],
+      [
+        "SourceString",
+        "PCSTR"
+      ]
+    ],
+    "ret": "void",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "RtlFreeUnicodeString",
+    "dll": "ntdll",
+    "params": [
+      [
+        "UnicodeString",
+        "PUNICODE_STRING"
+      ]
+    ],
+    "ret": "void",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "RtlUnicodeStringToAnsiString",
+    "dll": "ntdll",
+    "params": [
+      [
+        "DestinationString",
+        "PANSI_STRING"
+      ],
+      [
+        "SourceString",
+        "PCUNICODE_STRING"
+      ],
+      [
+        "AllocateDestinationString",
+        "BOOLEAN"
+      ]
+    ],
+    "ret": "NTSTATUS",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "RtlAnsiStringToUnicodeString",
+    "dll": "ntdll",
+    "params": [
+      [
+        "DestinationString",
+        "PUNICODE_STRING"
+      ],
+      [
+        "SourceString",
+        "PCANSI_STRING"
+      ],
+      [
+        "AllocateDestinationString",
+        "BOOLEAN"
+      ]
+    ],
+    "ret": "NTSTATUS",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "RtlCompareUnicodeString",
+    "dll": "ntdll",
+    "params": [
+      [
+        "String1",
+        "PCUNICODE_STRING"
+      ],
+      [
+        "String2",
+        "PCUNICODE_STRING"
+      ],
+      [
+        "CaseInSensitive",
+        "BOOLEAN"
+      ]
+    ],
+    "ret": "LONG",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "RtlEqualUnicodeString",
+    "dll": "ntdll",
+    "params": [
+      [
+        "String1",
+        "PCUNICODE_STRING"
+      ],
+      [
+        "String2",
+        "PCUNICODE_STRING"
+      ],
+      [
+        "CaseInSensitive",
+        "BOOLEAN"
+      ]
+    ],
+    "ret": "BOOLEAN",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "RtlAllocateHeap",
+    "dll": "ntdll",
+    "params": [
+      [
+        "HeapHandle",
+        "PVOID"
+      ],
+      [
+        "Flags",
+        "ULONG"
+      ],
+      [
+        "Size",
+        "SIZE_T"
+      ]
+    ],
+    "ret": "PVOID",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "RtlFreeHeap",
+    "dll": "ntdll",
+    "params": [
+      [
+        "HeapHandle",
+        "PVOID"
+      ],
+      [
+        "Flags",
+        "ULONG"
+      ],
+      [
+        "BaseAddress",
+        "PVOID"
+      ]
+    ],
+    "ret": "BOOLEAN",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "RtlReAllocateHeap",
+    "dll": "ntdll",
+    "params": [
+      [
+        "HeapHandle",
+        "PVOID"
+      ],
+      [
+        "Flags",
+        "ULONG"
+      ],
+      [
+        "BaseAddress",
+        "PVOID"
+      ],
+      [
+        "Size",
+        "SIZE_T"
+      ]
+    ],
+    "ret": "PVOID",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "RtlCreateHeap",
+    "dll": "ntdll",
+    "params": [
+      [
+        "Flags",
+        "ULONG"
+      ],
+      [
+        "HeapBase",
+        "PVOID"
+      ],
+      [
+        "ReserveSize",
+        "SIZE_T"
+      ],
+      [
+        "CommitSize",
+        "SIZE_T"
+      ],
+      [
+        "Lock",
+        "PVOID"
+      ],
+      [
+        "Parameters",
+        "PVOID"
+      ]
+    ],
+    "ret": "PVOID",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "RtlDestroyHeap",
+    "dll": "ntdll",
+    "params": [
+      [
+        "HeapHandle",
+        "PVOID"
+      ]
+    ],
+    "ret": "PVOID",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "RtlGetVersion",
+    "dll": "ntdll",
+    "params": [
+      [
+        "lpVersionInformation",
+        "PRTL_OSVERSIONINFOW"
+      ]
+    ],
+    "ret": "NTSTATUS",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "RtlNtStatusToDosError",
+    "dll": "ntdll",
+    "params": [
+      [
+        "Status",
+        "NTSTATUS"
+      ]
+    ],
+    "ret": "ULONG",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "RtlGetLastWin32Error",
+    "dll": "ntdll",
+    "params": [],
+    "ret": "ULONG",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "RtlSetLastWin32Error",
+    "dll": "ntdll",
+    "params": [
+      [
+        "dwErrCode",
+        "LONG"
+      ]
+    ],
+    "ret": "void",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "LdrLoadDll",
+    "dll": "ntdll",
+    "params": [
+      [
+        "PathToFile",
+        "PWSTR"
+      ],
+      [
+        "Flags",
+        "PULONG"
+      ],
+      [
+        "ModuleFileName",
+        "PUNICODE_STRING"
+      ],
+      [
+        "ModuleHandle",
+        "PHANDLE"
+      ]
+    ],
+    "ret": "NTSTATUS",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "LdrUnloadDll",
+    "dll": "ntdll",
+    "params": [
+      [
+        "ModuleHandle",
+        "HANDLE"
+      ]
+    ],
+    "ret": "NTSTATUS",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "LdrGetProcedureAddress",
+    "dll": "ntdll",
+    "params": [
+      [
+        "ModuleHandle",
+        "HANDLE"
+      ],
+      [
+        "FunctionName",
+        "PANSI_STRING"
+      ],
+      [
+        "Ordinal",
+        "ULONG"
+      ],
+      [
+        "FunctionAddress",
+        "PVOID"
+      ]
+    ],
+    "ret": "NTSTATUS",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "LdrGetDllHandle",
+    "dll": "ntdll",
+    "params": [
+      [
+        "PathToFile",
+        "PWSTR"
+      ],
+      [
+        "Unused",
+        "PULONG"
+      ],
+      [
+        "ModuleFileName",
+        "PUNICODE_STRING"
+      ],
+      [
+        "DllHandle",
+        "PHANDLE"
+      ]
+    ],
+    "ret": "NTSTATUS",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "NtQueryInformationToken",
+    "dll": "ntdll",
+    "params": [
+      [
+        "TokenHandle",
+        "HANDLE"
+      ],
+      [
+        "TokenInformationClass",
+        "TOKEN_INFORMATION_CLASS"
+      ],
+      [
+        "TokenInformation",
+        "PVOID"
+      ],
+      [
+        "TokenInformationLength",
+        "ULONG"
+      ],
+      [
+        "ReturnLength",
+        "PULONG"
+      ]
+    ],
+    "ret": "NTSTATUS",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "NtOpenProcessToken",
+    "dll": "ntdll",
+    "params": [
+      [
+        "ProcessHandle",
+        "HANDLE"
+      ],
+      [
+        "DesiredAccess",
+        "ACCESS_MASK"
+      ],
+      [
+        "TokenHandle",
+        "PHANDLE"
+      ]
+    ],
+    "ret": "NTSTATUS",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "NtOpenThreadToken",
+    "dll": "ntdll",
+    "params": [
+      [
+        "ThreadHandle",
+        "HANDLE"
+      ],
+      [
+        "DesiredAccess",
+        "ACCESS_MASK"
+      ],
+      [
+        "OpenAsSelf",
+        "BOOLEAN"
+      ],
+      [
+        "TokenHandle",
+        "PHANDLE"
+      ]
+    ],
+    "ret": "NTSTATUS",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "NtAdjustPrivilegesToken",
+    "dll": "ntdll",
+    "params": [
+      [
+        "TokenHandle",
+        "HANDLE"
+      ],
+      [
+        "DisableAllPrivileges",
+        "BOOLEAN"
+      ],
+      [
+        "NewState",
+        "PTOKEN_PRIVILEGES"
+      ],
+      [
+        "BufferLength",
+        "ULONG"
+      ],
+      [
+        "PreviousState",
+        "PTOKEN_PRIVILEGES"
+      ],
+      [
+        "ReturnLength",
+        "PULONG"
+      ]
+    ],
+    "ret": "NTSTATUS",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "NtQuerySystemTime",
+    "dll": "ntdll",
+    "params": [
+      [
+        "SystemTime",
+        "PLARGE_INTEGER"
+      ]
+    ],
+    "ret": "NTSTATUS",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "NtQueryPerformanceCounter",
+    "dll": "ntdll",
+    "params": [
+      [
+        "PerformanceCounter",
+        "PLARGE_INTEGER"
+      ],
+      [
+        "PerformanceFrequency",
+        "PLARGE_INTEGER"
+      ]
+    ],
+    "ret": "NTSTATUS",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "NtYieldExecution",
+    "dll": "ntdll",
+    "params": [],
+    "ret": "NTSTATUS",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "NtFlushInstructionCache",
+    "dll": "ntdll",
+    "params": [
+      [
+        "ProcessHandle",
+        "HANDLE"
+      ],
+      [
+        "BaseAddress",
+        "PVOID"
+      ],
+      [
+        "Length",
+        "SIZE_T"
+      ]
+    ],
+    "ret": "NTSTATUS",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "NtCreateUserProcess",
+    "dll": "ntdll",
+    "params": [
+      [
+        "ProcessHandle",
+        "PHANDLE"
+      ],
+      [
+        "ThreadHandle",
+        "PHANDLE"
+      ],
+      [
+        "ProcessDesiredAccess",
+        "ACCESS_MASK"
+      ],
+      [
+        "ThreadDesiredAccess",
+        "ACCESS_MASK"
+      ],
+      [
+        "ProcessObjectAttributes",
+        "POBJECT_ATTRIBUTES"
+      ],
+      [
+        "ThreadObjectAttributes",
+        "POBJECT_ATTRIBUTES"
+      ],
+      [
+        "ProcessFlags",
+        "ULONG"
+      ],
+      [
+        "ThreadFlags",
+        "ULONG"
+      ],
+      [
+        "ProcessParameters",
+        "PVOID"
+      ],
+      [
+        "CreateInfo",
+        "PVOID"
+      ],
+      [
+        "AttributeList",
+        "PVOID"
+      ]
+    ],
+    "ret": "NTSTATUS",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "RtlImageNtHeader",
+    "dll": "ntdll",
+    "params": [
+      [
+        "Base",
+        "PVOID"
+      ]
+    ],
+    "ret": "PIMAGE_NT_HEADERS",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "RtlImageDirectoryEntryToData",
+    "dll": "ntdll",
+    "params": [
+      [
+        "Base",
+        "PVOID"
+      ],
+      [
+        "MappedAsImage",
+        "BOOLEAN"
+      ],
+      [
+        "DirectoryEntry",
+        "USHORT"
+      ],
+      [
+        "Size",
+        "PULONG"
+      ]
+    ],
+    "ret": "PVOID",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "RtlPcToFileHeader",
+    "dll": "ntdll",
+    "params": [
+      [
+        "PcValue",
+        "PVOID"
+      ],
+      [
+        "BaseOfImage",
+        "PVOID"
+      ]
+    ],
+    "ret": "PVOID",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "RtlLookupFunctionEntry",
+    "dll": "ntdll",
+    "params": [
+      [
+        "ControlPc",
+        "ULONG_PTR"
+      ],
+      [
+        "ImageBase",
+        "PULONG_PTR"
+      ],
+      [
+        "HistoryTable",
+        "PVOID"
+      ]
+    ],
+    "ret": "PRUNTIME_FUNCTION",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "RtlCaptureContext",
+    "dll": "ntdll",
+    "params": [
+      [
+        "ContextRecord",
+        "PCONTEXT"
+      ]
+    ],
+    "ret": "void",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "RtlCaptureStackBackTrace",
+    "dll": "ntdll",
+    "params": [
+      [
+        "FramesToSkip",
+        "ULONG"
+      ],
+      [
+        "FramesToCapture",
+        "ULONG"
+      ],
+      [
+        "BackTrace",
+        "PVOID"
+      ],
+      [
+        "BackTraceHash",
+        "PULONG"
+      ]
+    ],
+    "ret": "USHORT",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "RtlInitializeCriticalSection",
+    "dll": "ntdll",
+    "params": [
+      [
+        "CriticalSection",
+        "PRTL_CRITICAL_SECTION"
+      ]
+    ],
+    "ret": "NTSTATUS",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "RtlEnterCriticalSection",
+    "dll": "ntdll",
+    "params": [
+      [
+        "CriticalSection",
+        "PRTL_CRITICAL_SECTION"
+      ]
+    ],
+    "ret": "NTSTATUS",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "RtlLeaveCriticalSection",
+    "dll": "ntdll",
+    "params": [
+      [
+        "CriticalSection",
+        "PRTL_CRITICAL_SECTION"
+      ]
+    ],
+    "ret": "NTSTATUS",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "RtlDeleteCriticalSection",
+    "dll": "ntdll",
+    "params": [
+      [
+        "CriticalSection",
+        "PRTL_CRITICAL_SECTION"
+      ]
+    ],
+    "ret": "NTSTATUS",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "NtQueryDirectoryFile",
+    "dll": "ntdll",
+    "params": [
+      [
+        "FileHandle",
+        "HANDLE"
+      ],
+      [
+        "Event",
+        "HANDLE"
+      ],
+      [
+        "ApcRoutine",
+        "PVOID"
+      ],
+      [
+        "ApcContext",
+        "PVOID"
+      ],
+      [
+        "IoStatusBlock",
+        "PIO_STATUS_BLOCK"
+      ],
+      [
+        "FileInformation",
+        "PVOID"
+      ],
+      [
+        "Length",
+        "ULONG"
+      ],
+      [
+        "FileInformationClass",
+        "FILE_INFORMATION_CLASS"
+      ],
+      [
+        "ReturnSingleEntry",
+        "BOOLEAN"
+      ],
+      [
+        "FileName",
+        "PUNICODE_STRING"
+      ],
+      [
+        "RestartScan",
+        "BOOLEAN"
+      ]
+    ],
+    "ret": "NTSTATUS",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "NtFsControlFile",
+    "dll": "ntdll",
+    "params": [
+      [
+        "FileHandle",
+        "HANDLE"
+      ],
+      [
+        "Event",
+        "HANDLE"
+      ],
+      [
+        "ApcRoutine",
+        "PVOID"
+      ],
+      [
+        "ApcContext",
+        "PVOID"
+      ],
+      [
+        "IoStatusBlock",
+        "PIO_STATUS_BLOCK"
+      ],
+      [
+        "FsControlCode",
+        "ULONG"
+      ],
+      [
+        "InputBuffer",
+        "PVOID"
+      ],
+      [
+        "InputBufferLength",
+        "ULONG"
+      ],
+      [
+        "OutputBuffer",
+        "PVOID"
+      ],
+      [
+        "OutputBufferLength",
+        "ULONG"
+      ]
+    ],
+    "ret": "NTSTATUS",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "NtEnumerateKey",
+    "dll": "ntdll",
+    "params": [
+      [
+        "KeyHandle",
+        "HANDLE"
+      ],
+      [
+        "Index",
+        "ULONG"
+      ],
+      [
+        "KeyInformationClass",
+        "KEY_INFORMATION_CLASS"
+      ],
+      [
+        "KeyInformation",
+        "PVOID"
+      ],
+      [
+        "Length",
+        "ULONG"
+      ],
+      [
+        "ResultLength",
+        "PULONG"
+      ]
+    ],
+    "ret": "NTSTATUS",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "NtEnumerateValueKey",
+    "dll": "ntdll",
+    "params": [
+      [
+        "KeyHandle",
+        "HANDLE"
+      ],
+      [
+        "Index",
+        "ULONG"
+      ],
+      [
+        "KeyValueInformationClass",
+        "KEY_VALUE_INFORMATION_CLASS"
+      ],
+      [
+        "KeyValueInformation",
+        "PVOID"
+      ],
+      [
+        "Length",
+        "ULONG"
+      ],
+      [
+        "ResultLength",
+        "PULONG"
+      ]
+    ],
+    "ret": "NTSTATUS",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "NtCreateProcessEx",
+    "dll": "ntdll",
+    "params": [
+      [
+        "ProcessHandle",
+        "PHANDLE"
+      ],
+      [
+        "DesiredAccess",
+        "ACCESS_MASK"
+      ],
+      [
+        "ObjectAttributes",
+        "POBJECT_ATTRIBUTES"
+      ],
+      [
+        "ParentProcess",
+        "HANDLE"
+      ],
+      [
+        "Flags",
+        "ULONG"
+      ],
+      [
+        "SectionHandle",
+        "HANDLE"
+      ],
+      [
+        "DebugPort",
+        "HANDLE"
+      ],
+      [
+        "ExceptionPort",
+        "HANDLE"
+      ],
+      [
+        "JobMemberLevel",
+        "ULONG"
+      ]
+    ],
+    "ret": "NTSTATUS",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "NtLockVirtualMemory",
+    "dll": "ntdll",
+    "params": [
+      [
+        "ProcessHandle",
+        "HANDLE"
+      ],
+      [
+        "BaseAddress",
+        "PVOID"
+      ],
+      [
+        "RegionSize",
+        "PSIZE_T"
+      ],
+      [
+        "MapType",
+        "ULONG"
+      ]
+    ],
+    "ret": "NTSTATUS",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "NtUnlockVirtualMemory",
+    "dll": "ntdll",
+    "params": [
+      [
+        "ProcessHandle",
+        "HANDLE"
+      ],
+      [
+        "BaseAddress",
+        "PVOID"
+      ],
+      [
+        "RegionSize",
+        "PSIZE_T"
+      ],
+      [
+        "MapType",
+        "ULONG"
+      ]
+    ],
+    "ret": "NTSTATUS",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "NtFlushVirtualMemory",
+    "dll": "ntdll",
+    "params": [
+      [
+        "ProcessHandle",
+        "HANDLE"
+      ],
+      [
+        "BaseAddress",
+        "PVOID"
+      ],
+      [
+        "RegionSize",
+        "PSIZE_T"
+      ],
+      [
+        "IoStatus",
+        "PIO_STATUS_BLOCK"
+      ]
+    ],
+    "ret": "NTSTATUS",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "RtlAddFunctionTable",
+    "dll": "ntdll",
+    "params": [
+      [
+        "FunctionTable",
+        "PRUNTIME_FUNCTION"
+      ],
+      [
+        "EntryCount",
+        "ULONG"
+      ],
+      [
+        "BaseAddress",
+        "ULONG_PTR"
+      ]
+    ],
+    "ret": "BOOLEAN",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "RtlDeleteFunctionTable",
+    "dll": "ntdll",
+    "params": [
+      [
+        "FunctionTable",
+        "PRUNTIME_FUNCTION"
+      ]
+    ],
+    "ret": "BOOLEAN",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "ZwCreateFile",
+    "dll": "ntdll",
+    "params": [
+      [
+        "FileHandle",
+        "PHANDLE"
+      ],
+      [
+        "DesiredAccess",
+        "ACCESS_MASK"
+      ],
+      [
+        "ObjectAttributes",
+        "POBJECT_ATTRIBUTES"
+      ],
+      [
+        "IoStatusBlock",
+        "PIO_STATUS_BLOCK"
+      ],
+      [
+        "AllocationSize",
+        "PLARGE_INTEGER"
+      ],
+      [
+        "FileAttributes",
+        "ULONG"
+      ],
+      [
+        "ShareAccess",
+        "ULONG"
+      ],
+      [
+        "CreateDisposition",
+        "ULONG"
+      ],
+      [
+        "CreateOptions",
+        "ULONG"
+      ],
+      [
+        "EaBuffer",
+        "PVOID"
+      ],
+      [
+        "EaLength",
+        "ULONG"
+      ]
+    ],
+    "ret": "NTSTATUS",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "ZwOpenFile",
+    "dll": "ntdll",
+    "params": [
+      [
+        "FileHandle",
+        "PHANDLE"
+      ],
+      [
+        "DesiredAccess",
+        "ACCESS_MASK"
+      ],
+      [
+        "ObjectAttributes",
+        "POBJECT_ATTRIBUTES"
+      ],
+      [
+        "IoStatusBlock",
+        "PIO_STATUS_BLOCK"
+      ],
+      [
+        "ShareAccess",
+        "ULONG"
+      ],
+      [
+        "OpenOptions",
+        "ULONG"
+      ]
+    ],
+    "ret": "NTSTATUS",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "ZwClose",
+    "dll": "ntdll",
+    "params": [
+      [
+        "Handle",
+        "HANDLE"
+      ]
+    ],
+    "ret": "NTSTATUS",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "ZwReadFile",
+    "dll": "ntdll",
+    "params": [
+      [
+        "FileHandle",
+        "HANDLE"
+      ],
+      [
+        "Event",
+        "HANDLE"
+      ],
+      [
+        "ApcRoutine",
+        "PVOID"
+      ],
+      [
+        "ApcContext",
+        "PVOID"
+      ],
+      [
+        "IoStatusBlock",
+        "PIO_STATUS_BLOCK"
+      ],
+      [
+        "Buffer",
+        "PVOID"
+      ],
+      [
+        "Length",
+        "ULONG"
+      ],
+      [
+        "ByteOffset",
+        "PLARGE_INTEGER"
+      ],
+      [
+        "Key",
+        "PULONG"
+      ]
+    ],
+    "ret": "NTSTATUS",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "ZwWriteFile",
+    "dll": "ntdll",
+    "params": [
+      [
+        "FileHandle",
+        "HANDLE"
+      ],
+      [
+        "Event",
+        "HANDLE"
+      ],
+      [
+        "ApcRoutine",
+        "PVOID"
+      ],
+      [
+        "ApcContext",
+        "PVOID"
+      ],
+      [
+        "IoStatusBlock",
+        "PIO_STATUS_BLOCK"
+      ],
+      [
+        "Buffer",
+        "PVOID"
+      ],
+      [
+        "Length",
+        "ULONG"
+      ],
+      [
+        "ByteOffset",
+        "PLARGE_INTEGER"
+      ],
+      [
+        "Key",
+        "PULONG"
+      ]
+    ],
+    "ret": "NTSTATUS",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "ZwAllocateVirtualMemory",
+    "dll": "ntdll",
+    "params": [
+      [
+        "ProcessHandle",
+        "HANDLE"
+      ],
+      [
+        "BaseAddress",
+        "PVOID"
+      ],
+      [
+        "ZeroBits",
+        "ULONG_PTR"
+      ],
+      [
+        "RegionSize",
+        "PSIZE_T"
+      ],
+      [
+        "AllocationType",
+        "ULONG"
+      ],
+      [
+        "Protect",
+        "ULONG"
+      ]
+    ],
+    "ret": "NTSTATUS",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "ZwFreeVirtualMemory",
+    "dll": "ntdll",
+    "params": [
+      [
+        "ProcessHandle",
+        "HANDLE"
+      ],
+      [
+        "BaseAddress",
+        "PVOID"
+      ],
+      [
+        "RegionSize",
+        "PSIZE_T"
+      ],
+      [
+        "FreeType",
+        "ULONG"
+      ]
+    ],
+    "ret": "NTSTATUS",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "ZwProtectVirtualMemory",
+    "dll": "ntdll",
+    "params": [
+      [
+        "ProcessHandle",
+        "HANDLE"
+      ],
+      [
+        "BaseAddress",
+        "PVOID"
+      ],
+      [
+        "RegionSize",
+        "PSIZE_T"
+      ],
+      [
+        "NewProtect",
+        "ULONG"
+      ],
+      [
+        "OldProtect",
+        "PULONG"
+      ]
+    ],
+    "ret": "NTSTATUS",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "ZwQueryInformationProcess",
+    "dll": "ntdll",
+    "params": [
+      [
+        "ProcessHandle",
+        "HANDLE"
+      ],
+      [
+        "ProcessInformationClass",
+        "PROCESSINFOCLASS"
+      ],
+      [
+        "ProcessInformation",
+        "PVOID"
+      ],
+      [
+        "ProcessInformationLength",
+        "ULONG"
+      ],
+      [
+        "ReturnLength",
+        "PULONG"
+      ]
+    ],
+    "ret": "NTSTATUS",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "ZwOpenProcess",
+    "dll": "ntdll",
+    "params": [
+      [
+        "ProcessHandle",
+        "PHANDLE"
+      ],
+      [
+        "DesiredAccess",
+        "ACCESS_MASK"
+      ],
+      [
+        "ObjectAttributes",
+        "POBJECT_ATTRIBUTES"
+      ],
+      [
+        "ClientId",
+        "PCLIENT_ID"
+      ]
+    ],
+    "ret": "NTSTATUS",
+    "calling_conv": "stdcall"
+  }
+]

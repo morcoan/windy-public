@@ -1,0 +1,1946 @@
+[
+  {
+    "name": "CreateFileW",
+    "dll": "kernel32",
+    "params": [
+      [
+        "lpFileName",
+        "PCWSTR"
+      ],
+      [
+        "dwDesiredAccess",
+        "DWORD"
+      ],
+      [
+        "dwShareMode",
+        "DWORD"
+      ],
+      [
+        "lpSecurityAttributes",
+        "LPVOID"
+      ],
+      [
+        "dwCreationDisposition",
+        "DWORD"
+      ],
+      [
+        "dwFlagsAndAttributes",
+        "DWORD"
+      ],
+      [
+        "hTemplateFile",
+        "HANDLE"
+      ]
+    ],
+    "ret": "HANDLE",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "CreateFileA",
+    "dll": "kernel32",
+    "params": [
+      [
+        "lpFileName",
+        "PCSTR"
+      ],
+      [
+        "dwDesiredAccess",
+        "DWORD"
+      ],
+      [
+        "dwShareMode",
+        "DWORD"
+      ],
+      [
+        "lpSecurityAttributes",
+        "LPVOID"
+      ],
+      [
+        "dwCreationDisposition",
+        "DWORD"
+      ],
+      [
+        "dwFlagsAndAttributes",
+        "DWORD"
+      ],
+      [
+        "hTemplateFile",
+        "HANDLE"
+      ]
+    ],
+    "ret": "HANDLE",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "ReadFile",
+    "dll": "kernel32",
+    "params": [
+      [
+        "hFile",
+        "HANDLE"
+      ],
+      [
+        "lpBuffer",
+        "LPVOID"
+      ],
+      [
+        "nNumberOfBytesToRead",
+        "DWORD"
+      ],
+      [
+        "lpNumberOfBytesRead",
+        "LPDWORD"
+      ],
+      [
+        "lpOverlapped",
+        "LPVOID"
+      ]
+    ],
+    "ret": "BOOL",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "WriteFile",
+    "dll": "kernel32",
+    "params": [
+      [
+        "hFile",
+        "HANDLE"
+      ],
+      [
+        "lpBuffer",
+        "LPCVOID"
+      ],
+      [
+        "nNumberOfBytesToWrite",
+        "DWORD"
+      ],
+      [
+        "lpNumberOfBytesWritten",
+        "LPDWORD"
+      ],
+      [
+        "lpOverlapped",
+        "LPVOID"
+      ]
+    ],
+    "ret": "BOOL",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "CloseHandle",
+    "dll": "kernel32",
+    "params": [
+      [
+        "hObject",
+        "HANDLE"
+      ]
+    ],
+    "ret": "BOOL",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "GetLastError",
+    "dll": "kernel32",
+    "params": [],
+    "ret": "DWORD",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "SetLastError",
+    "dll": "kernel32",
+    "params": [
+      [
+        "dwErrCode",
+        "DWORD"
+      ]
+    ],
+    "ret": "void",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "GetProcAddress",
+    "dll": "kernel32",
+    "params": [
+      [
+        "hModule",
+        "HMODULE"
+      ],
+      [
+        "lpProcName",
+        "LPCSTR"
+      ]
+    ],
+    "ret": "FARPROC",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "LoadLibraryW",
+    "dll": "kernel32",
+    "params": [
+      [
+        "lpLibFileName",
+        "PCWSTR"
+      ]
+    ],
+    "ret": "HMODULE",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "LoadLibraryA",
+    "dll": "kernel32",
+    "params": [
+      [
+        "lpLibFileName",
+        "PCSTR"
+      ]
+    ],
+    "ret": "HMODULE",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "LoadLibraryExW",
+    "dll": "kernel32",
+    "params": [
+      [
+        "lpLibFileName",
+        "PCWSTR"
+      ],
+      [
+        "hFile",
+        "HANDLE"
+      ],
+      [
+        "dwFlags",
+        "DWORD"
+      ]
+    ],
+    "ret": "HMODULE",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "FreeLibrary",
+    "dll": "kernel32",
+    "params": [
+      [
+        "hLibModule",
+        "HMODULE"
+      ]
+    ],
+    "ret": "BOOL",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "GetModuleHandleW",
+    "dll": "kernel32",
+    "params": [
+      [
+        "lpModuleName",
+        "PCWSTR"
+      ]
+    ],
+    "ret": "HMODULE",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "GetModuleHandleA",
+    "dll": "kernel32",
+    "params": [
+      [
+        "lpModuleName",
+        "PCSTR"
+      ]
+    ],
+    "ret": "HMODULE",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "GetModuleFileNameW",
+    "dll": "kernel32",
+    "params": [
+      [
+        "hModule",
+        "HMODULE"
+      ],
+      [
+        "lpFilename",
+        "LPWSTR"
+      ],
+      [
+        "nSize",
+        "DWORD"
+      ]
+    ],
+    "ret": "DWORD",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "VirtualAlloc",
+    "dll": "kernel32",
+    "params": [
+      [
+        "lpAddress",
+        "LPVOID"
+      ],
+      [
+        "dwSize",
+        "SIZE_T"
+      ],
+      [
+        "flAllocationType",
+        "DWORD"
+      ],
+      [
+        "flProtect",
+        "DWORD"
+      ]
+    ],
+    "ret": "LPVOID",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "VirtualFree",
+    "dll": "kernel32",
+    "params": [
+      [
+        "lpAddress",
+        "LPVOID"
+      ],
+      [
+        "dwSize",
+        "SIZE_T"
+      ],
+      [
+        "dwFreeType",
+        "DWORD"
+      ]
+    ],
+    "ret": "BOOL",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "VirtualProtect",
+    "dll": "kernel32",
+    "params": [
+      [
+        "lpAddress",
+        "LPVOID"
+      ],
+      [
+        "dwSize",
+        "SIZE_T"
+      ],
+      [
+        "flNewProtect",
+        "DWORD"
+      ],
+      [
+        "lpflOldProtect",
+        "PDWORD"
+      ]
+    ],
+    "ret": "BOOL",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "VirtualQuery",
+    "dll": "kernel32",
+    "params": [
+      [
+        "lpAddress",
+        "LPCVOID"
+      ],
+      [
+        "lpBuffer",
+        "LPVOID"
+      ],
+      [
+        "dwLength",
+        "SIZE_T"
+      ]
+    ],
+    "ret": "SIZE_T",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "HeapAlloc",
+    "dll": "kernel32",
+    "params": [
+      [
+        "hHeap",
+        "HANDLE"
+      ],
+      [
+        "dwFlags",
+        "DWORD"
+      ],
+      [
+        "dwBytes",
+        "SIZE_T"
+      ]
+    ],
+    "ret": "LPVOID",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "HeapFree",
+    "dll": "kernel32",
+    "params": [
+      [
+        "hHeap",
+        "HANDLE"
+      ],
+      [
+        "dwFlags",
+        "DWORD"
+      ],
+      [
+        "lpMem",
+        "LPVOID"
+      ]
+    ],
+    "ret": "BOOL",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "HeapReAlloc",
+    "dll": "kernel32",
+    "params": [
+      [
+        "hHeap",
+        "HANDLE"
+      ],
+      [
+        "dwFlags",
+        "DWORD"
+      ],
+      [
+        "lpMem",
+        "LPVOID"
+      ],
+      [
+        "dwBytes",
+        "SIZE_T"
+      ]
+    ],
+    "ret": "LPVOID",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "GetProcessHeap",
+    "dll": "kernel32",
+    "params": [],
+    "ret": "HANDLE",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "CreateThread",
+    "dll": "kernel32",
+    "params": [
+      [
+        "lpThreadAttributes",
+        "LPVOID"
+      ],
+      [
+        "dwStackSize",
+        "SIZE_T"
+      ],
+      [
+        "lpStartAddress",
+        "LPVOID"
+      ],
+      [
+        "lpParameter",
+        "LPVOID"
+      ],
+      [
+        "dwCreationFlags",
+        "DWORD"
+      ],
+      [
+        "lpThreadId",
+        "LPDWORD"
+      ]
+    ],
+    "ret": "HANDLE",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "ExitThread",
+    "dll": "kernel32",
+    "params": [
+      [
+        "dwExitCode",
+        "DWORD"
+      ]
+    ],
+    "ret": "void",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "ExitProcess",
+    "dll": "kernel32",
+    "params": [
+      [
+        "uExitCode",
+        "UINT"
+      ]
+    ],
+    "ret": "void",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "TerminateProcess",
+    "dll": "kernel32",
+    "params": [
+      [
+        "hProcess",
+        "HANDLE"
+      ],
+      [
+        "uExitCode",
+        "UINT"
+      ]
+    ],
+    "ret": "BOOL",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "GetCurrentProcess",
+    "dll": "kernel32",
+    "params": [],
+    "ret": "HANDLE",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "GetCurrentProcessId",
+    "dll": "kernel32",
+    "params": [],
+    "ret": "DWORD",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "GetCurrentThread",
+    "dll": "kernel32",
+    "params": [],
+    "ret": "HANDLE",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "GetCurrentThreadId",
+    "dll": "kernel32",
+    "params": [],
+    "ret": "DWORD",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "Sleep",
+    "dll": "kernel32",
+    "params": [
+      [
+        "dwMilliseconds",
+        "DWORD"
+      ]
+    ],
+    "ret": "void",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "SleepEx",
+    "dll": "kernel32",
+    "params": [
+      [
+        "dwMilliseconds",
+        "DWORD"
+      ],
+      [
+        "bAlertable",
+        "BOOL"
+      ]
+    ],
+    "ret": "DWORD",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "WaitForSingleObject",
+    "dll": "kernel32",
+    "params": [
+      [
+        "hHandle",
+        "HANDLE"
+      ],
+      [
+        "dwMilliseconds",
+        "DWORD"
+      ]
+    ],
+    "ret": "DWORD",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "WaitForMultipleObjects",
+    "dll": "kernel32",
+    "params": [
+      [
+        "nCount",
+        "DWORD"
+      ],
+      [
+        "lpHandles",
+        "LPHANDLE"
+      ],
+      [
+        "bWaitAll",
+        "BOOL"
+      ],
+      [
+        "dwMilliseconds",
+        "DWORD"
+      ]
+    ],
+    "ret": "DWORD",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "CreateEventW",
+    "dll": "kernel32",
+    "params": [
+      [
+        "lpEventAttributes",
+        "LPVOID"
+      ],
+      [
+        "bManualReset",
+        "BOOL"
+      ],
+      [
+        "bInitialState",
+        "BOOL"
+      ],
+      [
+        "lpName",
+        "PCWSTR"
+      ]
+    ],
+    "ret": "HANDLE",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "SetEvent",
+    "dll": "kernel32",
+    "params": [
+      [
+        "hEvent",
+        "HANDLE"
+      ]
+    ],
+    "ret": "BOOL",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "ResetEvent",
+    "dll": "kernel32",
+    "params": [
+      [
+        "hEvent",
+        "HANDLE"
+      ]
+    ],
+    "ret": "BOOL",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "CreateMutexW",
+    "dll": "kernel32",
+    "params": [
+      [
+        "lpMutexAttributes",
+        "LPVOID"
+      ],
+      [
+        "bInitialOwner",
+        "BOOL"
+      ],
+      [
+        "lpName",
+        "PCWSTR"
+      ]
+    ],
+    "ret": "HANDLE",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "ReleaseMutex",
+    "dll": "kernel32",
+    "params": [
+      [
+        "hMutex",
+        "HANDLE"
+      ]
+    ],
+    "ret": "BOOL",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "CreateFileMappingW",
+    "dll": "kernel32",
+    "params": [
+      [
+        "hFile",
+        "HANDLE"
+      ],
+      [
+        "lpFileMappingAttributes",
+        "LPVOID"
+      ],
+      [
+        "flProtect",
+        "DWORD"
+      ],
+      [
+        "dwMaximumSizeHigh",
+        "DWORD"
+      ],
+      [
+        "dwMaximumSizeLow",
+        "DWORD"
+      ],
+      [
+        "lpName",
+        "PCWSTR"
+      ]
+    ],
+    "ret": "HANDLE",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "MapViewOfFile",
+    "dll": "kernel32",
+    "params": [
+      [
+        "hFileMappingObject",
+        "HANDLE"
+      ],
+      [
+        "dwDesiredAccess",
+        "DWORD"
+      ],
+      [
+        "dwFileOffsetHigh",
+        "DWORD"
+      ],
+      [
+        "dwFileOffsetLow",
+        "DWORD"
+      ],
+      [
+        "dwNumberOfBytesToMap",
+        "SIZE_T"
+      ]
+    ],
+    "ret": "LPVOID",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "UnmapViewOfFile",
+    "dll": "kernel32",
+    "params": [
+      [
+        "lpBaseAddress",
+        "LPCVOID"
+      ]
+    ],
+    "ret": "BOOL",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "GetFileSize",
+    "dll": "kernel32",
+    "params": [
+      [
+        "hFile",
+        "HANDLE"
+      ],
+      [
+        "lpFileSizeHigh",
+        "LPDWORD"
+      ]
+    ],
+    "ret": "DWORD",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "SetFilePointer",
+    "dll": "kernel32",
+    "params": [
+      [
+        "hFile",
+        "HANDLE"
+      ],
+      [
+        "lDistanceToMove",
+        "LONG"
+      ],
+      [
+        "lpDistanceToMoveHigh",
+        "PLONG"
+      ],
+      [
+        "dwMoveMethod",
+        "DWORD"
+      ]
+    ],
+    "ret": "DWORD",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "FlushFileBuffers",
+    "dll": "kernel32",
+    "params": [
+      [
+        "hFile",
+        "HANDLE"
+      ]
+    ],
+    "ret": "BOOL",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "DeleteFileW",
+    "dll": "kernel32",
+    "params": [
+      [
+        "lpFileName",
+        "PCWSTR"
+      ]
+    ],
+    "ret": "BOOL",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "DeleteFileA",
+    "dll": "kernel32",
+    "params": [
+      [
+        "lpFileName",
+        "PCSTR"
+      ]
+    ],
+    "ret": "BOOL",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "CopyFileW",
+    "dll": "kernel32",
+    "params": [
+      [
+        "lpExistingFileName",
+        "PCWSTR"
+      ],
+      [
+        "lpNewFileName",
+        "PCWSTR"
+      ],
+      [
+        "bFailIfExists",
+        "BOOL"
+      ]
+    ],
+    "ret": "BOOL",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "MoveFileW",
+    "dll": "kernel32",
+    "params": [
+      [
+        "lpExistingFileName",
+        "PCWSTR"
+      ],
+      [
+        "lpNewFileName",
+        "PCWSTR"
+      ]
+    ],
+    "ret": "BOOL",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "CreateDirectoryW",
+    "dll": "kernel32",
+    "params": [
+      [
+        "lpPathName",
+        "PCWSTR"
+      ],
+      [
+        "lpSecurityAttributes",
+        "LPVOID"
+      ]
+    ],
+    "ret": "BOOL",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "RemoveDirectoryW",
+    "dll": "kernel32",
+    "params": [
+      [
+        "lpPathName",
+        "PCWSTR"
+      ]
+    ],
+    "ret": "BOOL",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "GetFileAttributesW",
+    "dll": "kernel32",
+    "params": [
+      [
+        "lpFileName",
+        "PCWSTR"
+      ]
+    ],
+    "ret": "DWORD",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "SetFileAttributesW",
+    "dll": "kernel32",
+    "params": [
+      [
+        "lpFileName",
+        "PCWSTR"
+      ],
+      [
+        "dwFileAttributes",
+        "DWORD"
+      ]
+    ],
+    "ret": "BOOL",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "FindFirstFileW",
+    "dll": "kernel32",
+    "params": [
+      [
+        "lpFileName",
+        "PCWSTR"
+      ],
+      [
+        "lpFindFileData",
+        "LPVOID"
+      ]
+    ],
+    "ret": "HANDLE",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "FindNextFileW",
+    "dll": "kernel32",
+    "params": [
+      [
+        "hFindFile",
+        "HANDLE"
+      ],
+      [
+        "lpFindFileData",
+        "LPVOID"
+      ]
+    ],
+    "ret": "BOOL",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "FindClose",
+    "dll": "kernel32",
+    "params": [
+      [
+        "hFindFile",
+        "HANDLE"
+      ]
+    ],
+    "ret": "BOOL",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "GetTickCount",
+    "dll": "kernel32",
+    "params": [],
+    "ret": "DWORD",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "GetTickCount64",
+    "dll": "kernel32",
+    "params": [],
+    "ret": "ULONGLONG",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "QueryPerformanceCounter",
+    "dll": "kernel32",
+    "params": [
+      [
+        "lpPerformanceCount",
+        "PLARGE_INTEGER"
+      ]
+    ],
+    "ret": "BOOL",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "QueryPerformanceFrequency",
+    "dll": "kernel32",
+    "params": [
+      [
+        "lpFrequency",
+        "PLARGE_INTEGER"
+      ]
+    ],
+    "ret": "BOOL",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "GetSystemTimeAsFileTime",
+    "dll": "kernel32",
+    "params": [
+      [
+        "lpSystemTimeAsFileTime",
+        "LPFILETIME"
+      ]
+    ],
+    "ret": "void",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "GetLocalTime",
+    "dll": "kernel32",
+    "params": [
+      [
+        "lpSystemTime",
+        "LPSYSTEMTIME"
+      ]
+    ],
+    "ret": "void",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "GetSystemTime",
+    "dll": "kernel32",
+    "params": [
+      [
+        "lpSystemTime",
+        "LPSYSTEMTIME"
+      ]
+    ],
+    "ret": "void",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "MultiByteToWideChar",
+    "dll": "kernel32",
+    "params": [
+      [
+        "CodePage",
+        "UINT"
+      ],
+      [
+        "dwFlags",
+        "DWORD"
+      ],
+      [
+        "lpMultiByteStr",
+        "LPCSTR"
+      ],
+      [
+        "cbMultiByte",
+        "int"
+      ],
+      [
+        "lpWideCharStr",
+        "LPWSTR"
+      ],
+      [
+        "cchWideChar",
+        "int"
+      ]
+    ],
+    "ret": "int",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "WideCharToMultiByte",
+    "dll": "kernel32",
+    "params": [
+      [
+        "CodePage",
+        "UINT"
+      ],
+      [
+        "dwFlags",
+        "DWORD"
+      ],
+      [
+        "lpWideCharStr",
+        "LPCWSTR"
+      ],
+      [
+        "cchWideChar",
+        "int"
+      ],
+      [
+        "lpMultiByteStr",
+        "LPSTR"
+      ],
+      [
+        "cbMultiByte",
+        "int"
+      ],
+      [
+        "lpDefaultChar",
+        "LPCSTR"
+      ],
+      [
+        "lpUsedDefaultChar",
+        "LPBOOL"
+      ]
+    ],
+    "ret": "int",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "lstrlenW",
+    "dll": "kernel32",
+    "params": [
+      [
+        "lpString",
+        "LPCWSTR"
+      ]
+    ],
+    "ret": "int",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "lstrlenA",
+    "dll": "kernel32",
+    "params": [
+      [
+        "lpString",
+        "LPCSTR"
+      ]
+    ],
+    "ret": "int",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "lstrcpyW",
+    "dll": "kernel32",
+    "params": [
+      [
+        "lpString1",
+        "LPWSTR"
+      ],
+      [
+        "lpString2",
+        "LPCWSTR"
+      ]
+    ],
+    "ret": "LPWSTR",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "lstrcmpW",
+    "dll": "kernel32",
+    "params": [
+      [
+        "lpString1",
+        "LPCWSTR"
+      ],
+      [
+        "lpString2",
+        "LPCWSTR"
+      ]
+    ],
+    "ret": "int",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "GetEnvironmentVariableW",
+    "dll": "kernel32",
+    "params": [
+      [
+        "lpName",
+        "LPCWSTR"
+      ],
+      [
+        "lpBuffer",
+        "LPWSTR"
+      ],
+      [
+        "nSize",
+        "DWORD"
+      ]
+    ],
+    "ret": "DWORD",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "SetEnvironmentVariableW",
+    "dll": "kernel32",
+    "params": [
+      [
+        "lpName",
+        "LPCWSTR"
+      ],
+      [
+        "lpValue",
+        "LPCWSTR"
+      ]
+    ],
+    "ret": "BOOL",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "GetCommandLineW",
+    "dll": "kernel32",
+    "params": [],
+    "ret": "LPWSTR",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "GetCommandLineA",
+    "dll": "kernel32",
+    "params": [],
+    "ret": "LPSTR",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "IsDebuggerPresent",
+    "dll": "kernel32",
+    "params": [],
+    "ret": "BOOL",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "OutputDebugStringW",
+    "dll": "kernel32",
+    "params": [
+      [
+        "lpOutputString",
+        "LPCWSTR"
+      ]
+    ],
+    "ret": "void",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "OutputDebugStringA",
+    "dll": "kernel32",
+    "params": [
+      [
+        "lpOutputString",
+        "LPCSTR"
+      ]
+    ],
+    "ret": "void",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "RaiseException",
+    "dll": "kernel32",
+    "params": [
+      [
+        "dwExceptionCode",
+        "DWORD"
+      ],
+      [
+        "dwExceptionFlags",
+        "DWORD"
+      ],
+      [
+        "nNumberOfArguments",
+        "DWORD"
+      ],
+      [
+        "lpArguments",
+        "ULONG_PTR"
+      ]
+    ],
+    "ret": "void",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "UnhandledExceptionFilter",
+    "dll": "kernel32",
+    "params": [
+      [
+        "ExceptionInfo",
+        "LPVOID"
+      ]
+    ],
+    "ret": "LONG",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "SetUnhandledExceptionFilter",
+    "dll": "kernel32",
+    "params": [
+      [
+        "lpTopLevelExceptionFilter",
+        "LPVOID"
+      ]
+    ],
+    "ret": "LPVOID",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "GetStdHandle",
+    "dll": "kernel32",
+    "params": [
+      [
+        "nStdHandle",
+        "DWORD"
+      ]
+    ],
+    "ret": "HANDLE",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "SetStdHandle",
+    "dll": "kernel32",
+    "params": [
+      [
+        "nStdHandle",
+        "DWORD"
+      ],
+      [
+        "hHandle",
+        "HANDLE"
+      ]
+    ],
+    "ret": "BOOL",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "WriteConsoleW",
+    "dll": "kernel32",
+    "params": [
+      [
+        "hConsoleOutput",
+        "HANDLE"
+      ],
+      [
+        "lpBuffer",
+        "LPCVOID"
+      ],
+      [
+        "nNumberOfCharsToWrite",
+        "DWORD"
+      ],
+      [
+        "lpNumberOfCharsWritten",
+        "LPDWORD"
+      ],
+      [
+        "lpReserved",
+        "LPVOID"
+      ]
+    ],
+    "ret": "BOOL",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "ReadConsoleW",
+    "dll": "kernel32",
+    "params": [
+      [
+        "hConsoleInput",
+        "HANDLE"
+      ],
+      [
+        "lpBuffer",
+        "LPVOID"
+      ],
+      [
+        "nNumberOfCharsToRead",
+        "DWORD"
+      ],
+      [
+        "lpNumberOfCharsRead",
+        "LPDWORD"
+      ],
+      [
+        "pInputControl",
+        "LPVOID"
+      ]
+    ],
+    "ret": "BOOL",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "DeviceIoControl",
+    "dll": "kernel32",
+    "params": [
+      [
+        "hDevice",
+        "HANDLE"
+      ],
+      [
+        "dwIoControlCode",
+        "DWORD"
+      ],
+      [
+        "lpInBuffer",
+        "LPVOID"
+      ],
+      [
+        "nInBufferSize",
+        "DWORD"
+      ],
+      [
+        "lpOutBuffer",
+        "LPVOID"
+      ],
+      [
+        "nOutBufferSize",
+        "DWORD"
+      ],
+      [
+        "lpBytesReturned",
+        "LPDWORD"
+      ],
+      [
+        "lpOverlapped",
+        "LPVOID"
+      ]
+    ],
+    "ret": "BOOL",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "DuplicateHandle",
+    "dll": "kernel32",
+    "params": [
+      [
+        "hSourceProcessHandle",
+        "HANDLE"
+      ],
+      [
+        "hSourceHandle",
+        "HANDLE"
+      ],
+      [
+        "hTargetProcessHandle",
+        "HANDLE"
+      ],
+      [
+        "lpTargetHandle",
+        "LPHANDLE"
+      ],
+      [
+        "dwDesiredAccess",
+        "DWORD"
+      ],
+      [
+        "bInheritHandle",
+        "BOOL"
+      ],
+      [
+        "dwOptions",
+        "DWORD"
+      ]
+    ],
+    "ret": "BOOL",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "GetExitCodeProcess",
+    "dll": "kernel32",
+    "params": [
+      [
+        "hProcess",
+        "HANDLE"
+      ],
+      [
+        "lpExitCode",
+        "LPDWORD"
+      ]
+    ],
+    "ret": "BOOL",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "GetExitCodeThread",
+    "dll": "kernel32",
+    "params": [
+      [
+        "hThread",
+        "HANDLE"
+      ],
+      [
+        "lpExitCode",
+        "LPDWORD"
+      ]
+    ],
+    "ret": "BOOL",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "ResumeThread",
+    "dll": "kernel32",
+    "params": [
+      [
+        "hThread",
+        "HANDLE"
+      ]
+    ],
+    "ret": "DWORD",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "SuspendThread",
+    "dll": "kernel32",
+    "params": [
+      [
+        "hThread",
+        "HANDLE"
+      ]
+    ],
+    "ret": "DWORD",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "TlsAlloc",
+    "dll": "kernel32",
+    "params": [],
+    "ret": "DWORD",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "TlsFree",
+    "dll": "kernel32",
+    "params": [
+      [
+        "dwTlsIndex",
+        "DWORD"
+      ]
+    ],
+    "ret": "BOOL",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "TlsGetValue",
+    "dll": "kernel32",
+    "params": [
+      [
+        "dwTlsIndex",
+        "DWORD"
+      ]
+    ],
+    "ret": "LPVOID",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "TlsSetValue",
+    "dll": "kernel32",
+    "params": [
+      [
+        "dwTlsIndex",
+        "DWORD"
+      ],
+      [
+        "lpTlsValue",
+        "LPVOID"
+      ]
+    ],
+    "ret": "BOOL",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "InitializeCriticalSection",
+    "dll": "kernel32",
+    "params": [
+      [
+        "lpCriticalSection",
+        "LPVOID"
+      ]
+    ],
+    "ret": "void",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "EnterCriticalSection",
+    "dll": "kernel32",
+    "params": [
+      [
+        "lpCriticalSection",
+        "LPVOID"
+      ]
+    ],
+    "ret": "void",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "LeaveCriticalSection",
+    "dll": "kernel32",
+    "params": [
+      [
+        "lpCriticalSection",
+        "LPVOID"
+      ]
+    ],
+    "ret": "void",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "DeleteCriticalSection",
+    "dll": "kernel32",
+    "params": [
+      [
+        "lpCriticalSection",
+        "LPVOID"
+      ]
+    ],
+    "ret": "void",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "LocalAlloc",
+    "dll": "kernel32",
+    "params": [
+      [
+        "uFlags",
+        "UINT"
+      ],
+      [
+        "uBytes",
+        "SIZE_T"
+      ]
+    ],
+    "ret": "HLOCAL",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "LocalFree",
+    "dll": "kernel32",
+    "params": [
+      [
+        "hMem",
+        "HLOCAL"
+      ]
+    ],
+    "ret": "HLOCAL",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "GlobalAlloc",
+    "dll": "kernel32",
+    "params": [
+      [
+        "uFlags",
+        "UINT"
+      ],
+      [
+        "dwBytes",
+        "SIZE_T"
+      ]
+    ],
+    "ret": "HGLOBAL",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "GlobalFree",
+    "dll": "kernel32",
+    "params": [
+      [
+        "hMem",
+        "HGLOBAL"
+      ]
+    ],
+    "ret": "HGLOBAL",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "CreateProcessW",
+    "dll": "kernel32",
+    "params": [
+      [
+        "lpApplicationName",
+        "LPCWSTR"
+      ],
+      [
+        "lpCommandLine",
+        "LPWSTR"
+      ],
+      [
+        "lpProcessAttributes",
+        "LPVOID"
+      ],
+      [
+        "lpThreadAttributes",
+        "LPVOID"
+      ],
+      [
+        "bInheritHandles",
+        "BOOL"
+      ],
+      [
+        "dwCreationFlags",
+        "DWORD"
+      ],
+      [
+        "lpEnvironment",
+        "LPVOID"
+      ],
+      [
+        "lpCurrentDirectory",
+        "LPCWSTR"
+      ],
+      [
+        "lpStartupInfo",
+        "LPVOID"
+      ],
+      [
+        "lpProcessInformation",
+        "LPVOID"
+      ]
+    ],
+    "ret": "BOOL",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "OpenProcess",
+    "dll": "kernel32",
+    "params": [
+      [
+        "dwDesiredAccess",
+        "DWORD"
+      ],
+      [
+        "bInheritHandle",
+        "BOOL"
+      ],
+      [
+        "dwProcessId",
+        "DWORD"
+      ]
+    ],
+    "ret": "HANDLE",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "OpenThread",
+    "dll": "kernel32",
+    "params": [
+      [
+        "dwDesiredAccess",
+        "DWORD"
+      ],
+      [
+        "bInheritHandle",
+        "BOOL"
+      ],
+      [
+        "dwThreadId",
+        "DWORD"
+      ]
+    ],
+    "ret": "HANDLE",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "ReadProcessMemory",
+    "dll": "kernel32",
+    "params": [
+      [
+        "hProcess",
+        "HANDLE"
+      ],
+      [
+        "lpBaseAddress",
+        "LPCVOID"
+      ],
+      [
+        "lpBuffer",
+        "LPVOID"
+      ],
+      [
+        "nSize",
+        "SIZE_T"
+      ],
+      [
+        "lpNumberOfBytesRead",
+        "PSIZE_T"
+      ]
+    ],
+    "ret": "BOOL",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "WriteProcessMemory",
+    "dll": "kernel32",
+    "params": [
+      [
+        "hProcess",
+        "HANDLE"
+      ],
+      [
+        "lpBaseAddress",
+        "LPVOID"
+      ],
+      [
+        "lpBuffer",
+        "LPCVOID"
+      ],
+      [
+        "nSize",
+        "SIZE_T"
+      ],
+      [
+        "lpNumberOfBytesWritten",
+        "PSIZE_T"
+      ]
+    ],
+    "ret": "BOOL",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "IsWow64Process",
+    "dll": "kernel32",
+    "params": [
+      [
+        "hProcess",
+        "HANDLE"
+      ],
+      [
+        "Wow64Process",
+        "PBOOL"
+      ]
+    ],
+    "ret": "BOOL",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "GetSystemInfo",
+    "dll": "kernel32",
+    "params": [
+      [
+        "lpSystemInfo",
+        "LPSYSTEM_INFO"
+      ]
+    ],
+    "ret": "void",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "GetNativeSystemInfo",
+    "dll": "kernel32",
+    "params": [
+      [
+        "lpSystemInfo",
+        "LPSYSTEM_INFO"
+      ]
+    ],
+    "ret": "void",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "FormatMessageW",
+    "dll": "kernel32",
+    "params": [
+      [
+        "dwFlags",
+        "DWORD"
+      ],
+      [
+        "lpSource",
+        "LPCVOID"
+      ],
+      [
+        "dwMessageId",
+        "DWORD"
+      ],
+      [
+        "dwLanguageId",
+        "DWORD"
+      ],
+      [
+        "lpBuffer",
+        "LPWSTR"
+      ],
+      [
+        "nSize",
+        "DWORD"
+      ],
+      [
+        "Arguments",
+        "LPVOID"
+      ]
+    ],
+    "ret": "DWORD",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "GetFullPathNameW",
+    "dll": "kernel32",
+    "params": [
+      [
+        "lpFileName",
+        "LPCWSTR"
+      ],
+      [
+        "nBufferLength",
+        "DWORD"
+      ],
+      [
+        "lpBuffer",
+        "LPWSTR"
+      ],
+      [
+        "lpFilePart",
+        "LPWSTR"
+      ]
+    ],
+    "ret": "DWORD",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "GetTempPathW",
+    "dll": "kernel32",
+    "params": [
+      [
+        "nBufferLength",
+        "DWORD"
+      ],
+      [
+        "lpBuffer",
+        "LPWSTR"
+      ]
+    ],
+    "ret": "DWORD",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "FlushInstructionCache",
+    "dll": "kernel32",
+    "params": [
+      [
+        "hProcess",
+        "HANDLE"
+      ],
+      [
+        "lpBaseAddress",
+        "LPCVOID"
+      ],
+      [
+        "dwSize",
+        "SIZE_T"
+      ]
+    ],
+    "ret": "BOOL",
+    "calling_conv": "stdcall"
+  }
+]

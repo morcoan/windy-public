@@ -1,4 +1,3 @@
-#![allow(dead_code)] // parts used in Phase 3; code_index is foundational
 
 use std::collections::BTreeMap;
 
@@ -26,6 +25,7 @@ impl DecodedInstr {
 }
 
 /// Random-access code cache for every executable section, built by linear sweep.
+#[derive(Clone, Debug)]
 pub struct CodeIndex {
     pub instrs: Vec<DecodedInstr>,
     pub va_to_idx: BTreeMap<u64, usize>,
@@ -55,6 +55,7 @@ impl CodeIndex {
         self.va_to_idx.get(&va).and_then(|&idx| self.instrs.get(idx))
     }
 
+    #[allow(dead_code)] // Used by future index-based windowing callers
     pub fn idx_for_va(&self, va: u64) -> Option<usize> {
         self.va_to_idx.get(&va).copied()
     }
@@ -68,6 +69,15 @@ impl CodeIndex {
 
     pub fn iter(&self) -> impl Iterator<Item = &DecodedInstr> {
         self.instrs.iter()
+    }
+
+    /// Previous decoded instruction before `va` in linear-sweep order, if any.
+    pub fn instruction_before(&self, va: u64) -> Option<&DecodedInstr> {
+        let idx = self.va_to_idx.get(&va).copied()?;
+        if idx == 0 {
+            return None;
+        }
+        self.instrs.get(idx - 1)
     }
 }
 

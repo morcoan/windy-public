@@ -8,13 +8,14 @@ use petriage::parse_pe_lenient;
 use crate::loader::MappedImage;
 
 /// A loaded Windows PE with both cheap mmap access and exe-rs structural access.
-#[allow(dead_code)] // exe_pe is the structural seam for Phase 2+
 pub struct LoadedPe {
     /// Original path on disk.
     pub path: PathBuf,
     /// Memory-mapped file contents.
     pub image: MappedImage,
     /// exe-rs PE representation for header/section/import manipulation.
+    /// Structural seam for future PE rewrite / section surgery.
+    #[allow(dead_code)]
     pub exe_pe: VecPE,
     /// petriage surface-analysis result.
     pub triage: AnalysisResult,

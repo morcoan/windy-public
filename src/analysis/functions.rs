@@ -1,4 +1,3 @@
-#![allow(dead_code)] // core CFG/function API surface; callers grow in later UI/LLM phases
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
@@ -6,6 +5,7 @@ use iced_x86::FlowControl;
 
 use crate::analysis::code_index::{CodeIndex, DecodedInstr};
 use crate::loader::address_space::AddressSpace;
+use crate::project::types::{FunctionSignature, StackFrame};
 
 pub type FunctionId = u64;
 
@@ -37,19 +37,32 @@ pub struct BasicBlock {
 
 #[derive(Clone, Debug)]
 pub struct Function {
+    #[allow(dead_code)] // stable function identity for UI/agent surfaces
     pub id: FunctionId,
     pub entry_va: u64,
     pub blocks: Vec<BasicBlock>,
     /// VAs of direct call/jump targets out of this function (includes unresolved).
+    #[allow(dead_code)] // call-graph export seam
     pub outgoing: Vec<u64>,
+    /// Recovered stack-frame layout, if available.
+    pub stack_frame: Option<StackFrame>,
+    /// PDB-derived or heuristic signature. Used by exports and the decompiler.
+    pub signature: Option<FunctionSignature>,
 }
 
 impl Function {
     pub fn name(&self, symbols: &crate::project::symbols::SymbolTable) -> String {
-        symbols
+        let raw = symbols
             .name(self.entry_va)
             .map(std::string::ToString::to_string)
-            .unwrap_or_else(|| format!("sub_{:08x}", self.entry_va))
+            // Ghidra-style default for stripped symbols (gold matches fun_* aliases).
+            .unwrap_or_else(|| format!("FUN_{:08x}", self.entry_va));
+        // Normalize legacy auto-names so call emit matches fun_* gold aliases.
+        if let Some(rest) = raw.strip_prefix("sub_") {
+            format!("FUN_{rest}")
+        } else {
+            raw
+        }
     }
 
     pub fn size(&self) -> u64 {
@@ -68,12 +81,37 @@ impl Function {
         }
     }
 
-    /// All instruction VAs in this function, in order (blocks are sorted by entry_va).
-    pub fn instruction_vas(&self) -> Vec<u64> {
-        self.blocks.iter().map(|b| b.entry_va).collect()
+    /// Rebuild predecessor lists after successor edges have been mutated.
+    pub fn recompute_predecessors(&mut self) {
+        for block in &mut self.blocks {
+            block.predecessors.clear();
+        }
+        let block_starts: Vec<u64> = self.blocks.iter().map(|b| b.entry_va).collect();
+        for start in &block_starts {
+            let succs = self
+                .blocks
+                .iter()
+                .find(|b| b.entry_va == *start)
+                .expect("block exists")
+                .successors
+                .clone();
+            for edge in succs {
+                if edge.target == 0 {
+                    continue;
+                }
+                let pred = Edge {
+                    target: *start,
+                    kind: edge.kind,
+                };
+                if let Some(target_block) = self.blocks.iter_mut().find(|b| b.entry_va == edge.target) {
+                    target_block.predecessors.push(pred);
+                }
+            }
+        }
     }
 }
 
+#[derive(Clone, Debug)]
 pub struct FunctionTable {
     by_entry: BTreeMap<FunctionId, Function>,
 }
@@ -84,6 +122,7 @@ impl Default for FunctionTable {
     }
 }
 
+#[allow(dead_code)] // FunctionTable is the analysis API surface; not all methods have in-tree callers yet
 impl FunctionTable {
     pub fn new() -> Self {
         Self {
@@ -111,6 +150,10 @@ impl FunctionTable {
         self.by_entry.values()
     }
 
+    pub fn iter_mut(&mut self) -> impl Iterator<Item = &mut Function> {
+        self.by_entry.values_mut()
+    }
+
     pub fn len(&self) -> usize {
         self.by_entry.len()
     }
@@ -126,6 +169,15 @@ impl FunctionTable {
             }
         }
         None
+    }
+
+    /// Attach recovered stack frames to functions by entry VA.
+    pub fn apply_frames(&mut self, frames: &std::collections::BTreeMap<u64, StackFrame>) {
+        for func in self.by_entry.values_mut() {
+            if let Some(frame) = frames.get(&func.entry_va) {
+                func.stack_frame = Some(frame.clone());
+            }
+        }
     }
 }
 
@@ -205,6 +257,8 @@ impl<'a> Discovery<'a> {
             entry_va: entry,
             blocks: blocks.into_values().collect(),
             outgoing: Vec::new(),
+            stack_frame: None,
+            signature: None,
         };
         // The BTreeMap iteration is sorted by entry_va, so blocks are in address order.
         Self::compute_predecessors(&mut function);

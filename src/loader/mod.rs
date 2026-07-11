@@ -6,6 +6,8 @@ use anyhow::Result;
 use memmap2::Mmap;
 
 pub mod address_space;
+pub mod debug_dir;
+pub mod imports;
 pub mod pe;
 
 pub use address_space::AddressSpace;

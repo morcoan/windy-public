@@ -1,0 +1,49 @@
+[
+  {
+    "interface": "IEnumString",
+    "methods": [
+      {
+        "offset": 0,
+        "name": "QueryInterface",
+        "params": [["riid", "void*"], ["ppv", "void**"]],
+        "ret": "int32"
+      },
+      {
+        "offset": 8,
+        "name": "AddRef",
+        "params": [],
+        "ret": "uint32"
+      },
+      {
+        "offset": 16,
+        "name": "Release",
+        "params": [],
+        "ret": "uint32"
+      },
+      {
+        "offset": 24,
+        "name": "Next",
+        "params": [["celt", "uint32"], ["rgelt", "void*"], ["pceltFetched", "uint32*"]],
+        "ret": "int32"
+      },
+      {
+        "offset": 32,
+        "name": "Skip",
+        "params": [["celt", "uint32"]],
+        "ret": "int32"
+      },
+      {
+        "offset": 40,
+        "name": "Reset",
+        "params": [],
+        "ret": "int32"
+      },
+      {
+        "offset": 48,
+        "name": "Clone",
+        "params": [["ppenum", "void**"]],
+        "ret": "int32"
+      }
+    ]
+  }
+]

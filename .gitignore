@@ -1,7 +1,42 @@
 /target
 debug/
 *.exe
+!gclsd/bench/sample.exe
 *.pdb
+!gclsd/bench/sample.pdb
+*.obj
+*.o
+*.lib
+*.dll
+*.exp
+*.ilk
+*.idb
+
+# Secrets / credentials — never commit
+*_key.txt
+*_secret*
+*.pem
+.env
+.env.*
+!.env.example
+
+# Python / ML local environments
+**/.venv/
+**/venv/
+**/__pycache__/
+**/.pytest_cache/
+**/*.egg-info/
+*.pyc
+*.pyo
+.mypy_cache/
+.ruff_cache/
+
+# Local agent / session / scratch
+terminals/
+mcps/
+build_warnings.txt
+*.log
+decomp_scorecard.json
 
 # IDE / tooling
 .vscode/
@@ -9,5 +44,9 @@ debug/
 .opencode/
 opencode.json
 *.swp
+*~
 
-# Cargo lock for bins (keep for apps, ignore for libs — keeping for a bin app)
+# OS junk
+Thumbs.db
+Desktop.ini
+.DS_Store

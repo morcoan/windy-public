@@ -1,4 +1,3 @@
-#![allow(dead_code)] // disassembly formatter; actively used in Phase 2
 
 use std::collections::HashMap;
 
@@ -13,7 +12,9 @@ use crate::project::symbols::SymbolTable;
 pub enum Syntax {
     #[default]
     Intel,
+    #[allow(dead_code)] // selectable disassembly syntax
     Nasm,
+    #[allow(dead_code)] // selectable disassembly syntax
     Masm,
 }
 
@@ -49,6 +50,7 @@ impl TableResolver {
         }
     }
 
+    #[allow(dead_code)] // alternate constructor for TableResolver
     pub fn from_symbol_table(table: &SymbolTable) -> Self {
         Self {
             names: table.to_resolver_map(),
@@ -91,11 +93,13 @@ impl Disassembler {
         self.syntax.format_instruction(instr, &self.names)
     }
 
+    #[allow(dead_code)] // rebuild resolver after symbol renames
     pub fn set_names(&mut self, table: &SymbolTable) {
         self.names = table.to_resolver_map();
     }
 }
 
+#[allow(dead_code)] // range decoder used by pcode tests / offline tooling
 pub fn decode_range(
     bitness: u32,
     bytes: &[u8],

@@ -82,6 +82,29 @@ impl AddressSpace {
             .unwrap_or(false)
     }
 
+    /// True if `va` falls within any loaded section (code or data).
+    pub fn is_valid_va(&self, va: u64) -> bool {
+        self.section_at_va(va).is_some()
+    }
+
+    /// True if `va` maps to a loaded section that is not marked executable.
+    pub fn is_data_va(&self, va: u64) -> bool {
+        self.section_at_va(va)
+            .map(|s| !s.is_executable())
+            .unwrap_or(false)
+    }
+
+    /// Convert a file offset back to the VA of the byte it maps to.
+    #[allow(dead_code)] // Used by PDB/string context queries
+    pub fn offset_to_va(&self, offset: u64) -> Option<u64> {
+        let offset_u32 = u32::try_from(offset).ok()?;
+        let section = self.sections.iter().find(|s| {
+            offset_u32 >= s.raw_addr && offset_u32 < s.raw_addr.saturating_add(s.raw_size)
+        })?;
+        let section_offset = offset.saturating_sub(u64::from(section.raw_addr));
+        Some(self.image_base + u64::from(section.vaddr) + section_offset)
+    }
+
     pub fn exec_sections(&self) -> impl Iterator<Item = &Section> {
         self.sections.iter().filter(|s| s.is_executable())
     }

@@ -13,8 +13,12 @@ pub enum View {
     // Code browser panels (platform phase)
     FunctionTree,
     Disassembly,
+    Decompiled,
     Xrefs,
     Hex,
+
+    // Intelligence / supervisor pane
+    ProjectStatus,
 
     Console,
 }
@@ -32,8 +36,10 @@ impl View {
             View::OverlayAnomalies => "Overlay & Anomalies",
             View::FunctionTree => "Functions",
             View::Disassembly => "Disassembly",
+            View::Decompiled => "Decompiled",
             View::Xrefs => "Xrefs",
             View::Hex => "Hex",
+            View::ProjectStatus => "Project Status",
             View::Console => "Console",
         }
     }

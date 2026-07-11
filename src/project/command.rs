@@ -1,4 +1,9 @@
-#![allow(dead_code)] // Command stack seam; UI commands use this in Phase 3+
+//! UI command-pattern layer for reversible project mutations.
+//!
+//! This module is the document/UI seam for imperative commands (`SetName`,
+//! `SetComment`, `BatchRename`, `CommandStack`). The durable agent/MCP path
+//! uses [`crate::project::op::Op`] instead; keep this layer for in-process UI
+//! undo stacks that hold trait objects rather than serializable ops.
 
 use crate::project::comments::CommentScope;
 use crate::project::symbols::SymbolKind;
@@ -9,11 +14,13 @@ use crate::project::Project;
 /// The command pattern is required because analysis results from LLMs will often
 /// be wrong; the user must be able to undo batches of renames, type changes,
 /// and comments.
+#[allow(dead_code)] // UI command-pattern seam (Op path used by MCP/manager)
 pub trait Command {
     fn apply(&mut self, project: &mut Project);
     fn undo(&mut self, project: &mut Project);
 }
 
+#[allow(dead_code)] // UI command-pattern seam
 pub struct CommandStack {
     undo: Vec<Box<dyn Command>>,
     redo: Vec<Box<dyn Command>>,
@@ -30,6 +37,7 @@ impl Default for CommandStack {
     }
 }
 
+#[allow(dead_code)] // UI command-pattern seam
 impl CommandStack {
     pub fn execute(&mut self, project: &mut Project, mut cmd: Box<dyn Command>) {
         cmd.apply(project);
@@ -60,6 +68,7 @@ impl CommandStack {
     }
 }
 
+#[allow(dead_code)] // UI command-pattern seam
 pub struct SetName {
     addr: u64,
     new_name: String,
@@ -67,6 +76,7 @@ pub struct SetName {
     old: Option<(String, SymbolKind)>,
 }
 
+#[allow(dead_code)] // UI command-pattern seam
 impl SetName {
     pub fn new(addr: u64, name: impl Into<String>, kind: SymbolKind) -> Self {
         Self {
@@ -80,63 +90,69 @@ impl SetName {
 
 impl Command for SetName {
     fn apply(&mut self, project: &mut Project) {
-        self.old = project.symbols.get(self.addr).map(|s| (s.name.clone(), s.kind));
+        self.old = project
+            .symbols
+            .get(self.addr)
+            .map(|s| (s.name.clone(), s.kind));
         project
             .symbols
             .insert(self.addr, self.new_name.clone(), self.kind);
     }
 
     fn undo(&mut self, project: &mut Project) {
-        if let Some((name, kind)) = self.old.take() {
-            project.symbols.insert(self.addr, name, kind);
-        } else {
-            project.symbols.remove(self.addr);
+        match &self.old {
+            Some((name, kind)) => {
+                project.symbols.insert(self.addr, name.clone(), *kind);
+            }
+            None => {
+                project.symbols.remove(self.addr);
+            }
         }
     }
 }
 
+#[allow(dead_code)] // UI command-pattern seam
 pub struct SetComment {
     addr: u64,
+    text: String,
     scope: CommentScope,
-    new_text: String,
-    old_text: Option<String>,
+    old: Option<String>,
 }
 
+#[allow(dead_code)] // UI command-pattern seam
 impl SetComment {
     pub fn new(addr: u64, text: impl Into<String>, scope: CommentScope) -> Self {
         Self {
             addr,
+            text: text.into(),
             scope,
-            new_text: text.into(),
-            old_text: None,
+            old: None,
         }
     }
 }
 
 impl Command for SetComment {
     fn apply(&mut self, project: &mut Project) {
-        self.old_text = project
-            .comments
-            .get(self.addr, self.scope)
-            .map(String::from);
+        self.old = project.comments.get(self.addr, self.scope).map(String::from);
         project
             .comments
-            .set(self.addr, self.scope, self.new_text.clone());
+            .set(self.addr, self.scope, self.text.clone());
     }
 
     fn undo(&mut self, project: &mut Project) {
-        match self.old_text.take() {
-            Some(text) => project.comments.set(self.addr, self.scope, text),
+        match &self.old {
+            Some(t) => project.comments.set(self.addr, self.scope, t.clone()),
             None => project.comments.remove(self.addr, self.scope),
         }
     }
 }
 
-/// Many renames/comments produced by an LLM applied as one undoable unit.
+#[allow(dead_code)] // UI command-pattern seam
 pub struct BatchRename {
-    pub commands: Vec<Box<dyn Command>>,
+    commands: Vec<Box<dyn Command>>,
 }
 
+#[allow(dead_code)] // UI command-pattern seam
 impl BatchRename {
     pub fn new(commands: Vec<Box<dyn Command>>) -> Self {
         Self { commands }

@@ -1,27 +1,14 @@
-#![allow(dead_code)] // IR seam; actively used in Phase 5
 
+//! Intermediate representation seam.
+//!
+//! The decompiler's IR is P-code, lifted per-function from the executable
+//! sections via the SLEIGH decoder in [`crate::decompiler::pcode`]. The older
+//! iced-centric `Lifter` trait and `IcedLifter` identity lifter were retired in
+//! Phase 1; export and GCLSD input now carry `PcodeOp` lists directly
+//! (see [`crate::ir::export::InstrExport::pcode_ops`] and
+//! [`crate::ir::gclsd::GclsdInstr::pcode_ops`]).
+
+pub mod agent_text;
+pub mod annotate;
 pub mod export;
-
-use iced_x86::Instruction;
-
-/// Intermediate representation seam.
-///
-/// The long-term goal is to support a uniform IR (e.g. P-Code lifted from
-/// Ghidra `.sla` files via the `pcode` crate). For the disassembler phase we
-/// can start with a trivial identity lifter so the analysis API is already
-/// IR-driven.
-pub trait Lifter {
-    type Op;
-    fn lift(&self, instr: &Instruction) -> Vec<Self::Op>;
-}
-
-/// Identity lifter: keeps the raw `iced_x86::Instruction` as the IR op.
-pub struct IcedLifter;
-
-impl Lifter for IcedLifter {
-    type Op = Instruction;
-
-    fn lift(&self, instr: &Instruction) -> Vec<Self::Op> {
-        vec![*instr]
-    }
-}
+pub mod gclsd;

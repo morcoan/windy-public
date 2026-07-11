@@ -1,15 +1,17 @@
-#![allow(dead_code)] // Comment store; actively used in Phase 3
 
 use std::collections::BTreeMap;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+use serde::{Deserialize, Serialize};
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum CommentScope {
     Address,
     Function,
 }
 
 /// User-defined and LLM-generated comments keyed by address or function.
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct CommentStore {
     by_addr: BTreeMap<u64, String>,
     by_function: BTreeMap<u64, String>,
@@ -24,6 +26,14 @@ impl CommentStore {
         map.get(&va).map(String::as_str)
     }
 
+    pub fn addr_entries(&self) -> Vec<(u64, String)> {
+        self.by_addr.iter().map(|(&k, v)| (k, v.clone())).collect()
+    }
+
+    pub fn function_entries(&self) -> Vec<(u64, String)> {
+        self.by_function.iter().map(|(&k, v)| (k, v.clone())).collect()
+    }
+
     pub fn set(&mut self, va: u64, scope: CommentScope, text: impl Into<String>) {
         let map = match scope {
             CommentScope::Address => &mut self.by_addr,
@@ -32,6 +42,7 @@ impl CommentStore {
         map.insert(va, text.into());
     }
 
+    #[allow(dead_code)] // used by UI command undo path
     pub fn remove(&mut self, va: u64, scope: CommentScope) {
         let map = match scope {
             CommentScope::Address => &mut self.by_addr,

@@ -1,0 +1,84 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://windy.local/eval/provenance_manifest.schema.json",
+  "title": "Windy source-known decompilation fixture provenance v1",
+  "description": "Reproducibility metadata for a source-known decompilation scorecard fixture.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "fixture_id",
+    "binary",
+    "source",
+    "build",
+    "windy",
+    "ghidra"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "windy-eval-provenance-v1"
+    },
+    "fixture_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "binary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256", "machine"],
+      "properties": {
+        "path": { "type": "string", "minLength": 1 },
+        "sha256": { "type": "string", "pattern": "^[A-Fa-f0-9]{64}$" },
+        "machine": { "type": "string", "minLength": 1 }
+      }
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "revision"],
+      "properties": {
+        "repository": { "type": "string" },
+        "path": { "type": "string", "minLength": 1 },
+        "revision": { "type": "string", "minLength": 1 }
+      }
+    },
+    "build": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["compiler", "compiler_version", "flags"],
+      "properties": {
+        "compiler": { "type": "string", "minLength": 1 },
+        "compiler_version": { "type": "string", "minLength": 1 },
+        "flags": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "linker_flags": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "windy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["revision"],
+      "properties": {
+        "revision": { "type": "string", "minLength": 1 },
+        "configuration": { "type": "object" }
+      }
+    },
+    "ghidra": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["version", "configuration", "export_sha256"],
+      "properties": {
+        "version": { "type": "string", "minLength": 1 },
+        "configuration": { "type": "object" },
+        "export_path": { "type": "string" },
+        "export_sha256": { "type": "string", "pattern": "^[A-Fa-f0-9]{64}$" }
+      }
+    },
+    "notes": { "type": "string" }
+  }
+}

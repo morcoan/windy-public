@@ -2,7 +2,7 @@ use egui::{ScrollArea, Ui};
 
 use crate::project::Project;
 
-pub fn show(ui: &mut Ui, project: &mut Project, cursor: &mut u64) {
+pub fn show(ui: &mut Ui, project: &Project, cursor: &mut u64) {
     ui.heading("Functions");
 
     let functions: Vec<_> = project
@@ -15,7 +15,6 @@ pub fn show(ui: &mut Ui, project: &mut Project, cursor: &mut u64) {
         for (va, name) in functions {
             let label = format!("{:#010x}  {}", va, name);
             if ui.selectable_label(false, label).clicked() {
-                project.set_focus(va);
                 *cursor = va;
             }
         }

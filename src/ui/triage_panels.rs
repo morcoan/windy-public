@@ -1,18 +1,27 @@
 use egui::{RichText, ScrollArea, Separator, Ui};
 use egui_extras::{Column, TableBuilder};
 
-use crate::disasm::Disassembler;
 use crate::project::Project;
 use crate::ui::view::View;
 use crate::ui::{disasm_view, function_tree, hex_view, xrefs_view};
+use crate::ui::WindyTabViewer;
 
-pub fn render_view(
+pub fn render_view(ui: &mut Ui, view: &View, viewer: &mut WindyTabViewer<'_>) {
+    match viewer.project {
+        Some(project) => render_view_for_project(ui, view, viewer, project),
+        None => {
+            ui.centered_and_justified(|ui| {
+                ui.label("No PE loaded. Use File → Open to get started.");
+            });
+        }
+    }
+}
+
+fn render_view_for_project(
     ui: &mut Ui,
     view: &View,
-    project: &mut Project,
-    console: &mut [String],
-    cursor: &mut u64,
-    disassembler: &Disassembler,
+    viewer: &mut WindyTabViewer<'_>,
+    project: &Project,
 ) {
     match view {
         // Phase 1 triage panels
@@ -24,13 +33,15 @@ pub fn render_view(
         View::RichHeader => rich_header_panel(ui, project),
         View::Authenticode => authenticode_panel(ui, project),
         View::OverlayAnomalies => overlay_anomalies_panel(ui, project),
-        View::Console => console_panel(ui, console),
+        View::Console => console_panel(ui, viewer.console),
 
         // Platform-phase code browser panels
-        View::FunctionTree => function_tree::show(ui, project, cursor),
-        View::Disassembly => disasm_view::show(ui, project, *cursor, disassembler),
-        View::Hex => hex_view::show(ui, project, *cursor),
-        View::Xrefs => xrefs_view::show(ui, project, *cursor),
+        View::FunctionTree => function_tree::show(ui, project, viewer.cursor),
+        View::Disassembly => disasm_view::show(ui, project, *viewer.cursor, viewer.disassembler),
+        View::Decompiled => viewer.render_decompiled_view(ui, project, *viewer.cursor),
+        View::Hex => hex_view::show(ui, project, *viewer.cursor),
+        View::Xrefs => xrefs_view::show(ui, project, *viewer.cursor),
+        View::ProjectStatus => project_status_panel(ui, project),
     }
 }
 
@@ -356,5 +367,46 @@ fn overlay_anomalies_panel(ui: &mut Ui, project: &Project) {
             ui,
             &serde_json::to_value(&project.pe.triage.anomalies).unwrap_or_default(),
         );
+    });
+}
+
+fn project_status_panel(ui: &mut Ui, project: &Project) {
+    ScrollArea::vertical().show(ui, |ui| {
+        ui.heading("Project Status");
+        ui.separator();
+
+        ui.label(format!("Image: {}", project.pe.path.display()));
+        ui.label(format!("SHA256: {}", project.image_sha256));
+        ui.label(format!(
+            "IDB: {}",
+            crate::project::persistence::idb_path(&project.image_sha256).display()
+        ));
+
+        ui.separator();
+        ui.heading("Analysis");
+        ui.label(format!("Functions: {}", project.analysis.functions.len()));
+        ui.label(format!("Instructions: {}", project.analysis.code_index.len()));
+        ui.label(format!("Symbols: {}", project.symbols.iter().count()));
+        ui.label(format!("Stack frames: {}", project.function_frames.len()));
+        ui.label(format!(
+            "Types: {}",
+            project.types.iter_composites().count() + project.types.iter_signatures().count()
+        ));
+
+        ui.separator();
+        ui.heading("PDB");
+        if let Some(err) = &project.pdb_info.error {
+            ui.label(format!("PDB error: {err}"));
+        } else if project.pdb_info.loaded {
+            if let Some(src) = &project.pdb_info.source {
+                ui.label(format!("PDB loaded: {}", src.display()));
+            } else {
+                ui.label("PDB loaded from embedded/bundled symbols");
+            }
+            ui.label(format!("PDB symbols: {}", project.pdb_info.symbols.len()));
+            ui.label(format!("PDB frames: {}", project.pdb_info.frames.len()));
+        } else {
+            ui.label("No PDB available for this image.");
+        }
     });
 }

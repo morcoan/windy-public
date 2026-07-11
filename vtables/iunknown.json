@@ -1,0 +1,25 @@
+[
+  {
+    "interface": "IUnknown",
+    "methods": [
+      {
+        "offset": 0,
+        "name": "QueryInterface",
+        "params": [["riid", "void*"], ["ppv", "void**"]],
+        "ret": "int32"
+      },
+      {
+        "offset": 8,
+        "name": "AddRef",
+        "params": [],
+        "ret": "uint32"
+      },
+      {
+        "offset": 16,
+        "name": "Release",
+        "params": [],
+        "ret": "uint32"
+      }
+    ]
+  }
+]
