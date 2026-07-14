@@ -1,12 +1,12 @@
 {
   "schema": "windy_release_benchmark_provenance_v1",
-  "generated_at_utc": "2026-07-13T22:39:53Z",
+  "generated_at_utc": "2026-07-14T04:02:36Z",
   "release_candidate": "0.1.0",
   "source": {
     "branch": "codex/public-ready",
-    "head_commit": "2a4e4947faf6817c74e09da21d521d677dfdf69c",
-    "worktree_dirty": true,
-    "publishable_commit_identity": false
+    "head_commit": "e102b6a599b6b30a78d38e970c36e3399914e8bf",
+    "worktree_clean_at_artifact_generation": true,
+    "publishable_commit_identity": true
   },
   "corpus": {
     "manifest": "eval/grand/manifest.json",
@@ -41,18 +41,27 @@
     "engine_share": {
       "path": "docs/benchmarks/v0.1.0-rc/engine_share_v2.json",
       "sha256": "79f1f6c64929c941a17f5f5d7b394390ffc1be13c9e8cfd83fb829813edb8658"
+    },
+    "dogfood": {
+      "path": "docs/dogfood/v0.1.0-rc.md",
+      "sha256": "3966a8b411a5be211f9e2db4ea748d72d0415ead6d0f2c02b47abcc6d16c1bb9",
+      "target_sha256": "265b33e474cab087091868d04d6177a73319edcf39f105b2af57b02064b5bf85",
+      "target_redistributed": false
     }
   },
   "artifact": {
     "path": "dist/windy-v0.1.0-windows-x64.zip",
-    "sha256": "351e012c4e23c3d0fdf9f703a76ca86a2fab9a8bfe83e75480fae5bdbef5d47c",
-    "zip_size_bytes": 23096668,
-    "exe_size_bytes": 77736960,
+    "sha256": "5dffb08d8103feb07752e235abcb143585b3341fe5aa71bf346d926f15abe8ef",
+    "zip_size_bytes": 23100399,
+    "exe_sha256": "f61032c6fca69fbea4c6ba89c826262cf0565dbf80e8ddf74d74ca4a33f05fb0",
+    "exe_size_bytes": 77745152,
     "target": "x86_64-pc-windows-msvc",
     "profile": "release (thin LTO, one codegen unit, stripped symbols)",
     "crt": "static",
     "code_signing": "disabled; artifact is intentionally unsigned",
-    "packaged_exe_smoke": "pass"
+    "packaged_exe_smoke": "pass",
+    "doctor": "pass",
+    "mcp_initialize_open_evidence_decompile_persistence": "pass"
   },
   "results": {
     "functions_scored": 475,
@@ -65,25 +74,30 @@
     "ghidra_overall": 0.8793615980833477,
     "ghidra_catastrophic_rate": 0.06947368421052631
   },
-  "targeted_semantic_return_regressions": {
-    "status": "pass",
-    "coverage": [
-      "distinct RAX values at divergent exits",
-      "HRESULT failure and success exits",
-      "compare versus arithmetic exits",
-      "phi-merged single exit",
-      "cross-exit expression leakage prevention",
-      "checker rejection of collapsed or changed exit classes"
-    ]
+  "historical_prechange_summary": {
+    "path": "docs/benchmarks/prechange-baseline-summary.json",
+    "status": "invalid_non_comparable_audit_only",
+    "accepted_by_workflow": false,
+    "note": "The historical approximately 0.902 result is not a valid exact-address baseline."
   },
   "release_acceptance": {
+    "exact_overall_min": "pass",
+    "exact_catastrophic_max": "pass",
     "pure_v2_share": "pass",
     "fallback_count": "pass",
-    "omitted_count": "pass against the reported count of 24",
+    "omitted_count": "pass",
+    "empty_present_count": "pass",
     "targeted_semantic_return": "pass",
-    "comparable_prechange_baseline": "blocked",
-    "overall_and_catastrophic_non_regression": "not established",
-    "status": "blocked"
+    "dogfood": "pass",
+    "packaged_smoke": "pass",
+    "unresolved_p0_p1": 0,
+    "status": "pass"
   },
-  "blocker": "The only supplied pre-change result is an approximate summary whose identity maps selected CRT functions and whose Ghidra exports were stale. Its raw report and a source snapshot for a like-for-like rerun are unavailable. The repaired exact-address report must not be represented as passing that invalid comparison."
+  "publication": {
+    "authorized": false,
+    "pushed": false,
+    "tagged": false,
+    "release_created": false,
+    "manual_workflow_invoked": false
+  }
 }
