@@ -1,7 +1,6 @@
-
 //! Symsrv-compatible symbol cache with transparent download from the
 //! Microsoft public symbol server. Supports a bundled `./symbols` folder,
-//! the central `~/.windy/symbols` cache, and interop with any symsrv-style
+//! the resolved Windy data directory's `symbols` cache, and interop with any symsrv-style
 //! directory the user drops files into.
 
 use std::fs;
@@ -10,10 +9,10 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use anyhow::{Context, Result};
-use directories::UserDirs;
 use tracing::{info, warn};
 
 use crate::loader::debug_dir::CodeViewRecord;
+use crate::project::persistence::windy_home_dir;
 
 const SYMBOL_SERVER: &str = "https://msdl.microsoft.com/download/symbols";
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
@@ -32,9 +31,15 @@ impl Default for SymbolStore {
 }
 
 impl SymbolStore {
-    /// Central cache at `~/.windy/symbols` plus an optional bundled `./symbols`.
+    /// Central cache under the resolved Windy data directory plus an optional
+    /// bundled `./symbols`.
     pub fn new_central() -> Self {
-        let cache_dir = home_windy_dir().join("symbols");
+        Self::with_home_dir(windy_home_dir())
+    }
+
+    /// Symbol cache under an explicit Windy data directory.
+    pub fn with_home_dir(home_dir: impl AsRef<Path>) -> Self {
+        let cache_dir = home_dir.as_ref().join("symbols");
         let bundle_dir = bundled_symbols_dir();
         Self {
             cache_dir,
@@ -48,7 +53,11 @@ impl SymbolStore {
     pub fn resolve(&self, rec: &CodeViewRecord) -> Option<PathBuf> {
         let original = Path::new(&rec.pdb_name);
         if original.is_absolute() && original.exists() {
-            info!("PDB {} found at original build path {}", rec.pdb_basename(), original.display());
+            info!(
+                "PDB {} found at original build path {}",
+                rec.pdb_basename(),
+                original.display()
+            );
             return Some(original.to_path_buf());
         }
         if let Some(path) = self.find_bundle(rec) {
@@ -56,7 +65,11 @@ impl SymbolStore {
             return Some(path);
         }
         if let Some(path) = self.find_cache(rec) {
-            info!("PDB {} found in cache {}", rec.pdb_basename(), path.display());
+            info!(
+                "PDB {} found in cache {}",
+                rec.pdb_basename(),
+                path.display()
+            );
             return Some(path);
         }
         match self.download_and_cache(rec) {
@@ -121,22 +134,10 @@ impl SymbolStore {
     }
 }
 
-fn home_windy_dir() -> PathBuf {
-    if let Some(user) = UserDirs::new() {
-        return user.home_dir().join(".windy");
-    }
-    // Fallback: current directory/.windy (should be rare).
-    PathBuf::from(".windy")
-}
-
 fn bundled_symbols_dir() -> Option<PathBuf> {
     let exe = std::env::current_exe().ok()?;
     let dir = exe.parent()?.join("symbols");
-    if dir.exists() {
-        Some(dir)
-    } else {
-        None
-    }
+    if dir.exists() { Some(dir) } else { None }
 }
 
 /// Minimal percent-encoding for symbol names; PDB names virtually never need it,
@@ -161,5 +162,12 @@ mod tests {
         };
         assert_eq!(rec.guid_age(), "000000000000000000000000000000007");
         assert_eq!(rec.pdb_basename(), "ntdll.pdb");
+    }
+
+    #[test]
+    fn explicit_home_roots_the_symbol_cache() {
+        let home = PathBuf::from("isolated-windy-home");
+        let store = SymbolStore::with_home_dir(&home);
+        assert_eq!(store.cache_dir, home.join("symbols"));
     }
 }

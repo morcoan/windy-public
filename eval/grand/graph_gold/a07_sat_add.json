@@ -1,0 +1,30 @@
+{
+  "program_id": "a07_sat_add",
+  "source": "eval/grand/src/a07_sat_add.c",
+  "functions": [
+    {
+      "id": "f",
+      "source_name": "f",
+      "regions": [
+        "expr_return"
+      ],
+      "effects": [
+        {
+          "kind": "return",
+          "class": "compare",
+          "ops": [],
+          "critical": true
+        },
+        {
+          "kind": "return",
+          "class": null,
+          "ops": [
+            "<",
+            "-"
+          ],
+          "critical": false
+        }
+      ]
+    }
+  ]
+}

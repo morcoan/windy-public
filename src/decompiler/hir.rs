@@ -13,7 +13,7 @@
 //! lifting (unique-space values, alias analysis, and call argument recovery)
 //! can be layered on top without changing this public currency.
 
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fmt;
 
 use serde::{Deserialize, Serialize};
@@ -934,6 +934,18 @@ pub enum HirOperationKind {
     Pcode,
     /// A semantic CFG merge introduced from an SSA phi node.
     Phi,
+    /// Expression-level select (CMOV/setcc micro-control reduced instruction-locally).
+    Select,
+    /// Memory load through a partitioned object.
+    Load,
+    /// Memory store through a partitioned object.
+    Store,
+    /// Call site (Win64 ABI facts live on [`Win64CallSite`]).
+    Call,
+    /// Cast / width change with exact bit widths on values.
+    Cast,
+    /// Compare producing a 1-bit or flag-derived boolean.
+    Compare,
 }
 
 /// A value-def/use operation in the HIR provenance trace.
@@ -981,6 +993,14 @@ impl SsaLowering {
     pub fn lift_win64_calls(&mut self, ssa: &SsaFunction) -> Vec<CallSiteId> {
         lift_win64_calls(ssa, self)
     }
+
+    /// Resolve the source SSA value recorded for one architectural return.
+    pub fn exit_ssa_var(&self, block_id: u32) -> Option<&SsaVar> {
+        let value = self.hir.exit_values.get(&block_id)?;
+        self.values
+            .iter()
+            .find_map(|(var, id)| (id == value).then_some(var))
+    }
 }
 
 /// Arena-backed semantic HIR for one function.
@@ -990,6 +1010,12 @@ pub struct HirFunction {
     operations: Vec<HirOperation>,
     memory_objects: Vec<MemoryObject>,
     call_sites: Vec<Win64CallSite>,
+    /// Per-exit reaching return values (block_id → value), not global richest-expr.
+    #[serde(default)]
+    pub exit_values: BTreeMap<u32, ValueId>,
+    /// MemorySSA version counters per object (entry = 0).
+    #[serde(default)]
+    pub memory_versions: BTreeMap<MemoryObjectId, MemoryVersion>,
 }
 
 impl HirFunction {
@@ -1166,6 +1192,10 @@ impl HirFunction {
             if let Some(value) = operation.output {
                 self.require_value(value)?;
             }
+        }
+
+        for value in self.exit_values.values() {
+            self.require_value(*value)?;
         }
 
         for (index, call_site) in self.call_sites.iter().enumerate() {
@@ -1393,6 +1423,18 @@ pub fn lower_from_ssa(ssa: &SsaFunction) -> SsaLowering {
         }
     }
 
+    // Record each architectural exit independently. This follows the reaching
+    // RAX-family SSA value through a unique predecessor chain and accepts
+    // merges only through an explicit phi or an identical incoming value.
+    // Never select a value from a different exit or a function-wide heuristic.
+    for block in &ssa.blocks {
+        if let Some(var) = crate::decompiler::ssa::reaching_register_at_return(ssa, block.id, 0)
+            && let Some(value) = values.get(&var).copied()
+        {
+            hir.exit_values.insert(block.id, value);
+        }
+    }
+
     SsaLowering {
         hir,
         values,
@@ -1449,8 +1491,7 @@ pub fn lift_win64_calls(ssa: &SsaFunction, lowering: &mut SsaLowering) -> Vec<Ca
                 operation.provenance.contributors.clone(),
             );
             let target = lift_call_target(block, index, ssa_op, dest, &lowering.values);
-            let arguments =
-                lift_same_block_win64_arguments(block, index, ssa_op, &lowering.values);
+            let arguments = lift_same_block_win64_arguments(block, index, ssa_op, &lowering.values);
 
             let call_id = lowering
                 .hir
@@ -1699,6 +1740,79 @@ mod tests {
             }],
             image_base: 0x140000000,
         }
+    }
+
+    #[test]
+    fn lowering_records_distinct_rax_values_for_each_exit() {
+        let make_exit = |id: u32, va: u64, version: u32| {
+            let rax = ssa_var(0, version);
+            SsaBlock {
+                id,
+                entry_va: va,
+                ops: vec![
+                    define_register(va, 0, version),
+                    SsaOp {
+                        va: va + 1,
+                        kind: SsaOpKind::Pcode(PcodeOp::Return {
+                            dest: Varnode::constant(0, 8),
+                        }),
+                        def: None,
+                        uses: vec![rax],
+                    },
+                ],
+                predecessor_ids: Vec::new(),
+                successor_ids: Vec::new(),
+            }
+        };
+        let ssa = SsaFunction {
+            entry_va: 0x401000,
+            bitness: 64,
+            blocks: vec![make_exit(0, 0x401000, 1), make_exit(1, 0x402000, 2)],
+            image_base: 0x140000000,
+        };
+        let lowered = lower_from_ssa(&ssa);
+        assert_eq!(lowered.hir.exit_values.len(), 2);
+        assert_ne!(lowered.hir.exit_values[&0], lowered.hir.exit_values[&1]);
+        assert_eq!(lowered.exit_ssa_var(0), Some(&ssa_var(0, 1)));
+        assert_eq!(lowered.exit_ssa_var(1), Some(&ssa_var(0, 2)));
+        assert!(lowered.hir.validate().is_ok());
+    }
+
+    #[test]
+    fn lowering_records_rax_defined_in_an_exit_predecessor() {
+        let rax = ssa_var(0, 1);
+        let ssa = SsaFunction {
+            entry_va: 0x401000,
+            bitness: 64,
+            blocks: vec![
+                SsaBlock {
+                    id: 0,
+                    entry_va: 0x401000,
+                    ops: vec![define_register(0x401000, 0, 1)],
+                    predecessor_ids: Vec::new(),
+                    successor_ids: vec![1],
+                },
+                SsaBlock {
+                    id: 1,
+                    entry_va: 0x401010,
+                    ops: vec![SsaOp {
+                        va: 0x401010,
+                        kind: SsaOpKind::Pcode(PcodeOp::Return {
+                            dest: Varnode::constant(0, 8),
+                        }),
+                        def: None,
+                        uses: Vec::new(),
+                    }],
+                    predecessor_ids: vec![0],
+                    successor_ids: Vec::new(),
+                },
+            ],
+            image_base: 0x140000000,
+        };
+
+        let lowered = lower_from_ssa(&ssa);
+        assert_eq!(lowered.exit_ssa_var(1), Some(&rax));
+        assert!(lowered.hir.validate().is_ok());
     }
 
     #[test]

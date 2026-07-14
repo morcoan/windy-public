@@ -1,0 +1,57 @@
+{
+  "program_id": "e04_tailish",
+  "source": "eval/grand/src/e04_tailish.c",
+  "functions": [
+    {
+      "id": "leaf",
+      "source_name": "leaf",
+      "regions": [
+        "expr_return"
+      ],
+      "effects": [
+        {
+          "kind": "return",
+          "class": "bin_op",
+          "ops": [],
+          "critical": true
+        },
+        {
+          "kind": "return",
+          "class": null,
+          "ops": [
+            "*"
+          ],
+          "critical": false
+        }
+      ]
+    },
+    {
+      "id": "mid",
+      "source_name": "mid",
+      "regions": [
+        "expr_return"
+      ],
+      "effects": [
+        {
+          "kind": "return",
+          "class": "bin_op",
+          "ops": [],
+          "critical": true
+        },
+        {
+          "kind": "return",
+          "class": null,
+          "ops": [
+            "+"
+          ],
+          "critical": false
+        },
+        {
+          "kind": "call",
+          "target": "leaf",
+          "critical": false
+        }
+      ]
+    }
+  ]
+}

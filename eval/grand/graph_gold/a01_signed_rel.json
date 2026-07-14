@@ -1,0 +1,52 @@
+{
+  "program_id": "a01_signed_rel",
+  "source": "eval/grand/src/a01_signed_rel.c",
+  "functions": [
+    {
+      "id": "signed_lt",
+      "source_name": "signed_lt",
+      "regions": [
+        "expr_return"
+      ],
+      "effects": [
+        {
+          "kind": "return",
+          "class": "compare",
+          "ops": [],
+          "critical": true
+        },
+        {
+          "kind": "return",
+          "class": null,
+          "ops": [
+            "<"
+          ],
+          "critical": false
+        }
+      ]
+    },
+    {
+      "id": "unsigned_lt",
+      "source_name": "unsigned_lt",
+      "regions": [
+        "expr_return"
+      ],
+      "effects": [
+        {
+          "kind": "return",
+          "class": "compare",
+          "ops": [],
+          "critical": true
+        },
+        {
+          "kind": "return",
+          "class": null,
+          "ops": [
+            "<"
+          ],
+          "critical": false
+        }
+      ]
+    }
+  ]
+}

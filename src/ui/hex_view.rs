@@ -26,7 +26,11 @@ pub fn show(ui: &mut Ui, project: &Project, cursor: u64) {
             let mut ascii = String::with_capacity(BYTES_PER_ROW);
             for b in chunk {
                 hex.push_str(&format!("{:02x} ", b));
-                ascii.push(if b.is_ascii_graphic() { *b as char } else { '.' });
+                ascii.push(if b.is_ascii_graphic() {
+                    *b as char
+                } else {
+                    '.'
+                });
             }
             ui.monospace(format!("{:016x}  {:48}  {}", va, hex, ascii));
         }

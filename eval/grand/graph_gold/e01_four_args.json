@@ -1,0 +1,29 @@
+{
+  "program_id": "e01_four_args",
+  "source": "eval/grand/src/e01_four_args.c",
+  "functions": [
+    {
+      "id": "four",
+      "source_name": "four",
+      "regions": [
+        "expr_return"
+      ],
+      "effects": [
+        {
+          "kind": "return",
+          "class": "bin_op",
+          "ops": [],
+          "critical": true
+        },
+        {
+          "kind": "return",
+          "class": null,
+          "ops": [
+            "+"
+          ],
+          "critical": false
+        }
+      ]
+    }
+  ]
+}

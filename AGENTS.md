@@ -66,8 +66,9 @@ user asked for hex (`read_va` / `get_fragment` capped at 512 bytes).
 ```bash
 windy eval-agent-loop --pe gclsd/bench/sample.exe --limit 16
 cargo test eval_metrics
-# Windy vs Ghidra vs source gold (sample.c)
+# Windy vs Ghidra vs source gold (sample.c smoke + complex.c quality gap)
 windy decomp-scorecard
+windy decomp-scorecard --gold eval/gold/complex_source_gold.json
 cargo test decomp_scorecard
 ```
 

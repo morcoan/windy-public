@@ -7,11 +7,11 @@
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
-use crate::project::comments::CommentScope;
-use crate::project::symbols::SymbolKind;
-use crate::project::memory::FunctionMemoryCard;
-use crate::project::types::{DataType, FunctionSignature, StackFrame, StackVariable};
 use crate::project::Project;
+use crate::project::comments::CommentScope;
+use crate::project::memory::FunctionMemoryCard;
+use crate::project::symbols::SymbolKind;
+use crate::project::types::{DataType, FunctionSignature, StackFrame, StackVariable};
 
 /// A single reversible project mutation.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -117,13 +117,15 @@ impl Op {
                     *old_kind = project.symbols.get(*va).map(|s| s.kind);
                 }
                 if let Some(prev) = old_name.as_ref() {
-                    project.alias_history.push(crate::project::symbols::AliasEvent {
-                        va: *va,
-                        old_name: prev.clone(),
-                        new_name: name.clone(),
-                        source: "user".into(),
-                        seq: project.op_seq.saturating_add(1),
-                    });
+                    project
+                        .alias_history
+                        .push(crate::project::symbols::AliasEvent {
+                            va: *va,
+                            old_name: prev.clone(),
+                            new_name: name.clone(),
+                            source: "user".into(),
+                            seq: project.op_seq.saturating_add(1),
+                        });
                 }
                 project.symbols.insert(*va, name.clone(), *kind);
             }
@@ -169,10 +171,7 @@ impl Op {
                 ty,
                 old_ty,
             } => {
-                let frame = project
-                    .function_frames
-                    .entry(*function_va)
-                    .or_default();
+                let frame = project.function_frames.entry(*function_va).or_default();
                 if old_ty.is_none() {
                     *old_ty = frame
                         .locals
@@ -192,10 +191,7 @@ impl Op {
                 name,
                 old_name,
             } => {
-                let frame = project
-                    .function_frames
-                    .entry(*function_va)
-                    .or_default();
+                let frame = project.function_frames.entry(*function_va).or_default();
                 if old_name.is_none() {
                     *old_name = Some(
                         frame
@@ -225,20 +221,21 @@ impl Op {
                 old_name,
             } => {
                 let sigs = Arc::make_mut(&mut project.function_signatures);
-                let sig = sigs.entry(*function_va).or_insert_with(|| FunctionSignature {
-                    name: project
-                        .symbols
-                        .name(*function_va)
-                        .unwrap_or("sub")
-                        .to_string(),
-                    params: Vec::new(),
-                    ret: DataType::Unknown(0),
-                    calling_conv: None,
-                });
+                let sig = sigs
+                    .entry(*function_va)
+                    .or_insert_with(|| FunctionSignature {
+                        name: project
+                            .symbols
+                            .name(*function_va)
+                            .unwrap_or("sub")
+                            .to_string(),
+                        params: Vec::new(),
+                        ret: DataType::Unknown(0),
+                        calling_conv: None,
+                    });
                 while sig.params.len() <= *index {
                     let i = sig.params.len();
-                    sig.params
-                        .push((format!("arg{i}"), DataType::Unknown(0)));
+                    sig.params.push((format!("arg{i}"), DataType::Unknown(0)));
                 }
                 if old_name.is_none() {
                     *old_name = Some(sig.params[*index].0.clone());

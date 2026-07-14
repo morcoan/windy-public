@@ -6,7 +6,10 @@
 # `rsleigh_api::Decoder::decode` for even trivial instructions.
 
 [target.x86_64-pc-windows-msvc]
-rustflags = ["-C", "link-args=/STACK:134217728"]
+rustflags = [
+    "-C", "target-feature=+crt-static",
+    "-C", "link-args=/STACK:134217728",
+]
 
 [target.i686-pc-windows-msvc]
 rustflags = ["-C", "link-args=/STACK:134217728"]

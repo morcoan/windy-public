@@ -1,0 +1,709 @@
+{
+  "programs": [
+    {
+      "program_id": "a01_signed_rel",
+      "kind": "atomic",
+      "pack_tags": [
+        "A"
+      ],
+      "language": "c",
+      "source": "eval/grand/src/a01_signed_rel.c",
+      "gold": "eval/grand/gold/a01_signed_rel.json"
+    },
+    {
+      "program_id": "a02_narrow_promo",
+      "kind": "atomic",
+      "pack_tags": [
+        "A"
+      ],
+      "language": "c",
+      "source": "eval/grand/src/a02_narrow_promo.c",
+      "gold": "eval/grand/gold/a02_narrow_promo.json"
+    },
+    {
+      "program_id": "a03_minmax_abs",
+      "kind": "atomic",
+      "pack_tags": [
+        "A"
+      ],
+      "language": "c",
+      "source": "eval/grand/src/a03_minmax_abs.c",
+      "gold": "eval/grand/gold/a03_minmax_abs.json"
+    },
+    {
+      "program_id": "a04_div_rem",
+      "kind": "atomic",
+      "pack_tags": [
+        "A"
+      ],
+      "language": "c",
+      "source": "eval/grand/src/a04_div_rem.c",
+      "gold": "eval/grand/gold/a04_div_rem.json"
+    },
+    {
+      "program_id": "b01_sum_until_zero",
+      "kind": "atomic",
+      "pack_tags": [
+        "B"
+      ],
+      "language": "c",
+      "source": "eval/grand/src/b01_sum_until_zero.c",
+      "gold": "eval/grand/gold/b01_sum_until_zero.json"
+    },
+    {
+      "program_id": "b02_walk_cstr",
+      "kind": "atomic",
+      "pack_tags": [
+        "B"
+      ],
+      "language": "c",
+      "source": "eval/grand/src/b02_walk_cstr.c",
+      "gold": "eval/grand/gold/b02_walk_cstr.json"
+    },
+    {
+      "program_id": "b03_nested_loop",
+      "kind": "atomic",
+      "pack_tags": [
+        "B"
+      ],
+      "language": "c",
+      "source": "eval/grand/src/b03_nested_loop.c",
+      "gold": "eval/grand/gold/b03_nested_loop.json"
+    },
+    {
+      "program_id": "b04_reverse_count",
+      "kind": "atomic",
+      "pack_tags": [
+        "B"
+      ],
+      "language": "c",
+      "source": "eval/grand/src/b04_reverse_count.c",
+      "gold": "eval/grand/gold/b04_reverse_count.json"
+    },
+    {
+      "program_id": "c01_nested_if",
+      "kind": "atomic",
+      "pack_tags": [
+        "C"
+      ],
+      "language": "c",
+      "source": "eval/grand/src/c01_nested_if.c",
+      "gold": "eval/grand/gold/c01_nested_if.json"
+    },
+    {
+      "program_id": "c02_switch_dense",
+      "kind": "atomic",
+      "pack_tags": [
+        "C"
+      ],
+      "language": "c",
+      "source": "eval/grand/src/c02_switch_dense.c",
+      "gold": "eval/grand/gold/c02_switch_dense.json"
+    },
+    {
+      "program_id": "c03_dispatch",
+      "kind": "atomic",
+      "pack_tags": [
+        "C",
+        "E"
+      ],
+      "language": "c",
+      "source": "eval/grand/src/c03_dispatch.c",
+      "gold": "eval/grand/gold/c03_dispatch.json"
+    },
+    {
+      "program_id": "c04_short_circuit",
+      "kind": "atomic",
+      "pack_tags": [
+        "C"
+      ],
+      "language": "c",
+      "source": "eval/grand/src/c04_short_circuit.c",
+      "gold": "eval/grand/gold/c04_short_circuit.json"
+    },
+    {
+      "program_id": "d01_struct_point",
+      "kind": "atomic",
+      "pack_tags": [
+        "D"
+      ],
+      "language": "c",
+      "source": "eval/grand/src/d01_struct_point.c",
+      "gold": "eval/grand/gold/d01_struct_point.json"
+    },
+    {
+      "program_id": "d02_array_stride",
+      "kind": "atomic",
+      "pack_tags": [
+        "D"
+      ],
+      "language": "c",
+      "source": "eval/grand/src/d02_array_stride.c",
+      "gold": "eval/grand/gold/d02_array_stride.json"
+    },
+    {
+      "program_id": "d03_nested_struct",
+      "kind": "atomic",
+      "pack_tags": [
+        "D"
+      ],
+      "language": "c",
+      "source": "eval/grand/src/d03_nested_struct.c",
+      "gold": "eval/grand/gold/d03_nested_struct.json"
+    },
+    {
+      "program_id": "d04_tagged_union",
+      "kind": "atomic",
+      "pack_tags": [
+        "D"
+      ],
+      "language": "c",
+      "source": "eval/grand/src/d04_tagged_union.c",
+      "gold": "eval/grand/gold/d04_tagged_union.json"
+    },
+    {
+      "program_id": "e01_four_args",
+      "kind": "atomic",
+      "pack_tags": [
+        "E"
+      ],
+      "language": "c",
+      "source": "eval/grand/src/e01_four_args.c",
+      "gold": "eval/grand/gold/e01_four_args.json"
+    },
+    {
+      "program_id": "e02_fn_ptr",
+      "kind": "atomic",
+      "pack_tags": [
+        "E"
+      ],
+      "language": "c",
+      "source": "eval/grand/src/e02_fn_ptr.c",
+      "gold": "eval/grand/gold/e02_fn_ptr.json"
+    },
+    {
+      "program_id": "e03_stack_args",
+      "kind": "atomic",
+      "pack_tags": [
+        "E"
+      ],
+      "language": "c",
+      "source": "eval/grand/src/e03_stack_args.c",
+      "gold": "eval/grand/gold/e03_stack_args.json"
+    },
+    {
+      "program_id": "e04_tailish",
+      "kind": "atomic",
+      "pack_tags": [
+        "E"
+      ],
+      "language": "c",
+      "source": "eval/grand/src/e04_tailish.c",
+      "gold": "eval/grand/gold/e04_tailish.json"
+    },
+    {
+      "program_id": "a05_bitops",
+      "kind": "atomic",
+      "pack_tags": [
+        "A"
+      ],
+      "language": "c",
+      "source": "eval/grand/src/a05_bitops.c",
+      "gold": "eval/grand/gold/a05_bitops.json"
+    },
+    {
+      "program_id": "a06_shift",
+      "kind": "atomic",
+      "pack_tags": [
+        "A"
+      ],
+      "language": "c",
+      "source": "eval/grand/src/a06_shift.c",
+      "gold": "eval/grand/gold/a06_shift.json"
+    },
+    {
+      "program_id": "a07_sat_add",
+      "kind": "atomic",
+      "pack_tags": [
+        "A"
+      ],
+      "language": "c",
+      "source": "eval/grand/src/a07_sat_add.c",
+      "gold": "eval/grand/gold/a07_sat_add.json"
+    },
+    {
+      "program_id": "a08_cmov_style",
+      "kind": "atomic",
+      "pack_tags": [
+        "A"
+      ],
+      "language": "c",
+      "source": "eval/grand/src/a08_cmov_style.c",
+      "gold": "eval/grand/gold/a08_cmov_style.json"
+    },
+    {
+      "program_id": "b05_continue_skip",
+      "kind": "atomic",
+      "pack_tags": [
+        "B"
+      ],
+      "language": "c",
+      "source": "eval/grand/src/b05_continue_skip.c",
+      "gold": "eval/grand/gold/b05_continue_skip.json"
+    },
+    {
+      "program_id": "b06_search",
+      "kind": "atomic",
+      "pack_tags": [
+        "B"
+      ],
+      "language": "c",
+      "source": "eval/grand/src/b06_search.c",
+      "gold": "eval/grand/gold/b06_search.json"
+    },
+    {
+      "program_id": "c05_ternary_chain",
+      "kind": "atomic",
+      "pack_tags": [
+        "C"
+      ],
+      "language": "c",
+      "source": "eval/grand/src/c05_ternary_chain.c",
+      "gold": "eval/grand/gold/c05_ternary_chain.json"
+    },
+    {
+      "program_id": "c06_state_machine",
+      "kind": "atomic",
+      "pack_tags": [
+        "C"
+      ],
+      "language": "c",
+      "source": "eval/grand/src/c06_state_machine.c",
+      "gold": "eval/grand/gold/c06_state_machine.json"
+    },
+    {
+      "program_id": "d05_global",
+      "kind": "atomic",
+      "pack_tags": [
+        "D"
+      ],
+      "language": "c",
+      "source": "eval/grand/src/d05_global.c",
+      "gold": "eval/grand/gold/d05_global.json"
+    },
+    {
+      "program_id": "d06_ptr_alias",
+      "kind": "atomic",
+      "pack_tags": [
+        "D"
+      ],
+      "language": "c",
+      "source": "eval/grand/src/d06_ptr_alias.c",
+      "gold": "eval/grand/gold/d06_ptr_alias.json"
+    },
+    {
+      "program_id": "e05_callback",
+      "kind": "atomic",
+      "pack_tags": [
+        "E"
+      ],
+      "language": "c",
+      "source": "eval/grand/src/e05_callback.c",
+      "gold": "eval/grand/gold/e05_callback.json"
+    },
+    {
+      "program_id": "j01_const_fold_ready",
+      "kind": "atomic",
+      "pack_tags": [
+        "J"
+      ],
+      "language": "c",
+      "source": "eval/grand/src/j01_const_fold_ready.c",
+      "gold": "eval/grand/gold/j01_const_fold_ready.json"
+    },
+    {
+      "program_id": "cmp01_loop_ctrl",
+      "kind": "composite",
+      "pack_tags": [
+        "B",
+        "C"
+      ],
+      "language": "c",
+      "source": "eval/grand/src/cmp01_loop_ctrl.c",
+      "gold": "eval/grand/gold/cmp01_loop_ctrl.json"
+    },
+    {
+      "program_id": "cmp02_mem_call",
+      "kind": "composite",
+      "pack_tags": [
+        "D",
+        "E"
+      ],
+      "language": "c",
+      "source": "eval/grand/src/cmp02_mem_call.c",
+      "gold": "eval/grand/gold/cmp02_mem_call.json"
+    },
+    {
+      "program_id": "cmp03_switch_loop",
+      "kind": "composite",
+      "pack_tags": [
+        "B",
+        "C"
+      ],
+      "language": "c",
+      "source": "eval/grand/src/cmp03_switch_loop.c",
+      "gold": "eval/grand/gold/cmp03_switch_loop.json"
+    },
+    {
+      "program_id": "cmp04_mix",
+      "kind": "composite",
+      "pack_tags": [
+        "B",
+        "C"
+      ],
+      "language": "c",
+      "source": "eval/grand/src/cmp04_mix.c",
+      "gold": "eval/grand/gold/cmp04_mix.json"
+    },
+    {
+      "program_id": "cmp05_mix",
+      "kind": "composite",
+      "pack_tags": [
+        "C",
+        "E"
+      ],
+      "language": "c",
+      "source": "eval/grand/src/cmp05_mix.c",
+      "gold": "eval/grand/gold/cmp05_mix.json"
+    },
+    {
+      "program_id": "cmp06_mix",
+      "kind": "composite",
+      "pack_tags": [
+        "A",
+        "B"
+      ],
+      "language": "c",
+      "source": "eval/grand/src/cmp06_mix.c",
+      "gold": "eval/grand/gold/cmp06_mix.json"
+    },
+    {
+      "program_id": "cmp07_mix",
+      "kind": "composite",
+      "pack_tags": [
+        "B",
+        "C"
+      ],
+      "language": "c",
+      "source": "eval/grand/src/cmp07_mix.c",
+      "gold": "eval/grand/gold/cmp07_mix.json"
+    },
+    {
+      "program_id": "cmp08_mix",
+      "kind": "composite",
+      "pack_tags": [
+        "C",
+        "E"
+      ],
+      "language": "c",
+      "source": "eval/grand/src/cmp08_mix.c",
+      "gold": "eval/grand/gold/cmp08_mix.json"
+    },
+    {
+      "program_id": "cmp09_mix",
+      "kind": "composite",
+      "pack_tags": [
+        "A",
+        "B"
+      ],
+      "language": "c",
+      "source": "eval/grand/src/cmp09_mix.c",
+      "gold": "eval/grand/gold/cmp09_mix.json"
+    },
+    {
+      "program_id": "cmp10_mix",
+      "kind": "composite",
+      "pack_tags": [
+        "B",
+        "C"
+      ],
+      "language": "c",
+      "source": "eval/grand/src/cmp10_mix.c",
+      "gold": "eval/grand/gold/cmp10_mix.json"
+    },
+    {
+      "program_id": "cmp11_mix",
+      "kind": "composite",
+      "pack_tags": [
+        "C",
+        "E"
+      ],
+      "language": "c",
+      "source": "eval/grand/src/cmp11_mix.c",
+      "gold": "eval/grand/gold/cmp11_mix.json"
+    },
+    {
+      "program_id": "cmp12_mix",
+      "kind": "composite",
+      "pack_tags": [
+        "A",
+        "B"
+      ],
+      "language": "c",
+      "source": "eval/grand/src/cmp12_mix.c",
+      "gold": "eval/grand/gold/cmp12_mix.json"
+    },
+    {
+      "program_id": "cmp13_mix",
+      "kind": "composite",
+      "pack_tags": [
+        "B",
+        "C"
+      ],
+      "language": "c",
+      "source": "eval/grand/src/cmp13_mix.c",
+      "gold": "eval/grand/gold/cmp13_mix.json"
+    },
+    {
+      "program_id": "cmp14_mix",
+      "kind": "composite",
+      "pack_tags": [
+        "C",
+        "E"
+      ],
+      "language": "c",
+      "source": "eval/grand/src/cmp14_mix.c",
+      "gold": "eval/grand/gold/cmp14_mix.json"
+    },
+    {
+      "program_id": "cmp15_mix",
+      "kind": "composite",
+      "pack_tags": [
+        "A",
+        "B"
+      ],
+      "language": "c",
+      "source": "eval/grand/src/cmp15_mix.c",
+      "gold": "eval/grand/gold/cmp15_mix.json"
+    },
+    {
+      "program_id": "cmp16_mix",
+      "kind": "composite",
+      "pack_tags": [
+        "B",
+        "C"
+      ],
+      "language": "c",
+      "source": "eval/grand/src/cmp16_mix.c",
+      "gold": "eval/grand/gold/cmp16_mix.json"
+    },
+    {
+      "program_id": "cmp17_mix",
+      "kind": "composite",
+      "pack_tags": [
+        "C",
+        "E"
+      ],
+      "language": "c",
+      "source": "eval/grand/src/cmp17_mix.c",
+      "gold": "eval/grand/gold/cmp17_mix.json"
+    },
+    {
+      "program_id": "cmp18_mix",
+      "kind": "composite",
+      "pack_tags": [
+        "A",
+        "B"
+      ],
+      "language": "c",
+      "source": "eval/grand/src/cmp18_mix.c",
+      "gold": "eval/grand/gold/cmp18_mix.json"
+    },
+    {
+      "program_id": "cmp19_mix",
+      "kind": "composite",
+      "pack_tags": [
+        "B",
+        "C"
+      ],
+      "language": "c",
+      "source": "eval/grand/src/cmp19_mix.c",
+      "gold": "eval/grand/gold/cmp19_mix.json"
+    },
+    {
+      "program_id": "cmp20_mix",
+      "kind": "composite",
+      "pack_tags": [
+        "C",
+        "E"
+      ],
+      "language": "c",
+      "source": "eval/grand/src/cmp20_mix.c",
+      "gold": "eval/grand/gold/cmp20_mix.json"
+    },
+    {
+      "program_id": "cmp21_mix",
+      "kind": "composite",
+      "pack_tags": [
+        "A",
+        "B"
+      ],
+      "language": "c",
+      "source": "eval/grand/src/cmp21_mix.c",
+      "gold": "eval/grand/gold/cmp21_mix.json"
+    },
+    {
+      "program_id": "cmp22_mix",
+      "kind": "composite",
+      "pack_tags": [
+        "B",
+        "C"
+      ],
+      "language": "c",
+      "source": "eval/grand/src/cmp22_mix.c",
+      "gold": "eval/grand/gold/cmp22_mix.json"
+    },
+    {
+      "program_id": "cmp23_mix",
+      "kind": "composite",
+      "pack_tags": [
+        "C",
+        "E"
+      ],
+      "language": "c",
+      "source": "eval/grand/src/cmp23_mix.c",
+      "gold": "eval/grand/gold/cmp23_mix.json"
+    },
+    {
+      "program_id": "cmp24_mix",
+      "kind": "composite",
+      "pack_tags": [
+        "A",
+        "B"
+      ],
+      "language": "c",
+      "source": "eval/grand/src/cmp24_mix.c",
+      "gold": "eval/grand/gold/cmp24_mix.json"
+    },
+    {
+      "program_id": "boss_telemetry_decoder",
+      "kind": "boss",
+      "pack_tags": [
+        "I",
+        "B",
+        "C",
+        "D",
+        "E",
+        "J"
+      ],
+      "language": "c",
+      "source": "eval/grand/src/boss_telemetry_decoder",
+      "gold": "eval/grand/gold/boss_telemetry_decoder.json",
+      "sources": [
+        "eval/grand/src/boss_telemetry_decoder/telemetry_reader.c",
+        "eval/grand/src/boss_telemetry_decoder/telemetry_decode.c",
+        "eval/grand/src/boss_telemetry_decoder/telemetry_handlers.c",
+        "eval/grand/src/boss_telemetry_decoder/telemetry_main.c"
+      ],
+      "includes": [
+        "eval/grand/src/boss_telemetry_decoder"
+      ]
+    },
+    {
+      "program_id": "boss_com_variant_router",
+      "kind": "boss",
+      "pack_tags": [
+        "F",
+        "G",
+        "E"
+      ],
+      "language": "c",
+      "source": "eval/grand/src/boss_com_variant_router",
+      "gold": "eval/grand/gold/boss_com_variant_router.json",
+      "sources": [
+        "eval/grand/src/boss_com_variant_router/router_object.c",
+        "eval/grand/src/boss_com_variant_router/variant_convert.c",
+        "eval/grand/src/boss_com_variant_router/router_entry.c"
+      ],
+      "includes": [
+        "eval/grand/src/boss_com_variant_router"
+      ]
+    },
+    {
+      "program_id": "boss_seh_resource_loader",
+      "kind": "boss",
+      "pack_tags": [
+        "H",
+        "F",
+        "D"
+      ],
+      "language": "c",
+      "source": "eval/grand/src/boss_seh_resource_loader",
+      "gold": "eval/grand/gold/boss_seh_resource_loader.json",
+      "sources": [
+        "eval/grand/src/boss_seh_resource_loader/seh_guard.c",
+        "eval/grand/src/boss_seh_resource_loader/resource_parser.c",
+        "eval/grand/src/boss_seh_resource_loader/loader.c"
+      ],
+      "includes": [
+        "eval/grand/src/boss_seh_resource_loader"
+      ]
+    },
+    {
+      "program_id": "boss_extra_3",
+      "kind": "boss",
+      "pack_tags": [
+        "I",
+        "J"
+      ],
+      "language": "c",
+      "source": "eval/grand/src/boss_extra_3.c",
+      "gold": "eval/grand/gold/boss_extra_3.json"
+    },
+    {
+      "program_id": "boss_extra_4",
+      "kind": "boss",
+      "pack_tags": [
+        "I",
+        "J"
+      ],
+      "language": "c",
+      "source": "eval/grand/src/boss_extra_4.c",
+      "gold": "eval/grand/gold/boss_extra_4.json"
+    },
+    {
+      "program_id": "boss_extra_5",
+      "kind": "boss",
+      "pack_tags": [
+        "I",
+        "J"
+      ],
+      "language": "c",
+      "source": "eval/grand/src/boss_extra_5.c",
+      "gold": "eval/grand/gold/boss_extra_5.json"
+    },
+    {
+      "program_id": "boss_extra_6",
+      "kind": "boss",
+      "pack_tags": [
+        "I",
+        "J"
+      ],
+      "language": "c",
+      "source": "eval/grand/src/boss_extra_6.c",
+      "gold": "eval/grand/gold/boss_extra_6.json"
+    },
+    {
+      "program_id": "boss_extra_7",
+      "kind": "boss",
+      "pack_tags": [
+        "I",
+        "J"
+      ],
+      "language": "c",
+      "source": "eval/grand/src/boss_extra_7.c",
+      "gold": "eval/grand/gold/boss_extra_7.json"
+    }
+  ],
+  "count": 64
+}

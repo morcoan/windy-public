@@ -2,6 +2,19 @@
 name = "windy"
 version = "0.1.0"
 edition = "2024"
+rust-version = "1.85"
+description = "A static Windows PE reverse-engineering workbench and pure MCP analysis server"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/morcoan/windy"
+readme = "README.md"
+keywords = ["reverse-engineering", "mcp", "decompiler", "pe", "windows"]
+categories = ["development-tools", "command-line-utilities"]
+
+[features]
+default = []
+# Archived corpus/model authoring support. The public release binary is fully
+# native and does not compile an HTTP model client.
+gclsd-archive = ["dep:reqwest"]
 
 [dependencies]
 anyhow = "1"
@@ -12,7 +25,6 @@ eframe = { version = "0.35", features = ["default", "persistence"] }
 egui = "0.35.0"
 egui_dock = "0.20"
 egui_extras = "0.35"
-exe = "0.5.7"
 iced-x86 = "1.21.0"
 memmap2 = "0.9.11"
 fallible-iterator = "0.2"
@@ -40,4 +52,9 @@ schemars = "1"
 tokio = { version = "1", features = ["full"] }
 axum = "0.7"
 http-body-util = "0.1"
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+reqwest = { version = "0.12", optional = true, default-features = false, features = ["json", "rustls-tls"] }
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = "symbols"

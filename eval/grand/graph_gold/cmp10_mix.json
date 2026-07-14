@@ -1,0 +1,62 @@
+{
+  "program_id": "cmp10_mix",
+  "source": "eval/grand/src/cmp10_mix.c",
+  "functions": [
+    {
+      "id": "helper",
+      "source_name": "helper",
+      "regions": [
+        "expr_return"
+      ],
+      "effects": [
+        {
+          "kind": "return",
+          "class": "bin_op",
+          "ops": [],
+          "critical": true
+        },
+        {
+          "kind": "return",
+          "class": null,
+          "ops": [
+            "+"
+          ],
+          "critical": false
+        }
+      ]
+    },
+    {
+      "id": "work",
+      "source_name": "work",
+      "regions": [
+        "expr_return",
+        "loop"
+      ],
+      "effects": [
+        {
+          "kind": "return",
+          "class": "name",
+          "ops": [],
+          "critical": true
+        },
+        {
+          "kind": "return",
+          "class": null,
+          "ops": [
+            "<"
+          ],
+          "critical": false
+        },
+        {
+          "kind": "call",
+          "target": "helper",
+          "critical": false
+        },
+        {
+          "kind": "loop",
+          "critical": false
+        }
+      ]
+    }
+  ]
+}

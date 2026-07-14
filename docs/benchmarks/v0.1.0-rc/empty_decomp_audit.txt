@@ -1,0 +1,3 @@
+# Empty decompile audit (present functions only)
+
+EmptyDecompile among present: 0

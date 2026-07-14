@@ -1,0 +1,53 @@
+{
+  "program_id": "a03_minmax_abs",
+  "source": "eval/grand/src/a03_minmax_abs.c",
+  "functions": [
+    {
+      "id": "imin",
+      "source_name": "imin",
+      "regions": [
+        "expr_return"
+      ],
+      "effects": [
+        {
+          "kind": "return",
+          "class": "compare",
+          "ops": [],
+          "critical": true
+        },
+        {
+          "kind": "return",
+          "class": null,
+          "ops": [
+            "<"
+          ],
+          "critical": false
+        }
+      ]
+    },
+    {
+      "id": "iabs",
+      "source_name": "iabs",
+      "regions": [
+        "expr_return"
+      ],
+      "effects": [
+        {
+          "kind": "return",
+          "class": "compare",
+          "ops": [],
+          "critical": true
+        },
+        {
+          "kind": "return",
+          "class": null,
+          "ops": [
+            "<",
+            "-"
+          ],
+          "critical": false
+        }
+      ]
+    }
+  ]
+}

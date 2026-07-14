@@ -1,0 +1,92 @@
+{
+  "program_id": "boss_com_variant_router",
+  "source": "eval/grand/src/boss_com_variant_router.c",
+  "functions": [
+    {
+      "id": "QueryInterface",
+      "source_name": "QueryInterface",
+      "regions": [
+        "expr_return",
+        "if"
+      ],
+      "effects": [
+        {
+          "kind": "return",
+          "class": "const",
+          "ops": [],
+          "critical": true
+        },
+        {
+          "kind": "store",
+          "critical": false
+        }
+      ]
+    },
+    {
+      "id": "AddRef",
+      "source_name": "AddRef",
+      "regions": [
+        "expr_return"
+      ],
+      "effects": [
+        {
+          "kind": "return",
+          "class": "name",
+          "ops": [],
+          "critical": true
+        }
+      ]
+    },
+    {
+      "id": "Release",
+      "source_name": "Release",
+      "regions": [
+        "expr_return"
+      ],
+      "effects": [
+        {
+          "kind": "return",
+          "class": "name",
+          "ops": [],
+          "critical": true
+        }
+      ]
+    },
+    {
+      "id": "route_variant",
+      "source_name": "route_variant",
+      "regions": [
+        "expr_return",
+        "if",
+        "switch"
+      ],
+      "effects": [
+        {
+          "kind": "return",
+          "class": "const",
+          "ops": [],
+          "critical": true
+        },
+        {
+          "kind": "return",
+          "class": null,
+          "ops": [
+            ">",
+            "-"
+          ],
+          "critical": false
+        },
+        {
+          "kind": "call",
+          "target": "AddRef",
+          "critical": false
+        },
+        {
+          "kind": "switch_partition",
+          "cases": [],
+          "critical": false
+        }
+      ]
+    }
+  ]
+}

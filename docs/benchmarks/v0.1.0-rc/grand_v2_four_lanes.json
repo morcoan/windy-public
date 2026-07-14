@@ -1,0 +1,240 @@
+{
+  "suite": "windy_grand_strict_v2_four_lanes",
+  "pure_v2": {
+    "engine": "windy_pure_v2",
+    "overall_mean": 0.6976985453832655,
+    "functions_scored": 475,
+    "programs_scored": 64,
+    "pack_means": {
+      "A": 0.6740062323226277,
+      "B": 0.6612164762219058,
+      "C": 0.6008387399907651,
+      "D": 0.7690962259456225,
+      "E": 0.712335447116639,
+      "F": 0.8631157147815287,
+      "G": 0.8611354703446574,
+      "H": 0.8645183879243129,
+      "I": 0.7080646635289257,
+      "J": 0.7133702293935755
+    },
+    "profile_means": {
+      "P0": 0.9057160549249101,
+      "P1": 0.629933397321887,
+      "P2": 0.6467595217140814,
+      "P3": 0.6050805564169434
+    },
+    "boss_scores": {
+      "boss_com_variant_router": 0.8611354703446574,
+      "boss_extra_3": 0.6652211087692597,
+      "boss_extra_4": 0.696724542150011,
+      "boss_extra_5": 0.6604947484376068,
+      "boss_extra_6": 0.6604947484376068,
+      "boss_extra_7": 0.6604947484376068,
+      "boss_seh_resource_loader": 0.8645183879243129,
+      "boss_telemetry_decoder": 0.7868220320939393
+    },
+    "catastrophic_rate": 0.35157894736842105,
+    "residual_histogram": {
+      "CallTargetWrong": 28,
+      "ContradictoryOutput": 4,
+      "ControlRegionWrong": 8,
+      "DeadCodeCredit": 1,
+      "ExceptionFilterWrong": 1,
+      "ExceptionPathMissing": 1,
+      "LoopRecurrenceWrong": 1,
+      "MissingStore": 10,
+      "SemanticReturnWrong": 210,
+      "StructureAlignLow": 52,
+      "SwitchCaseMissing": 20
+    },
+    "empty_decomp_count": 0
+  },
+  "product": {
+    "engine": "windy_product",
+    "overall_mean": 0.6952443254408032,
+    "functions_scored": 475,
+    "programs_scored": 64,
+    "pack_means": {
+      "A": 0.6505297430618446,
+      "B": 0.6671382828424406,
+      "C": 0.6061413484602345,
+      "D": 0.7863386216954433,
+      "E": 0.7195146141156342,
+      "F": 0.9007000675827705,
+      "G": 0.8576752627322006,
+      "H": 0.931175971018591,
+      "I": 0.6997877012466376,
+      "J": 0.706067027379792
+    },
+    "profile_means": {
+      "P0": 0.9306947043737356,
+      "P1": 0.6232306402258663,
+      "P2": 0.6333187753046876,
+      "P3": 0.5899855522341699
+    },
+    "boss_scores": {
+      "boss_com_variant_router": 0.8576752627322006,
+      "boss_extra_3": 0.6453417541410472,
+      "boss_extra_4": 0.6477049343068737,
+      "boss_extra_5": 0.6406153938093945,
+      "boss_extra_6": 0.6406153938093945,
+      "boss_extra_7": 0.6406153938093945,
+      "boss_seh_resource_loader": 0.931175971018591,
+      "boss_telemetry_decoder": 0.813405955789469
+    },
+    "catastrophic_rate": 0.3473684210526316,
+    "residual_histogram": {
+      "CallTargetWrong": 27,
+      "ContradictoryOutput": 11,
+      "ControlRegionWrong": 8,
+      "LoopRecurrenceWrong": 15,
+      "MissingStore": 9,
+      "SemanticReturnWrong": 209,
+      "StructureAlignLow": 46,
+      "SwitchCaseMissing": 16
+    },
+    "empty_decomp_count": 0
+  },
+  "legacy": {
+    "engine": "windy_legacy",
+    "overall_mean": 0.6787866443891978,
+    "functions_scored": 475,
+    "programs_scored": 64,
+    "pack_means": {
+      "A": 0.5936366635624208,
+      "B": 0.6694612504188381,
+      "C": 0.6023021021498318,
+      "D": 0.8295424024902508,
+      "E": 0.6882206780370701,
+      "F": 0.9194785206527459,
+      "G": 0.8706510412789135,
+      "H": 0.9540646518758772,
+      "I": 0.7262423929074091,
+      "J": 0.6911741082569431
+    },
+    "profile_means": {
+      "P0": 0.9286113710404021,
+      "P1": 0.61959261419805,
+      "P2": 0.615814632417102,
+      "P3": 0.5468105060924553
+    },
+    "boss_scores": {
+      "boss_com_variant_router": 0.8706510412789135,
+      "boss_extra_3": 0.6734402284245207,
+      "boss_extra_4": 0.6734402284245207,
+      "boss_extra_5": 0.6734402284245207,
+      "boss_extra_6": 0.6734402284245207,
+      "boss_extra_7": 0.6734402284245207,
+      "boss_seh_resource_loader": 0.9540646518758772,
+      "boss_telemetry_decoder": 0.8318467218731843
+    },
+    "catastrophic_rate": 0.36,
+    "residual_histogram": {
+      "CallTargetWrong": 27,
+      "ContradictoryOutput": 8,
+      "ControlRegionWrong": 9,
+      "LoopRecurrenceWrong": 23,
+      "MissingStore": 9,
+      "SemanticReturnWrong": 213,
+      "StructureAlignLow": 49,
+      "SwitchCaseMissing": 15
+    },
+    "empty_decomp_count": 0
+  },
+  "ghidra": {
+    "engine": "ghidra",
+    "overall_mean": 0.8793615980833477,
+    "functions_scored": 475,
+    "programs_scored": 64,
+    "pack_means": {
+      "A": 0.9191043419578192,
+      "B": 0.9460971688903358,
+      "C": 0.8989481893720963,
+      "D": 0.7884274091958284,
+      "E": 0.8733256363510855,
+      "F": 0.8178414808414568,
+      "G": 0.8533500032166297,
+      "H": 0.7926896108257089,
+      "I": 0.8574939957580796,
+      "J": 0.8345709249058108
+    },
+    "profile_means": {
+      "P0": 0.9019197978010925,
+      "P1": 0.9153496841734546,
+      "P2": 0.8950091702535378,
+      "P3": 0.803706663902979
+    },
+    "boss_scores": {
+      "boss_com_variant_router": 0.8533500032166297,
+      "boss_extra_3": 0.8721922862471028,
+      "boss_extra_4": 0.8721922862471028,
+      "boss_extra_5": 0.8721922862471028,
+      "boss_extra_6": 0.8721922862471028,
+      "boss_extra_7": 0.8721922862471028,
+      "boss_seh_resource_loader": 0.7926896108257089,
+      "boss_telemetry_decoder": 0.8280974147800307
+    },
+    "catastrophic_rate": 0.06947368421052631,
+    "residual_histogram": {
+      "BoundRelationMissing": 1,
+      "CallTargetWrong": 28,
+      "ControlRegionWrong": 3,
+      "DeadCodeCredit": 1,
+      "ExceptionFilterWrong": 4,
+      "ExceptionPathMissing": 3,
+      "GotoResidual": 14,
+      "LoopRecurrenceWrong": 1,
+      "MissingStore": 2,
+      "SemanticReturnWrong": 61,
+      "StructureAlignLow": 36,
+      "SwitchCaseMissing": 20,
+      "TemporaryExplosion": 2
+    },
+    "empty_decomp_count": 0
+  },
+  "engine_share_present": {
+    "V2": 475
+  },
+  "pure_v2_share": 1.0,
+  "pure_fallback_count": 0,
+  "functions_scored": 475,
+  "identity_warnings": [],
+  "omitted_functions": [
+    {
+      "program_id": "a01_signed_rel",
+      "profile": "P3",
+      "function_id": "unsigned_lt",
+      "source_name": "unsigned_lt",
+      "status": "folded",
+      "folded_to": "signed_lt"
+    },
+    {
+      "program_id": "c03_dispatch",
+      "profile": "P3",
+      "function_id": "classify",
+      "source_name": "classify",
+      "status": "inlined_only"
+    },
+    {
+      "program_id": "boss_com_variant_router",
+      "profile": "P1",
+      "function_id": "Release",
+      "source_name": "Release",
+      "status": "inlined_only"
+    },
+    {
+      "program_id": "boss_com_variant_router",
+      "profile": "P2",
+      "function_id": "Release",
+      "source_name": "Release",
+      "status": "inlined_only"
+    },
+    {
+      "program_id": "boss_com_variant_router",
+      "profile": "P3",
+      "function_id": "Release",
+      "source_name": "Release",
+      "status": "inlined_only"
+    }
+  ]
+}

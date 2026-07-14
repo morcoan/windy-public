@@ -1,0 +1,12 @@
+[
+  {
+    "entry_va": 5368713216,
+    "pseudocode": "\r\nint FUN_140001000(longlong param_1,int param_2,int param_3)\r\n\r\n{\r\n  undefined4 local_18;\r\n  undefined4 local_14;\r\n  undefined4 local_10;\r\n  \r\n  local_10 = 0;\r\n  for (local_18 = 0; local_18 < param_2; local_18 = local_18 + 1) {\r\n    for (local_14 = 0; local_14 < param_3; local_14 = local_14 + 1) {\r\n      local_10 = local_10 + *(int *)(param_1 + (longlong)(local_18 * param_3 + local_14) * 4);\r\n    }\r\n  }\r\n  return local_10;\r\n}\r\n\r\n",
+    "name": "FUN_140001000"
+  },
+  {
+    "entry_va": 5368713360,
+    "pseudocode": "\r\nvoid FUN_140001090(void)\r\n\r\n{\r\n  undefined1 auStack_48 [32];\r\n  undefined4 local_28;\r\n  undefined4 local_24;\r\n  undefined4 local_20;\r\n  undefined4 uStack_1c;\r\n  undefined4 uStack_18;\r\n  undefined4 uStack_14;\r\n  ulonglong local_10;\r\n  \r\n  local_10 = DAT_14001a000 ^ (ulonglong)auStack_48;\r\n  DAT_14001aab0 = DAT_14001aab0 ^ 1;\r\n  local_20 = 1;\r\n  uStack_1c = 2;\r\n  uStack_18 = 3;\r\n  uStack_14 = 4;\r\n  local_24 = 2;\r\n  local_28 = 2;\r\n  FUN_140001000((longlong)&local_20,2,2);\r\n  FUN_1400011c0(local_10 ^ (ulonglong)auStack_48);\r\n  return;\r\n}\r\n\r\n",
+    "name": "FUN_140001090"
+  }
+]

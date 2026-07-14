@@ -1,0 +1,12 @@
+[
+  {
+    "entry_va": 5368713216,
+    "pseudocode": "\r\nundefined8 FUN_140001000(int param_1)\r\n\r\n{\r\n  if (param_1 == 0) {\r\n    return 10;\r\n  }\r\n  if (param_1 != 1) {\r\n    if (param_1 != 2) {\r\n      return 0xffffffff;\r\n    }\r\n    return 0x1e;\r\n  }\r\n  return 0x14;\r\n}\r\n\r\n",
+    "name": "FUN_140001000"
+  },
+  {
+    "entry_va": 5368713252,
+    "pseudocode": "\r\nvoid FUN_140001024(void)\r\n\r\n{\r\n  DAT_14001aad0 = DAT_14001aad0 ^ 1;\r\n  FUN_140001000(2);\r\n  return;\r\n}\r\n\r\n",
+    "name": "FUN_140001024"
+  }
+]

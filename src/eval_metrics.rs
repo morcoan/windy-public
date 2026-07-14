@@ -3,8 +3,8 @@
 //! North star: verified facts per 1k tokens for an evidence-first policy
 //! versus a dump (agent_text) baseline.
 
-use crate::llm::query::{function_evidence, EvidenceOpts};
-use crate::llm::verify::{verify_claims, Claim, ClaimVerdict};
+use crate::llm::query::{EvidenceOpts, function_evidence};
+use crate::llm::verify::{Claim, ClaimVerdict, verify_claims};
 use crate::project::Project;
 use serde::Serialize;
 

@@ -1,11 +1,11 @@
 //! COM / interface vtable signature database (Phase 7 D).
 //!
 //! Mirrors the SigDB pattern: bundled JSON under `vtables/` plus optional
-//! user overlays in `~/.windy/vtables/`.
+//! user overlays in the resolved Windy data directory's `vtables/` folder.
 
 use std::collections::HashMap;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use serde::Deserialize;
 
@@ -62,15 +62,19 @@ pub struct VtableDB {
     iunknown_offsets: HashMap<u32, String>,
 }
 
+#[allow(dead_code)] // compatibility constructor plus MCP/project query surface
 impl VtableDB {
     /// Load bundled defaults then overlay user + crate-adjacent `vtables/`.
     pub fn load() -> Self {
+        Self::load_from(crate::project::persistence::windy_home_dir())
+    }
+
+    /// Load bundled defaults then overlay an explicit Windy data directory.
+    pub fn load_from(home_dir: impl AsRef<Path>) -> Self {
         let types = DataTypeManager::new();
         let mut db = Self::default();
         db.load_bundled(&types);
-        if let Some(dir) = user_vtables_dir() {
-            db.load_dir(&dir, &types);
-        }
+        db.load_dir(home_dir.as_ref().join("vtables"), &types);
         if let Ok(manifest) = std::env::var("CARGO_MANIFEST_DIR") {
             db.load_dir(Path::new(&manifest).join("vtables"), &types);
         } else {
@@ -100,8 +104,14 @@ impl VtableDB {
         const BUNDLED: &[(&str, &str)] = &[
             ("iunknown", include_str!("../../vtables/iunknown.json")),
             ("idispatch", include_str!("../../vtables/idispatch.json")),
-            ("ienumstring", include_str!("../../vtables/ienumstring.json")),
-            ("ipersistfile", include_str!("../../vtables/ipersistfile.json")),
+            (
+                "ienumstring",
+                include_str!("../../vtables/ienumstring.json"),
+            ),
+            (
+                "ipersistfile",
+                include_str!("../../vtables/ipersistfile.json"),
+            ),
             (
                 "isequentialstream",
                 include_str!("../../vtables/isequentialstream.json"),
@@ -138,12 +148,12 @@ impl VtableDB {
 
     fn ingest_json(&mut self, json: &str, types: &DataTypeManager) -> Result<(), String> {
         // Accept either a single interface object or an array.
-        let entries: Vec<InterfaceEntry> = if let Ok(one) = serde_json::from_str::<InterfaceEntry>(json)
-        {
-            vec![one]
-        } else {
-            serde_json::from_str(json).map_err(|e| format!("parse: {e}"))?
-        };
+        let entries: Vec<InterfaceEntry> =
+            if let Ok(one) = serde_json::from_str::<InterfaceEntry>(json) {
+                vec![one]
+            } else {
+                serde_json::from_str(json).map_err(|e| format!("parse: {e}"))?
+            };
         for entry in entries {
             let mut methods = Vec::new();
             let mut by_offset = HashMap::new();
@@ -153,7 +163,9 @@ impl VtableDB {
                     params: m
                         .params
                         .into_iter()
-                        .map(|(n, t)| (n, crate::analysis::win32_sigs::resolve_type_name(types, &t)))
+                        .map(|(n, t)| {
+                            (n, crate::analysis::win32_sigs::resolve_type_name(types, &t))
+                        })
                         .collect(),
                     ret: crate::analysis::win32_sigs::resolve_type_name(types, &m.ret),
                     calling_conv: Some("stdcall".to_string()),
@@ -223,10 +235,6 @@ impl VtableDB {
     }
 }
 
-fn user_vtables_dir() -> Option<PathBuf> {
-    directories::UserDirs::new().map(|u| u.home_dir().join(".windy").join("vtables"))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -240,10 +248,7 @@ mod tests {
         assert_eq!(qi.name, "QueryInterface");
         let rel = iface.method_at(16).expect("Release");
         assert_eq!(rel.name, "Release");
-        assert_eq!(
-            rel.signature.ret,
-            crate::project::types::DataType::Uint(32)
-        );
+        assert_eq!(rel.signature.ret, crate::project::types::DataType::Uint(32));
     }
 
     #[test]

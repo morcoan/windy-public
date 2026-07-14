@@ -1,22 +1,17 @@
 use std::path::{Path, PathBuf};
 
 use anyhow::Result;
-use exe::pe::VecPE;
-use petriage::analysis::{analyze, AnalysisOptions, AnalysisResult};
+use petriage::analysis::{AnalysisOptions, AnalysisResult, analyze};
 use petriage::parse_pe_lenient;
 
 use crate::loader::MappedImage;
 
-/// A loaded Windows PE with both cheap mmap access and exe-rs structural access.
+/// A loaded Windows PE with cheap mmap access and PETriage structure metadata.
 pub struct LoadedPe {
     /// Original path on disk.
     pub path: PathBuf,
     /// Memory-mapped file contents.
     pub image: MappedImage,
-    /// exe-rs PE representation for header/section/import manipulation.
-    /// Structural seam for future PE rewrite / section surgery.
-    #[allow(dead_code)]
-    pub exe_pe: VecPE,
     /// petriage surface-analysis result.
     pub triage: AnalysisResult,
     /// Warning emitted during lenient parsing.
@@ -50,13 +45,9 @@ impl LoadedPe {
         };
         let triage = analyze(&image, &gob_pe, &opts);
 
-        // exe-rs makes a private copy of the bytes so PETriage keeps cheap mmap access.
-        let exe_pe = VecPE::from_disk_data(&image[..]);
-
         Ok(Self {
             path: path.to_path_buf(),
             image,
-            exe_pe,
             triage,
             parse_warning: warning,
         })

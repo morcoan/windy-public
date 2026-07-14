@@ -1,0 +1,71 @@
+{
+  "program_id": "boss_seh_resource_loader",
+  "source": "eval/grand/src/boss_seh_resource_loader.c",
+  "functions": [
+    {
+      "id": "res_init",
+      "source_name": "res_init",
+      "regions": [],
+      "effects": []
+    },
+    {
+      "id": "res_destroy",
+      "source_name": "res_destroy",
+      "regions": [
+        "if"
+      ],
+      "effects": []
+    },
+    {
+      "id": "parse_tree",
+      "source_name": "parse_tree",
+      "regions": [
+        "expr_return",
+        "if",
+        "loop"
+      ],
+      "effects": [
+        {
+          "kind": "return",
+          "class": "compare",
+          "ops": [],
+          "critical": true
+        },
+        {
+          "kind": "return",
+          "class": null,
+          "ops": [
+            "==",
+            "<",
+            ">"
+          ],
+          "critical": false
+        },
+        {
+          "kind": "call",
+          "target": "res_init",
+          "critical": false
+        },
+        {
+          "kind": "call",
+          "target": "res_init",
+          "critical": false
+        },
+        {
+          "kind": "call",
+          "target": "res_destroy",
+          "critical": false
+        },
+        {
+          "kind": "call",
+          "target": "res_destroy",
+          "critical": false
+        },
+        {
+          "kind": "loop",
+          "critical": false
+        }
+      ]
+    }
+  ]
+}

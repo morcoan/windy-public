@@ -1,4 +1,3 @@
-
 //! Image-hash-keyed IDB persistence using `postcard`. Stores only metadata
 //! (symbols, comments, types, frames) so a reopened PE rebuilds all analysis
 //! from bytes and re-applies user edits.
@@ -7,6 +6,7 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::sync::OnceLock;
 
 use anyhow::{Context, Result};
 use directories::UserDirs;
@@ -15,7 +15,9 @@ use sha2::{Digest, Sha256};
 
 use crate::project::memory::FunctionMemoryCard;
 use crate::project::symbols::AliasEvent;
-use crate::project::{DataType, DataTypeManager, FunctionSignature, Project, StackFrame, SymbolKind};
+use crate::project::{
+    DataType, DataTypeManager, FunctionSignature, Project, StackFrame, SymbolKind,
+};
 
 /// Serializable project metadata.
 ///
@@ -117,10 +119,18 @@ impl ProjectState {
             project.symbols.insert(*va, name.clone(), *kind);
         }
         for (va, text) in &self.comments_addr {
-            project.comments.set(*va, crate::project::comments::CommentScope::Address, text.clone());
+            project.comments.set(
+                *va,
+                crate::project::comments::CommentScope::Address,
+                text.clone(),
+            );
         }
         for (va, text) in &self.comments_func {
-            project.comments.set(*va, crate::project::comments::CommentScope::Function, text.clone());
+            project.comments.set(
+                *va,
+                crate::project::comments::CommentScope::Function,
+                text.clone(),
+            );
         }
         project.types = self.types.clone();
         project.function_frames = self.function_frames.clone();
@@ -157,8 +167,14 @@ impl ProjectState {
     }
 
     /// Persist to the central IDB store.
+    #[allow(dead_code)] // compatibility entry point; runtime code uses save_to
     pub fn save(&self) -> Result<()> {
-        let path = idb_path(&self.image_sha256);
+        self.save_to(windy_home_dir())
+    }
+
+    /// Persist to an explicit Windy data directory.
+    pub fn save_to(&self, home_dir: impl AsRef<Path>) -> Result<()> {
+        let path = idb_path_in(home_dir, &self.image_sha256);
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent).context("create projects directory")?;
         }
@@ -168,8 +184,14 @@ impl ProjectState {
     }
 
     /// Load from the central IDB store by SHA256, if present.
+    #[allow(dead_code)] // compatibility entry point; runtime code uses load_from
     pub fn load(sha256: &str) -> Option<Self> {
-        let path = idb_path(sha256);
+        Self::load_from(windy_home_dir(), sha256)
+    }
+
+    /// Load from an explicit Windy data directory by SHA256, if present.
+    pub fn load_from(home_dir: impl AsRef<Path>, sha256: &str) -> Option<Self> {
+        let path = idb_path_in(home_dir, sha256);
         if !path.exists() {
             return None;
         }
@@ -179,10 +201,35 @@ impl ProjectState {
 }
 
 pub fn idb_path(sha256: &str) -> PathBuf {
-    windy_home_dir().join("projects").join(format!("{sha256}.windy"))
+    idb_path_in(windy_home_dir(), sha256)
+}
+
+pub fn idb_path_in(home_dir: impl AsRef<Path>, sha256: &str) -> PathBuf {
+    home_dir
+        .as_ref()
+        .join("projects")
+        .join(format!("{sha256}.windy"))
+}
+
+static PROCESS_WINDY_HOME: OnceLock<PathBuf> = OnceLock::new();
+
+/// Set the process-wide Windy data directory before opening any projects.
+///
+/// The CLI uses this for `--data-dir`, so lower-level compatibility entry
+/// points such as `Project::open` still honor the documented precedence.
+pub fn set_process_windy_home(path: PathBuf) -> anyhow::Result<()> {
+    PROCESS_WINDY_HOME.set(path).map_err(|path| {
+        anyhow::anyhow!("Windy data directory was already set to {}", path.display())
+    })
 }
 
 pub fn windy_home_dir() -> PathBuf {
+    if let Some(path) = PROCESS_WINDY_HOME.get() {
+        return path.clone();
+    }
+    if let Some(path) = std::env::var_os("WINDY_HOME").filter(|value| !value.is_empty()) {
+        return PathBuf::from(path);
+    }
     if let Some(user) = UserDirs::new() {
         return user.home_dir().join(".windy");
     }
@@ -264,7 +311,10 @@ mod tests {
         };
         let loaded = ProjectState::from_bytes(&state.to_bytes().unwrap()).unwrap();
         assert_eq!(
-            loaded.function_memory.get(&0x1000).and_then(|c| c.purpose.clone()),
+            loaded
+                .function_memory
+                .get(&0x1000)
+                .and_then(|c| c.purpose.clone()),
             Some("does a thing".into())
         );
     }

@@ -6,14 +6,14 @@
 
 use std::fs::{self, File, OpenOptions};
 use std::io::{BufRead, BufReader, Write};
-use std::path::PathBuf;
 #[cfg(test)]
 use std::path::Path;
+use std::path::PathBuf;
 
 use anyhow::{Context, Result};
 
 use crate::project::op::Op;
-use crate::project::persistence::idb_path;
+use crate::project::persistence::{idb_path, idb_path_in};
 
 /// A durable log of project mutations.
 pub struct Journal {
@@ -22,8 +22,16 @@ pub struct Journal {
 
 impl Journal {
     /// Open (or create) the journal for a project keyed by its image SHA256.
+    #[allow(dead_code)] // compatibility entry point; runtime code uses open_in
     pub fn open(sha256: &str) -> Self {
         let mut path = idb_path(sha256);
+        path.set_extension("oplog");
+        Self { path }
+    }
+
+    /// Open a journal under an explicit Windy data directory.
+    pub fn open_in(home_dir: impl AsRef<std::path::Path>, sha256: &str) -> Self {
+        let mut path = idb_path_in(home_dir, sha256);
         path.set_extension("oplog");
         Self { path }
     }
@@ -38,9 +46,16 @@ impl Journal {
 
     /// Append an operation as one newline-delimited JSON record and fsync.
     pub fn append(&self, seq: u64, op: &Op) -> Result<()> {
-        let record = JournalRecord { seq, op: op.clone() };
+        let record = JournalRecord {
+            seq,
+            op: op.clone(),
+        };
         let mut line = serde_json::to_vec(&record).context("serialize op")?;
         line.push(b'\n');
+
+        if let Some(parent) = self.path.parent() {
+            fs::create_dir_all(parent).context("create projects directory")?;
+        }
 
         let mut file = OpenOptions::new()
             .create(true)
@@ -88,6 +103,9 @@ impl Journal {
             .filter(|r| r.seq > seq)
             .collect();
         let tmp = self.path.with_extension("oplog.tmp");
+        if let Some(parent) = self.path.parent() {
+            fs::create_dir_all(parent).context("create projects directory")?;
+        }
         {
             let mut file = OpenOptions::new()
                 .create(true)

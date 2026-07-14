@@ -1,6 +1,5 @@
-
 use std::collections::{BTreeMap, HashMap, HashSet};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use anyhow::Result;
@@ -8,20 +7,21 @@ use anyhow::Result;
 use crate::analysis::Analysis;
 use crate::analysis::functions::{Function, FunctionTable};
 use crate::analysis::indirect;
-use crate::analysis::search::{search_everything, SearchHit};
+use crate::analysis::search::{SearchHit, search_everything};
 use crate::analysis::stack_frame;
 use crate::analysis::thunks;
 use crate::analysis::win32_sigs::SigDB;
 use crate::analysis::xrefs::{Xref, XrefIndex};
-use crate::ir::agent_text::{to_agent_text_opts, AgentTextOpts};
-use crate::ir::export::{function_to_export_with_db, to_llm_text, FunctionExport};
+use crate::ir::agent_text::{AgentTextOpts, to_agent_text_opts};
+use crate::ir::export::{FunctionExport, function_to_export_with_db, to_llm_text};
+use crate::loader::AddressSpace;
 use crate::loader::pe::LoadedPe;
 use crate::project::op_log::Journal;
-use crate::loader::AddressSpace;
 use crate::project::pdb_info::PdbInfo;
-use crate::project::persistence::{hash_bytes, ProjectState};
+use crate::project::persistence::{ProjectState, hash_bytes, windy_home_dir};
 use crate::project::types::{FunctionSignature, StackFrame};
 
+pub mod activity_log;
 pub mod command;
 pub mod comments;
 pub mod demangle;
@@ -34,7 +34,6 @@ pub mod symbols;
 pub mod symsrv;
 pub mod types;
 pub mod workspace;
-pub mod activity_log;
 
 use comments::{CommentScope, CommentStore};
 use demangle::demangle_or_raw;
@@ -73,6 +72,8 @@ pub struct Project {
     pub pe: Arc<LoadedPe>,
     /// SHA256 hash of the loaded image; used as IDB key.
     pub image_sha256: String,
+    /// Root for all durable Windy state associated with this project.
+    data_dir: Arc<PathBuf>,
     /// Memory layout / VA↔offset translations.
     pub address_space: Arc<AddressSpace>,
     /// 32 or 64 (used by exporters and type sizes).
@@ -91,7 +92,7 @@ pub struct Project {
     pub typed_globals: Arc<HashMap<u64, DataType>>,
     /// PDB function signatures keyed by function entry VA.
     pub function_signatures: Arc<BTreeMap<u64, FunctionSignature>>,
-    /// Win32 API signature database (bundled + `~/.windy/signatures/`).
+    /// Win32 API signature database (bundled + resolved Windy data directory).
     pub sig_db: SigDB,
     /// COM / interface vtable signature database (Phase 7 D).
     pub vtable_db: crate::analysis::vtable_sigs::VtableDB,
@@ -124,6 +125,26 @@ pub struct Project {
 #[allow(dead_code)] // agent/MCP/UI programmatic surface (not all callers live in-tree)
 impl Project {
     pub fn open(path: impl AsRef<Path>) -> Result<Self> {
+        Self::open_with_data_dir(path, windy_home_dir())
+    }
+
+    /// Open a PE while routing all durable state through `data_dir`.
+    pub fn open_with_data_dir(
+        path: impl AsRef<Path>,
+        data_dir: impl Into<PathBuf>,
+    ) -> Result<Self> {
+        Self::open_with_data_dir_and_entry_hints(path, data_dir, &[])
+    }
+
+    /// Open a PE with authoritative function-entry hints while keeping all
+    /// durable state under the supplied directory. The hints affect only
+    /// function boundary discovery and do not create symbols or annotations.
+    pub fn open_with_data_dir_and_entry_hints(
+        path: impl AsRef<Path>,
+        data_dir: impl Into<PathBuf>,
+        entry_hints: &[u64],
+    ) -> Result<Self> {
+        let data_dir = data_dir.into();
         let pe = LoadedPe::open(path)?;
         let image_sha256 = hash_bytes(&pe.image);
         let mut symbols = SymbolTable::default();
@@ -131,7 +152,9 @@ impl Project {
         let optional = pe.triage.optional_header.as_ref();
         let sections = pe.triage.sections.as_deref().unwrap_or_default();
         let image_base = optional.map(|h| h.image_base).unwrap_or_default();
-        let entry_rva = optional.map(|h| h.address_of_entry_point).unwrap_or_default();
+        let entry_rva = optional
+            .map(|h| h.address_of_entry_point)
+            .unwrap_or_default();
         let entry_va = image_base.saturating_add(entry_rva);
         let address_space = AddressSpace::new(image_base, sections);
         let magic = optional.map(|h| h.magic.as_str()).unwrap_or("PE32");
@@ -141,7 +164,7 @@ impl Project {
         SeedSymbolTable::from_triage(&pe, &mut symbols, &address_space, bitness);
 
         // Load PDB symbols/frames/types before analysis so function discovery seeds them.
-        let pdb_info = PdbInfo::load_for_pe(&pe);
+        let pdb_info = PdbInfo::load_for_pe_in(&pe, &data_dir);
         let mut function_frames: BTreeMap<u64, StackFrame> = BTreeMap::new();
         let mut types = DataTypeManager::new();
         let mut typed_globals: HashMap<u64, DataType> = HashMap::new();
@@ -160,7 +183,18 @@ impl Project {
             &mut function_signatures,
         );
 
-        let mut analysis = Analysis::build(&pe.image, &address_space, bitness, entry_va, &symbols);
+        let mut analysis = if entry_hints.is_empty() {
+            Analysis::build(&pe.image, &address_space, bitness, entry_va, &symbols)
+        } else {
+            Analysis::build_with_entry_hints(
+                &pe.image,
+                &address_space,
+                bitness,
+                entry_va,
+                &symbols,
+                entry_hints,
+            )
+        };
         analysis.functions.apply_frames(&function_frames);
 
         // Attach PDB-derived function signatures.
@@ -231,12 +265,13 @@ impl Project {
             bitness,
         );
 
-        let sig_db = SigDB::load();
-        let vtable_db = crate::analysis::vtable_sigs::VtableDB::load();
+        let sig_db = SigDB::load_from(&data_dir);
+        let vtable_db = crate::analysis::vtable_sigs::VtableDB::load_from(&data_dir);
 
         let mut project = Self {
             pe: Arc::new(pe),
             image_sha256,
+            data_dir: Arc::new(data_dir),
             address_space: Arc::new(address_space),
             bitness,
             analysis: Arc::new(analysis),
@@ -256,11 +291,13 @@ impl Project {
             ssa_cache: Arc::new(Mutex::new(HashMap::new())),
         };
 
-        if let Some(state) = ProjectState::load(&project.image_sha256) {
+        if let Some(state) =
+            ProjectState::load_from(project.data_dir.as_ref(), &project.image_sha256)
+        {
             state.apply(&mut project);
         }
 
-        let journal = Journal::open(&project.image_sha256);
+        let journal = Journal::open_in(project.data_dir.as_ref(), &project.image_sha256);
         for record in journal.read_all() {
             if record.seq > project.op_seq {
                 let _ = record.op.apply_to(&mut project);
@@ -274,12 +311,16 @@ impl Project {
     /// Persist the current project state (symbols, comments, types, frames) to
     /// the central IDB store.
     pub fn save(&self) -> Result<()> {
-        ProjectState::from_project(self).save()?;
+        ProjectState::from_project(self).save_to(self.data_dir.as_ref())?;
         // All ops through op_seq are now captured in the snapshot.
-        Journal::open(&self.image_sha256)
+        Journal::open_in(self.data_dir.as_ref(), &self.image_sha256)
             .truncate_through(self.op_seq)
             .ok();
         Ok(())
+    }
+
+    pub fn data_dir(&self) -> &Path {
+        self.data_dir.as_ref()
     }
 
     /// LLM/programmatic read API ------------------------------------------------
@@ -348,10 +389,7 @@ impl Project {
     /// indirect calls, vector/float parameters, aggregates, more than four
     /// arguments, and `vectorcall`.  Those remain available as raw/structured
     /// evidence but must not turn into a deceptively complete native C call.
-    fn call_abi_inputs_for(
-        &self,
-        func: &Function,
-    ) -> crate::decompiler::ssa::CallAbiInputs {
+    fn call_abi_inputs_for(&self, func: &Function) -> crate::decompiler::ssa::CallAbiInputs {
         use crate::decompiler::ssa::Location;
         use iced_x86::FlowControl;
 
@@ -435,8 +473,10 @@ impl Project {
     pub fn function_ssa_optimized(
         &self,
         va: u64,
-    ) -> Option<(crate::decompiler::ssa::SsaFunction, crate::decompiler::ssa::SsaAnalysis)>
-    {
+    ) -> Option<(
+        crate::decompiler::ssa::SsaFunction,
+        crate::decompiler::ssa::SsaAnalysis,
+    )> {
         if let Ok(cache) = self.ssa_cache.lock()
             && let Some(hit) = cache.get(&va)
         {
@@ -501,12 +541,7 @@ impl Project {
             .constants
             .iter()
             .filter(|c| c.va != 0)
-            .map(|c| {
-                (
-                    c.va,
-                    format!("= 0x{:x} (uint{})", c.value, c.size * 8),
-                )
-            })
+            .map(|c| (c.va, format!("= 0x{:x} (uint{})", c.value, c.size * 8)))
             .collect::<Vec<_>>();
         Some(out)
     }
@@ -570,18 +605,51 @@ impl Project {
         )
     }
 
-    /// Native (non-LLM) pseudo-C decompilation of a function over its optimized
-    /// SSA + recovered types. No network call. Phase 5.1 structured emitter.
-    pub fn function_decompile_native(&self, va: u64) -> Option<String> {
+    /// 2.md dual-object model (semantic effects + presentation + contracts)
+    /// for a function, built on the same optimized SSA as native decompile.
+    /// Applies checker-backed rewrites so contracts match the shipped emit path.
+    pub fn function_dual_model(
+        &self,
+        va: u64,
+    ) -> Option<crate::decompiler::structure::DualDecompModel> {
         let func = self.function_at(va)?;
         let (opt, _) = self.function_ssa_optimized(va)?;
+        let switches = resolve_switch_infos(self, func, &opt);
+        let mut dual = crate::decompiler::structure::DualDecompModel::build(&opt, &switches);
+        let selected = crate::decompiler::structure::rewrite::select_improving_moves(&dual);
+        crate::decompiler::structure::rewrite::apply_moves(&mut dual, &selected, &opt);
+        let _ = dual.sanitize_contracts(&opt);
+        Some(dual)
+    }
+
+    /// Compact contract fingerprint for multi-profile orbit stability (2.md).
+    /// When the shipped decompiler emits `switch`/`case` but SSA contracts
+    /// missed the partition (eq-ladder fold path), seed cases from text.
+    pub fn function_contract_fingerprint(&self, va: u64) -> Option<String> {
+        let mut dual = self.function_dual_model(va)?;
+        if dual.contracts.cases.is_empty()
+            && let Some(text) = self.function_decompile_native(va)
+            && let Some(part) =
+                crate::decompiler::structure::rd_model::case_partition_from_decomp_text(&text)
+        {
+            dual.contracts.cases.push(part);
+        }
+        Some(dual.contracts.fingerprint())
+    }
+
+    /// Full decompile artifact (v2 pipeline with legacy fallback).
+    /// Canonical product: text + contracts + check report + engine identity.
+    pub fn function_decompile_artifact(
+        &self,
+        va: u64,
+        options: crate::decompiler::v2::DecompileOptions,
+    ) -> Option<crate::decompiler::v2::DecompileArtifact> {
+        let func = self.function_at(va)?;
+        // Raw lifted P-code for semantic HIR; optimized SSA for presentation.
+        let raw = self.function_ssa(va)?;
+        let (opt, _) = self.function_ssa_optimized(va)?;
         let constraints = self.call_constraints_for(&opt);
-        let report = crate::decompiler::types::recover_types(
-            &opt,
-            va,
-            self.bitness,
-            &constraints,
-        );
+        let report = crate::decompiler::types::recover_types(&opt, va, self.bitness, &constraints);
         let sig = self.signature_for_emission(func, &report);
         let switches = resolve_switch_infos(self, func, &opt);
         let mut global_names = crate::ir::annotate::build_global_names_with_db(
@@ -591,8 +659,6 @@ impl Project {
             &self.types,
             Some(&self.sig_db),
         );
-        // Every function entry is a callable name for call-site emit.
-        // Overwrite so Function::name (FUN_ for stripped) wins over any stale map entry.
         for f in self.functions().iter() {
             let n = f.name(&self.symbols);
             global_names.insert(f.entry_va, n);
@@ -605,14 +671,13 @@ impl Project {
                 }
                 if let Some(gva) = self.resolve_global_va(op.va) {
                     insn_to_global.insert(op.va, gva);
-                    // Prefer string literal when the global is printable text.
                     if let Some(sref) = crate::llm::query::try_read_string_at_va(
                         &self.pe.image,
                         &self.address_space,
                         gva,
                         2,
                     ) {
-                        let lit = format!("{:?}", sref.value); // quoted C string
+                        let lit = format!("{:?}", sref.value);
                         global_names.insert(gva, lit);
                     } else {
                         global_names.entry(gva).or_insert_with(|| {
@@ -623,7 +688,6 @@ impl Project {
                         });
                     }
                 }
-                // Immediate constants that point at strings (e.g. lea/mov imm).
                 if let crate::decompiler::ssa::SsaOpKind::Pcode(pcode) = &op.kind {
                     use pcode_ir::AddressSpaceId;
                     use rsleigh_api::PcodeOp;
@@ -653,14 +717,45 @@ impl Project {
             global_names,
             insn_to_global,
         };
-        Some(crate::decompiler::structure::decompile(
+        Some(crate::decompiler::v2::decompile_function_v2_with_raw(
+            &raw,
             &opt,
             Some(&report),
             sig.as_ref(),
             self.bitness,
             &switches,
             &names,
+            &options,
         ))
+    }
+
+    /// Native (non-LLM) pseudo-C decompilation — returns artifact text only.
+    ///
+    /// Product default mode ([`DecompileOptions::production`]). For pure V2
+    /// equality checks use [`Self::function_decompile_native_with`].
+    pub fn function_decompile_native(&self, va: u64) -> Option<String> {
+        self.function_decompile_native_with(
+            va,
+            crate::decompiler::v2::DecompileOptions::production(),
+        )
+    }
+
+    /// Native decompile text under an explicit decompile mode (product / pure / legacy).
+    pub fn function_decompile_native_with(
+        &self,
+        va: u64,
+        options: crate::decompiler::v2::DecompileOptions,
+    ) -> Option<String> {
+        self.function_decompile_artifact(va, options)
+            .map(|a| a.text)
+    }
+
+    /// Alias used by tests / agents for the full v2 product.
+    pub fn function_decompile_artifact_default(
+        &self,
+        va: u64,
+    ) -> Option<crate::decompiler::v2::DecompileArtifact> {
+        self.function_decompile_artifact(va, crate::decompiler::v2::DecompileOptions::production())
     }
 
     /// Resolve a callee VA (function entry or IAT slot) to a [`FunctionSignature`].
@@ -692,7 +787,7 @@ impl Project {
         ssa: &crate::decompiler::ssa::SsaFunction,
     ) -> Vec<crate::decompiler::types::CallConstraint> {
         use crate::decompiler::ssa::SsaOpKind;
-        use crate::decompiler::types::{data_type_to_ty_guess, CallConstraint};
+        use crate::decompiler::types::{CallConstraint, data_type_to_ty_guess};
         use pcode_ir::AddressSpaceId;
         use rsleigh_api::PcodeOp;
 
@@ -751,9 +846,7 @@ impl Project {
         if let Some(func) = self.function_at(ssa.entry_va) {
             for block in &func.blocks {
                 for edge in &block.successors {
-                    if edge.kind != crate::analysis::functions::EdgeKind::Call
-                        || edge.target == 0
-                    {
+                    if edge.kind != crate::analysis::functions::EdgeKind::Call || edge.target == 0 {
                         continue;
                     }
                     // Find a Call op in this block whose constraint is missing.
@@ -762,10 +855,8 @@ impl Project {
                     };
                     // Approximate: attach to any Call op in the block without a
                     // constraint yet (best-effort for indirect-ish edges).
-                    if let Some(ssa_block) = ssa
-                        .blocks
-                        .iter()
-                        .find(|b| b.entry_va == block.entry_va)
+                    if let Some(ssa_block) =
+                        ssa.blocks.iter().find(|b| b.entry_va == block.entry_va)
                     {
                         for op in &ssa_block.ops {
                             if matches!(
@@ -817,7 +908,8 @@ impl Project {
             .collect();
 
         for local in &report.locals {
-            if matches!(local.ty, TyGuess::Unknown) && !aggregate_bases.contains_key(&local.offset) {
+            if matches!(local.ty, TyGuess::Unknown) && !aggregate_bases.contains_key(&local.offset)
+            {
                 continue;
             }
             let ty = if let Some(name) = aggregate_bases.get(&local.offset) {
@@ -928,6 +1020,7 @@ impl Project {
     }
 
     /// Graph-conditioned decompiler input for a function, preserving edge kinds.
+    #[cfg(feature = "gclsd-archive")]
     pub fn function_gclsd_input(&self, va: u64) -> Option<crate::ir::gclsd::GclsdInput> {
         let func = self.function_at(va)?;
         crate::ir::gclsd::function_to_gclsd_input(
@@ -946,8 +1039,14 @@ impl Project {
     }
 
     /// Paginated export: only instructions within the requested IP range.
-    pub fn function_export_range(&self, va: u64, start_ip: u64, end_ip: u64) -> Option<FunctionExport> {
-        self.function_export(va).map(|e| e.ip_window(start_ip, end_ip))
+    pub fn function_export_range(
+        &self,
+        va: u64,
+        start_ip: u64,
+        end_ip: u64,
+    ) -> Option<FunctionExport> {
+        self.function_export(va)
+            .map(|e| e.ip_window(start_ip, end_ip))
     }
 
     /// Full-context package for a function: agent text plus strings/APIs/callers.
@@ -979,7 +1078,14 @@ impl Project {
         let apis = apis_called(self, va).join(", ");
         let callers = callers_with_args(self, va)
             .iter()
-            .map(|c| format!("  {} @ {:#x} ({})\n", c.caller, c.from_va, c.args.join(", ")))
+            .map(|c| {
+                format!(
+                    "  {} @ {:#x} ({})\n",
+                    c.caller,
+                    c.from_va,
+                    c.args.join(", ")
+                )
+            })
             .collect::<String>();
         Some(format!(
             "{agent}\nreferenced strings:\n{strings}\napis called:\n  {apis}\ncallers with args:\n{callers}",
@@ -1073,7 +1179,10 @@ impl Project {
                     },
                 };
                 for u in &op.uses {
-                    use_sites.entry(u.clone()).or_default().push(consumer.clone());
+                    use_sites
+                        .entry(u.clone())
+                        .or_default()
+                        .push(consumer.clone());
                 }
                 if let SsaOpKind::Phi(phi) = &op.kind {
                     for arg in phi.args.iter().flatten() {
@@ -1175,16 +1284,14 @@ impl Project {
             // Emit synthetic param entries for live-in uses (version 1 never defined).
             // Already covered when we see them as uses of ops that define from nothing —
             // scan uses with version 1 that aren't in defs.
-            let defined: HashSet<SsaVar> = block
-                .ops
-                .iter()
-                .filter_map(|o| o.def.clone())
-                .collect();
+            let defined: HashSet<SsaVar> = block.ops.iter().filter_map(|o| o.def.clone()).collect();
             for op in &block.ops {
                 for u in &op.uses {
                     if u.version == 1 && !defined.contains(u) && total_defs < max_defs {
                         // Only emit once per block.
-                        if defs.iter().any(|d| d.get("var").and_then(|v| v.as_str()) == Some(&ssa_var_label(u))) {
+                        if defs.iter().any(|d| {
+                            d.get("var").and_then(|v| v.as_str()) == Some(&ssa_var_label(u))
+                        }) {
                             continue;
                         }
                         if matches!(
@@ -1380,12 +1487,7 @@ impl Project {
             .collect();
 
         // Arg register bases in x64 fastcall order.
-        let arg_regs: &[(u64, &str)] = &[
-            (0x08, "rcx"),
-            (0x10, "rdx"),
-            (0x80, "r8"),
-            (0x88, "r9"),
-        ];
+        let arg_regs: &[(u64, &str)] = &[(0x08, "rcx"), (0x10, "rdx"), (0x80, "r8"), (0x88, "r9")];
 
         // Precompute points-to + vtable calls once for this function (Phase 7 C/D).
         let pt_map = self.function_points_to_map(va);
@@ -1431,10 +1533,7 @@ impl Project {
                         .symbols
                         .name(callee_va)
                         .map(|s| s.strip_prefix("__imp_").unwrap_or(s).to_string())
-                        .or_else(|| {
-                            self.function_at(callee_va)
-                                .map(|f| f.name(&self.symbols))
-                        })
+                        .or_else(|| self.function_at(callee_va).map(|f| f.name(&self.symbols)))
                         .unwrap_or_else(|| format!("FUN_{callee_va:08x}"));
                     let sig = self.signature_for_target(callee_va);
                     (name, sig)
@@ -1464,18 +1563,15 @@ impl Project {
                     }
                     // Also check uses of the call op itself.
                     for u in &op.uses {
-                        if matches!(u.location, Location::Register { base_offset } if base_offset == *base) {
+                        if matches!(u.location, Location::Register { base_offset } if base_offset == *base)
+                        {
                             reaching = Some(u);
                         }
                     }
 
                     let (source, ty_str) = if let Some(var) = reaching {
-                        let source = classify_arg_source(
-                            var,
-                            def_op.get(var).copied(),
-                            &const_by_va,
-                            self,
-                        );
+                        let source =
+                            classify_arg_source(var, def_op.get(var).copied(), &const_by_va, self);
                         let ty_str = def_types
                             .and_then(|dt| dt.get(var))
                             .map(|t| format!("{t:?}"))
@@ -1576,7 +1672,7 @@ impl Project {
     pub fn function_decompile_structured(&self, va: u64) -> Option<serde_json::Value> {
         use crate::decompiler::ssa::lower::reg_name;
         use crate::decompiler::ssa::{Location, SsaOpKind};
-        use crate::decompiler::structure::region::{classify, Region};
+        use crate::decompiler::structure::region::{Region, classify};
         use serde_json::json;
 
         let func = self.function_at(va)?;
@@ -1713,6 +1809,7 @@ impl Project {
             let region_kind = match regions.get(&block.id) {
                 Some(Region::If { .. }) => "if",
                 Some(Region::IfElse { .. }) => "if/else",
+                Some(Region::IfThenFallthrough { .. }) => "if/fallthrough",
                 Some(Region::While { .. }) => "while",
                 Some(Region::DoWhile { .. }) => "do/while",
                 Some(Region::Switch { .. }) => "switch",
@@ -1751,9 +1848,19 @@ impl Project {
             match region {
                 Region::IfElse { merge, .. } => {
                     let entry = opt.blocks.iter().find(|b| b.id == *id).map(|b| b.entry_va);
-                    let merge_va = opt.blocks.iter().find(|b| b.id == *merge).map(|b| b.entry_va);
+                    let merge_va = opt
+                        .blocks
+                        .iter()
+                        .find(|b| b.id == *merge)
+                        .map(|b| b.entry_va);
                     if let (Some(e), Some(m)) = (entry, merge_va) {
                         cf_parts.push(format!("if/else at {e:#x}, merge at {m:#x}"));
+                    }
+                }
+                Region::IfThenFallthrough { merge, .. } => {
+                    let entry = opt.blocks.iter().find(|b| b.id == *id).map(|b| b.entry_va);
+                    if let Some(e) = entry {
+                        cf_parts.push(format!("if/fallthrough at {e:#x}, merge block {merge}"));
                     }
                 }
                 Region::If { merge, .. } => {
@@ -1971,14 +2078,18 @@ impl Project {
         va: u64,
         signature: crate::project::types::FunctionSignature,
     ) {
-        std::sync::Arc::make_mut(&mut self.function_signatures)
-            .insert(va, signature);
+        std::sync::Arc::make_mut(&mut self.function_signatures).insert(va, signature);
     }
 
     /// Retype a recovered stack local within `function_va`'s frame by its
     /// canonical signed offset (negative for locals). Creates the slot if
     /// missing. The durable, reversible path is [`Op::SetStackLocalType`].
-    pub fn set_stack_local_type(&mut self, function_va: u64, offset: i64, ty: crate::project::types::DataType) {
+    pub fn set_stack_local_type(
+        &mut self,
+        function_va: u64,
+        offset: i64,
+        ty: crate::project::types::DataType,
+    ) {
         use crate::project::op::Op;
         Op::SetStackLocalType {
             function_va,
@@ -2105,8 +2216,8 @@ fn parse_i64_offset(s: &str) -> Result<i64, std::num::ParseIntError> {
 }
 
 fn ssa_var_label(v: &crate::decompiler::ssa::SsaVar) -> String {
-    use crate::decompiler::ssa::lower::reg_name;
     use crate::decompiler::ssa::Location;
+    use crate::decompiler::ssa::lower::reg_name;
     match &v.location {
         Location::Register { base_offset } => format!("{}_{}", reg_name(*base_offset), v.version),
         Location::StackSlot { base_reg, disp } => {
@@ -2186,8 +2297,10 @@ fn classify_arg_source(
             return format!("global:{name}@{gva:#x}");
         }
         // Load from RIP-relative global.
-        if matches!(&op.kind, SsaOpKind::Pcode(rsleigh_api::PcodeOp::Load { .. }))
-            && let Some(gva) = project.resolve_global_va(op.va)
+        if matches!(
+            &op.kind,
+            SsaOpKind::Pcode(rsleigh_api::PcodeOp::Load { .. })
+        ) && let Some(gva) = project.resolve_global_va(op.va)
         {
             let name = project
                 .symbols
@@ -2274,22 +2387,23 @@ fn resolve_switch_infos(
     use rsleigh_api::PcodeOp;
 
     // Map target entry VA → SSA block index.
-    let va_to_block: HashMap<u64, u32> = ssa
-        .blocks
-        .iter()
-        .map(|b| (b.entry_va, b.id))
-        .collect();
+    let va_to_block: HashMap<u64, u32> = ssa.blocks.iter().map(|b| (b.entry_va, b.id)).collect();
 
     let mut out = Vec::new();
     for ssa_block in &ssa.blocks {
-        let has_ind = ssa_block.ops.iter().any(|o| {
-            matches!(&o.kind, SsaOpKind::Pcode(PcodeOp::BranchInd { .. }))
-        });
+        let has_ind = ssa_block
+            .ops
+            .iter()
+            .any(|o| matches!(&o.kind, SsaOpKind::Pcode(PcodeOp::BranchInd { .. })));
         if !has_ind {
             continue;
         }
         // Locate the analysis basic block to get exit_va (the jmp instruction).
-        let Some(bb) = func.blocks.iter().find(|b| b.entry_va == ssa_block.entry_va) else {
+        let Some(bb) = func
+            .blocks
+            .iter()
+            .find(|b| b.entry_va == ssa_block.entry_va)
+        else {
             continue;
         };
         let Some(dec) = project.analysis.code_index.at_va(bb.exit_va) else {
@@ -2329,6 +2443,15 @@ fn resolve_switch_infos(
 mod tests {
     use super::*;
 
+    fn write_scratch(name: &str, contents: &str) {
+        let Ok(dir) = std::env::var("WINDY_SCRATCH") else {
+            return;
+        };
+        let dir = std::path::PathBuf::from(dir);
+        let _ = std::fs::create_dir_all(&dir);
+        let _ = std::fs::write(dir.join(name), contents);
+    }
+
     #[test]
     fn smoke_notepad_functions_and_export() {
         let path = r"C:\Windows\System32\notepad.exe";
@@ -2340,7 +2463,10 @@ mod tests {
         let project = Project::open(path).expect("should load notepad.exe");
         assert!(!project.functions().is_empty(), "should discover functions");
         assert!(
-            project.symbols.iter().any(|(_, s)| s.name.starts_with("__imp_")),
+            project
+                .symbols
+                .iter()
+                .any(|(_, s)| s.name.starts_with("__imp_")),
             "should model at least one __imp_<Api> IAT slot"
         );
 
@@ -2353,7 +2479,10 @@ mod tests {
         let export = project
             .function_export(entry)
             .expect("should export entry function");
-        assert!(!export.instructions.is_empty(), "export should have instructions");
+        assert!(
+            !export.instructions.is_empty(),
+            "export should have instructions"
+        );
         assert!(!export.blocks.is_empty(), "export should have blocks");
 
         let text = project.function_llm_text(entry).expect("llm text");
@@ -2366,7 +2495,10 @@ mod tests {
                 .map(|t| t.contains("__imp_"))
                 .unwrap_or(false)
         });
-        assert!(has_import, "symbol-resolved disassembly should contain __imp_<Api>");
+        assert!(
+            has_import,
+            "symbol-resolved disassembly should contain __imp_<Api>"
+        );
     }
 
     #[test]
@@ -2396,6 +2528,7 @@ mod tests {
         }
     }
 
+    #[cfg(feature = "gclsd-archive")]
     #[test]
     fn function_gclsd_input_preserves_edges() {
         let path = r"C:\Windows\System32\notepad.exe";
@@ -2416,11 +2549,15 @@ mod tests {
             "should preserve CFG successors"
         );
         assert!(
-            input.blocks.iter().any(|b| b.successors.iter().any(|e| e.target != 0)),
+            input
+                .blocks
+                .iter()
+                .any(|b| b.successors.iter().any(|e| e.target != 0)),
             "should have at least one resolved successor target"
         );
     }
 
+    #[cfg(feature = "gclsd-archive")]
     #[test]
     fn export_gclsd_yields_functions() {
         let path = r"C:\Windows\System32\notepad.exe";
@@ -2430,8 +2567,9 @@ mod tests {
         }
 
         let project = Project::open(path).expect("open notepad.exe");
-        let inputs: Vec<_> =
-            crate::ir::gclsd::export_project_gclsd(&project, 1).take(10).collect();
+        let inputs: Vec<_> = crate::ir::gclsd::export_project_gclsd(&project, 1)
+            .take(10)
+            .collect();
         assert!(!inputs.is_empty(), "should export at least one function");
         for input in inputs {
             assert!(!input.instructions.is_empty());
@@ -2473,29 +2611,6 @@ mod tests {
         assert!(
             text.contains("g_count"),
             "agent text should mention the annotated g_count global:\n{text}"
-        );
-    }
-
-    #[test]
-    fn gclsd_refine_auto_seed_from_native() {
-        // Mirrors MCP decompile_function: when refine is None, seed from native.
-        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/gclsd/bench/sample.exe");
-        if !std::path::Path::new(path).exists() {
-            eprintln!("skipping: sample.exe not found");
-            return;
-        }
-        let project = Project::open(path).expect("open sample.exe");
-        let va = project
-            .functions()
-            .iter()
-            .map(|f| f.entry_va)
-            .find(|&va| project.function_decompile_native(va).is_some())
-            .expect("a decompilable function");
-        let params_refine: Option<String> = None;
-        let refine = params_refine.or_else(|| project.function_decompile_native(va));
-        assert!(
-            refine.as_ref().is_some_and(|s| !s.is_empty()),
-            "native refine seed should be non-None when decompilation works"
         );
     }
 
@@ -2547,7 +2662,10 @@ mod tests {
             }
             found = true;
         }
-        assert!(found, "expected at least one SigDB-annotated IAT slot in notepad");
+        assert!(
+            found,
+            "expected at least one SigDB-annotated IAT slot in notepad"
+        );
     }
 
     #[test]
@@ -2725,7 +2843,10 @@ mod tests {
                 }
             }
         }
-        assert!(found, "expected call-site arg tracing on at least one function");
+        assert!(
+            found,
+            "expected call-site arg tracing on at least one function"
+        );
     }
 
     #[test]
@@ -2767,6 +2888,307 @@ mod tests {
         }
         // Signature header always present (first non-empty line).
         assert!(!bounded.trim().is_empty());
+    }
+
+    /// WindyDec v2 product: native text equals artifact text; engine always set.
+    /// Prefers a V2-accepted pure-printer function for the SCRATCH sample.
+    #[test]
+    fn decompile_artifact_text_matches_native() {
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/gclsd/bench/sample.exe");
+        if !std::path::Path::new(path).exists() {
+            eprintln!("skipping: sample.exe not found");
+            return;
+        }
+        let project = Project::open(path).expect("open sample.exe");
+        let opts = crate::decompiler::v2::DecompileOptions::production();
+        // Prefer first function where pure v2 checker accepts (criterion-2 sample).
+        let mut chosen: Option<(u64, crate::decompiler::v2::DecompileArtifact)> = None;
+        for f in project.functions().iter().take(64) {
+            let Some(art) = project.function_decompile_artifact(f.entry_va, opts.clone()) else {
+                continue;
+            };
+            if art.text.trim().is_empty() {
+                continue;
+            }
+            if art.engine == crate::decompiler::v2::artifact::DecompileEngine::V2
+                && art.fallback_reason.is_none()
+                && art.check_report.accepted
+            {
+                chosen = Some((f.entry_va, art));
+                break;
+            }
+            if chosen.is_none() {
+                chosen = Some((f.entry_va, art));
+            }
+        }
+        let (va, art) = chosen.expect("a decompilable function");
+        let native = project.function_decompile_native(va).expect("native");
+        assert_eq!(
+            art.text, native,
+            "function_decompile_native must return artifact text"
+        );
+        assert!(
+            !art.contract_fingerprint.is_empty()
+                || art.contracts.has_return
+                || !art.text.is_empty()
+        );
+        assert!(
+            art.engine == crate::decompiler::v2::artifact::DecompileEngine::V2
+                || art.engine == crate::decompiler::v2::artifact::DecompileEngine::Legacy
+        );
+        assert!(
+            !art.text.trim().is_empty(),
+            "present function empty decompile: fallback={:?}",
+            art.fallback_reason
+        );
+        let sample = serde_json::json!({
+            "va": format!("{va:#x}"),
+            "text": art.text,
+            "engine": format!("{:?}", art.engine),
+            "fallback_reason": art.fallback_reason,
+            "presentation_cost": art.presentation_cost,
+            "contract_fingerprint": art.contract_fingerprint,
+            "contracts": {
+                "has_return": art.contracts.has_return,
+                "case_count": art.contracts.cases.len(),
+                "loop_count": art.contracts.loops.len(),
+            },
+            "check_report": {
+                "accepted": art.check_report.accepted,
+                "edges_covered": art.check_report.edges_covered,
+                "effects_covered": art.check_report.effects_covered,
+                "rejects": art.check_report.rejects,
+                "candidates_tried": art.check_report.candidates_tried,
+                "candidates_accepted": art.check_report.candidates_accepted,
+            },
+            "diagnostics": art.diagnostics,
+            "ast_summary": art.ast_summary,
+            "pure_printer": art.diagnostics.iter().any(|d| d.contains("v2_pure")),
+        });
+        write_scratch(
+            "decomp_artifact_product_sample.json",
+            &serde_json::to_string_pretty(&sample).unwrap_or_default(),
+        );
+        // Product prefers accepted V2; pure_no_fallback must always remain V2.
+        let pure_opts = crate::decompiler::v2::DecompileOptions::pure_no_fallback();
+        let v2_wins = project.functions().iter().take(64).any(|f| {
+            project
+                .function_decompile_artifact(f.entry_va, pure_opts.clone())
+                .map(|a| {
+                    a.engine == crate::decompiler::v2::artifact::DecompileEngine::V2
+                        && a.fallback_reason.is_none()
+                        && !a.text.trim().is_empty()
+                })
+                .unwrap_or(false)
+        });
+        assert!(
+            v2_wins,
+            "expected at least one pure_no_fallback V2 artifact on sample.exe"
+        );
+
+        // Step-4 verification: under pure V2 mode, native text equals artifact text.
+        let pure_opts = crate::decompiler::v2::DecompileOptions::pure_no_fallback();
+        let mut pure_eq_count = 0usize;
+        let mut pure_sample_va = None;
+        let mut pure_sample_art = None;
+        for f in project.functions().iter().take(32) {
+            let Some(art) = project.function_decompile_artifact(f.entry_va, pure_opts.clone())
+            else {
+                continue;
+            };
+            if art.engine != crate::decompiler::v2::artifact::DecompileEngine::V2
+                || art.fallback_reason.is_some()
+                || art.text.trim().is_empty()
+            {
+                continue;
+            }
+            let native = project
+                .function_decompile_native_with(f.entry_va, pure_opts.clone())
+                .expect("native with pure opts");
+            assert_eq!(
+                art.text, native,
+                "pure V2: function_decompile_native_with must equal artifact text at {:#x}",
+                f.entry_va
+            );
+            pure_eq_count += 1;
+            if pure_sample_va.is_none() {
+                pure_sample_va = Some(f.entry_va);
+                pure_sample_art = Some(art);
+            }
+        }
+        assert!(
+            pure_eq_count >= 1,
+            "expected at least one pure V2 native==artifact equality check"
+        );
+        // Pure V2 artifact sample (serializable typed AST) for verification.
+        if let (Some(va), Some(pure)) = (pure_sample_va, pure_sample_art) {
+            let pure_sample = serde_json::json!({
+                "va": format!("{va:#x}"),
+                "engine": format!("{:?}", pure.engine),
+                "fallback_reason": pure.fallback_reason,
+                "text": pure.text,
+                "typed_ast": pure.typed_ast,
+                "check_report": pure.check_report,
+                "diagnostics": pure.diagnostics,
+                "contract_fingerprint": pure.contract_fingerprint,
+                "native_equals_artifact": true,
+                "mode": "pure_no_fallback",
+                "pure_eq_functions_checked": pure_eq_count,
+            });
+            write_scratch(
+                "decomp_artifact_pure_sample.json",
+                &serde_json::to_string_pretty(&pure_sample).unwrap_or_default(),
+            );
+            write_scratch(
+                "native_eq_pure_v2.txt",
+                &format!(
+                    "mode=pure_no_fallback\nva={va:#x}\nnative_equals_artifact=true\nfunctions_checked={pure_eq_count}\nengine=V2\nfallback=null\n"
+                ),
+            );
+        }
+    }
+
+    /// Dual pure_no_fallback digests for a fixed PE subset (determinism step 5).
+    #[test]
+    fn pure_v2_artifact_digests_deterministic() {
+        use sha2::{Digest, Sha256};
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/gclsd/bench/sample.exe");
+        if !std::path::Path::new(path).exists() {
+            eprintln!("skipping: sample.exe not found");
+            return;
+        }
+        let pure = crate::decompiler::v2::DecompileOptions::pure_no_fallback();
+        let mut digests_a = Vec::new();
+        let mut digests_b = Vec::new();
+        for pass in 0..2 {
+            let project = Project::open(path).expect("open sample.exe");
+            let mut digests = Vec::new();
+            for f in project.functions().iter().take(16) {
+                let Some(art) = project.function_decompile_artifact(f.entry_va, pure.clone())
+                else {
+                    continue;
+                };
+                if art.text.trim().is_empty() {
+                    continue;
+                }
+                let mut h = Sha256::new();
+                h.update(art.text.as_bytes());
+                h.update(art.contract_fingerprint.as_bytes());
+                h.update(format!("{:?}", art.engine).as_bytes());
+                let digest = format!("{:x}", h.finalize());
+                digests.push((f.entry_va, digest, art.text.len()));
+            }
+            if pass == 0 {
+                digests_a = digests;
+            } else {
+                digests_b = digests;
+            }
+        }
+        assert_eq!(
+            digests_a, digests_b,
+            "pure V2 artifact digests must match across dual opens"
+        );
+        assert!(!digests_a.is_empty(), "expected digests for sample.exe");
+        let report = serde_json::json!({
+            "pe": "gclsd/bench/sample.exe",
+            "mode": "pure_no_fallback",
+            "functions": digests_a.len(),
+            "identical": digests_a == digests_b,
+            "digests": digests_a.iter().map(|(va, d, len)| {
+                serde_json::json!({
+                    "va": format!("{va:#x}"),
+                    "sha256": d,
+                    "text_len": len,
+                })
+            }).collect::<Vec<_>>(),
+        });
+        write_scratch(
+            "determinism_artifact_digests.json",
+            &serde_json::to_string_pretty(&report).unwrap_or_default(),
+        );
+        write_scratch(
+            "determinism_artifact_report.txt",
+            &format!(
+                "identical=true\npe=gclsd/bench/sample.exe\nmode=pure_no_fallback\nfunctions={}\n",
+                digests_a.len()
+            ),
+        );
+    }
+
+    /// Non-Grand PE corpus: pure_no_fallback V2 share ≥ 99% (not Grand proxy).
+    #[test]
+    fn external_corpus_pure_v2_share() {
+        let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        let pes = [
+            root.join("gclsd/bench/sample.exe"),
+            root.join("gclsd/bench/complex.exe"),
+        ];
+        let pure = crate::decompiler::v2::DecompileOptions::pure_no_fallback();
+        let mut total = 0usize;
+        let mut v2 = 0usize;
+        let mut fallbacks = 0usize;
+        let mut empty = 0usize;
+        let mut per_pe = Vec::new();
+        for pe in &pes {
+            if !pe.exists() {
+                continue;
+            }
+            let Ok(project) = Project::open(pe) else {
+                continue;
+            };
+            let mut pe_total = 0usize;
+            let mut pe_v2 = 0usize;
+            for f in project.functions().iter().take(128) {
+                let Some(art) = project.function_decompile_artifact(f.entry_va, pure.clone())
+                else {
+                    continue;
+                };
+                pe_total += 1;
+                total += 1;
+                if art.engine == crate::decompiler::v2::artifact::DecompileEngine::V2
+                    && art.fallback_reason.is_none()
+                    && !art.text.trim().is_empty()
+                {
+                    pe_v2 += 1;
+                    v2 += 1;
+                } else if art.fallback_reason.is_some() {
+                    fallbacks += 1;
+                }
+                if art.text.trim().is_empty() {
+                    empty += 1;
+                }
+            }
+            per_pe.push(serde_json::json!({
+                "pe": pe.file_name().and_then(|s| s.to_str()).unwrap_or("?"),
+                "functions": pe_total,
+                "v2_pure": pe_v2,
+                "share": if pe_total == 0 { 0.0 } else { pe_v2 as f64 / pe_total as f64 },
+            }));
+        }
+        let share = if total == 0 {
+            0.0
+        } else {
+            v2 as f64 / total as f64
+        };
+        let report = serde_json::json!({
+            "suite": "external_non_grand_pure_v2",
+            "functions": total,
+            "v2_pure": v2,
+            "v2_share": share,
+            "fallbacks": fallbacks,
+            "empty": empty,
+            "per_pe": per_pe,
+            "note": "sample.exe + complex.exe (not Grand suite proxy)",
+        });
+        write_scratch(
+            "external_corpus_v2_share.json",
+            &serde_json::to_string_pretty(&report).unwrap_or_default(),
+        );
+        assert!(total > 0, "expected at least one external PE function");
+        assert!(
+            share >= 0.99,
+            "external pure V2 share {share} < 0.99 (v2={v2}/{total})"
+        );
     }
 
     #[test]
@@ -2822,7 +3244,10 @@ mod tests {
         assert!(structured.get("variables").is_some());
         assert!(structured.get("blocks").is_some());
         assert!(structured.get("control_flow").is_some());
-        assert!(structured["calls"].is_array(), "calls must be an array: {structured}");
+        assert!(
+            structured["calls"].is_array(),
+            "calls must be an array: {structured}"
+        );
         assert!(
             structured["cfg_edges"].is_array(),
             "cfg_edges must be an array: {structured}"
@@ -2906,23 +3331,17 @@ mod tests {
                 .expect("sample main function"),
         );
         assert_eq!(
-            call_abi_inputs
-                .get(&0x1_4000_10be)
-                .map(Vec::len),
+            call_abi_inputs.get(&0x1_4000_10be).map(Vec::len),
             Some(2),
             "add's inferred direct-call contract must retain RCX/RDX"
         );
         assert_eq!(
-            call_abi_inputs
-                .get(&0x1_4000_10d8)
-                .map(Vec::len),
+            call_abi_inputs.get(&0x1_4000_10d8).map(Vec::len),
             Some(1),
             "strlen_local's inferred direct-call contract must retain RCX"
         );
         assert_eq!(
-            call_abi_inputs
-                .get(&0x1_4000_10ef)
-                .map(Vec::len),
+            call_abi_inputs.get(&0x1_4000_10ef).map(Vec::len),
             Some(3),
             "max3's inferred direct-call contract must retain RCX/RDX/R8"
         );
@@ -2959,15 +3378,41 @@ mod tests {
             .lines()
             .find(|line| line.contains("FUN_140001060("))
             .expect("max3 call line");
-        let max3_arguments = max3
-            .split_once('(')
-            .and_then(|(_, tail)| tail.split_once(')'))
-            .map(|(arguments, _)| arguments.split(',').count())
-            .unwrap_or(0);
+        // Count top-level commas only — nested `*(arg_20)` must not truncate the
+        // argument list at the first ')'.
+        let max3_arguments = count_top_level_call_args(max3).unwrap_or(0);
         assert_eq!(
             max3_arguments, 3,
             "a three-slot call contract must not become a shorter native call:\n{native}"
         );
+    }
+
+    /// Count comma-separated arguments inside the first call `(…)` on a line,
+    /// respecting nested parentheses.
+    fn count_top_level_call_args(line: &str) -> Option<usize> {
+        let start = line.find('(')?;
+        let bytes = line.as_bytes();
+        let mut depth = 0i32;
+        let mut commas = 0usize;
+        let mut empty = true;
+        for &b in &bytes[start..] {
+            match b {
+                b'(' => depth += 1,
+                b')' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        return Some(if empty { 0 } else { commas + 1 });
+                    }
+                }
+                b',' if depth == 1 => {
+                    commas += 1;
+                    empty = false;
+                }
+                c if !c.is_ascii_whitespace() && depth == 1 => empty = false,
+                _ => {}
+            }
+        }
+        None
     }
 
     #[test]
@@ -2988,23 +3433,26 @@ mod tests {
             .expect("optimized sample main SSA");
 
         fn call_registers(ssa: &SsaFunction, target: u64) -> Option<Vec<u64>> {
-            ssa.blocks.iter().flat_map(|block| block.ops.iter()).find_map(|op| {
-                let SsaOpKind::Pcode(PcodeOp::Call { dest }) = &op.kind else {
-                    return None;
-                };
-                if dest.offset != target {
-                    return None;
-                }
-                Some(
-                    op.uses
-                        .iter()
-                        .filter_map(|use_var| match use_var.location {
-                            Location::Register { base_offset } => Some(base_offset),
-                            _ => None,
-                        })
-                        .collect(),
-                )
-            })
+            ssa.blocks
+                .iter()
+                .flat_map(|block| block.ops.iter())
+                .find_map(|op| {
+                    let SsaOpKind::Pcode(PcodeOp::Call { dest }) = &op.kind else {
+                        return None;
+                    };
+                    if dest.offset != target {
+                        return None;
+                    }
+                    Some(
+                        op.uses
+                            .iter()
+                            .filter_map(|use_var| match use_var.location {
+                                Location::Register { base_offset } => Some(base_offset),
+                                _ => None,
+                            })
+                            .collect(),
+                    )
+                })
         }
 
         assert_eq!(
@@ -3056,10 +3504,7 @@ mod tests {
             va,
             FunctionSignature {
                 name: "operator_declared_main".to_string(),
-                params: vec![(
-                    "operator_argument".to_string(),
-                    DataType::Uint(16),
-                )],
+                params: vec![("operator_argument".to_string(), DataType::Uint(16))],
                 ret: DataType::Bool,
                 calling_conv: Some("operator_cc".to_string()),
             },
@@ -3069,8 +3514,7 @@ mod tests {
             .function_decompile_structured(va)
             .expect("structured decompile with persisted signature");
         assert_eq!(
-            structured["signature"]["name"],
-            "operator_declared_main",
+            structured["signature"]["name"], "operator_declared_main",
             "persisted declaration must win over heuristic recovery"
         );
         assert_eq!(structured["signature"]["ret"], "bool");
@@ -3078,10 +3522,7 @@ mod tests {
             structured["signature"]["params"][0]["name"],
             "operator_argument"
         );
-        assert_eq!(
-            structured["signature"]["params"][0]["type"],
-            "uint16"
-        );
+        assert_eq!(structured["signature"]["params"][0]["type"], "uint16");
     }
 
     #[test]
@@ -3160,7 +3601,10 @@ mod tests {
         assert!(dlls.iter().any(|d| d == "advapi32"));
         let k = db.signatures_for_dll("kernel32");
         assert!(k.len() >= 80);
-        assert!(k.iter().any(|s| s.name == "CreateFileW" && s.params.len() == 7));
+        assert!(
+            k.iter()
+                .any(|s| s.name == "CreateFileW" && s.params.len() == 7)
+        );
     }
 
     // --- Phase 7: LLM RE Performance Frontier --------------------------------
@@ -3308,7 +3752,10 @@ mod tests {
         }
         .apply_to(&mut project);
         assert_eq!(
-            project.function_memory.get(&va).and_then(|c| c.purpose.clone()),
+            project
+                .function_memory
+                .get(&va)
+                .and_then(|c| c.purpose.clone()),
             Some("test helper".into())
         );
 
@@ -3316,7 +3763,10 @@ mod tests {
         let state = ProjectState::from_project(&project);
         let loaded = ProjectState::from_bytes(&state.to_bytes().unwrap()).unwrap();
         assert_eq!(
-            loaded.function_memory.get(&va).and_then(|c| c.purpose.clone()),
+            loaded
+                .function_memory
+                .get(&va)
+                .and_then(|c| c.purpose.clone()),
             Some("test helper".into())
         );
 
@@ -3451,10 +3901,7 @@ mod tests {
             return None;
         };
 
-        let dir = std::env::temp_dir().join(format!(
-            "windy-fixture-{}",
-            uuid::Uuid::new_v4()
-        ));
+        let dir = std::env::temp_dir().join(format!("windy-fixture-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).expect("create fixture dir");
         let src = dir.join("tiny.c");
         let exe = dir.join("tiny.exe");
@@ -3484,13 +3931,11 @@ int main(void) {
         assert!(
             output.status.success(),
             "cl failed: {}",
-                String::from_utf8_lossy(&output.stderr)
+            String::from_utf8_lossy(&output.stderr)
         );
         Some(exe)
     }
 }
-
-
 
 struct SeedSymbolTable;
 

@@ -1,12 +1,11 @@
-
 //! Global search across instructions, symbols, and strings. Designed to be
 //! cheap enough to run on every keystroke in the UI while still covering the
 //! whole image.
 
 use regex::Regex;
 
-use crate::project::Project;
 use crate::disasm::Syntax;
+use crate::project::Project;
 
 /// One search result.
 #[derive(Clone, Debug)]

@@ -1,0 +1,108 @@
+{
+  "program_id": "cmp05_mix",
+  "pack_tags": [
+    "C",
+    "E"
+  ],
+  "kind": "composite",
+  "source": "eval/grand/src/cmp05_mix.c",
+  "functions": [
+    {
+      "id": "main",
+      "source_name": "main",
+      "facts": [
+        {
+          "id": "ret",
+          "kind": "return",
+          "dimension": "semantic",
+          "critical": true,
+          "must_match": [
+            "return"
+          ],
+          "match_any": [],
+          "forbid": [],
+          "depends_on": [],
+          "slice": "return",
+          "residual_on_miss": "SEMANTIC_RETURN_WRONG",
+          "catastrophic_cap": 0.35
+        },
+        {
+          "id": "call",
+          "kind": "call_site",
+          "dimension": "calls",
+          "critical": true,
+          "must_match": [],
+          "match_any": [
+            "fun_",
+            "signed_lt",
+            "unsigned_lt",
+            "narrow_add",
+            "imin",
+            "iabs",
+            "idiv",
+            "irem",
+            "sum_until_zero",
+            "walk_cstr",
+            "mat_sum",
+            "count_down",
+            "nested_decide",
+            "classify",
+            "dispatch",
+            "both",
+            "point_mag2",
+            "idx_sum",
+            "outer_sum",
+            "tu_value",
+            "four",
+            "apply",
+            "six",
+            "mid",
+            "leaf",
+            "f",
+            "kernel",
+            "run",
+            "work",
+            "helper",
+            "clamp",
+            "use_s",
+            "add2",
+            "step",
+            "decode_packet",
+            "crc_add",
+            "route_variant",
+            "QueryInterface",
+            "AddRef",
+            "Release",
+            "parse_tree",
+            "res_init",
+            "res_destroy",
+            "deep",
+            "seh_load",
+            "filter_av",
+            "read_header",
+            "handle_record"
+          ],
+          "forbid": [],
+          "depends_on": [],
+          "slice": "call",
+          "residual_on_miss": "CALL_TARGET_WRONG",
+          "catastrophic_cap": 0.4
+        },
+        {
+          "id": "no_goto",
+          "kind": "control_region",
+          "dimension": "clarity",
+          "critical": false,
+          "must_match": [],
+          "match_any": [],
+          "forbid": [
+            "goto "
+          ],
+          "depends_on": [],
+          "slice": "any",
+          "residual_on_forbid": "GOTO_RESIDUAL"
+        }
+      ]
+    }
+  ]
+}

@@ -1,4 +1,3 @@
-
 //! Best-effort recovery of function signatures. PDB-derived signatures are
 //! preferred; this module provides architecture-specific heuristic fallbacks
 //! so exports still show argument counts and registers for the LLM.
@@ -50,7 +49,11 @@ pub fn recover_signature_with_db(
     }
 }
 
-fn recover_x64_signature(func: &Function, code_index: &CodeIndex, name: &str) -> Option<FunctionSignature> {
+fn recover_x64_signature(
+    func: &Function,
+    code_index: &CodeIndex,
+    name: &str,
+) -> Option<FunctionSignature> {
     let param_regs: [Register; 8] = [
         Register::RCX,
         Register::RDX,
@@ -92,7 +95,9 @@ fn recover_x64_signature(func: &Function, code_index: &CodeIndex, name: &str) ->
             FlowControl::Next => {
                 va = dec.next_ip();
             }
-            FlowControl::Call | FlowControl::UnconditionalBranch | FlowControl::ConditionalBranch => {
+            FlowControl::Call
+            | FlowControl::UnconditionalBranch
+            | FlowControl::ConditionalBranch => {
                 break;
             }
             _ => break,
@@ -154,7 +159,9 @@ fn recover_x86_signature(
             FlowControl::Next => {
                 va = dec.next_ip();
             }
-            FlowControl::Call | FlowControl::UnconditionalBranch | FlowControl::ConditionalBranch => {
+            FlowControl::Call
+            | FlowControl::UnconditionalBranch
+            | FlowControl::ConditionalBranch => {
                 break;
             }
             _ => break,

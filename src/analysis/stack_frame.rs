@@ -1,4 +1,3 @@
-
 //! Prologue-based stack-frame recovery for functions that do not have PDB
 //! frame data. Extracts the local-variable size and synthesizes placeholder
 //! typed locals that the decompiler/LLM can refine later.
@@ -25,7 +24,12 @@ pub fn recover_frames(functions: &mut FunctionTable, code_index: &CodeIndex, bit
     }
 }
 
-fn analyze_prologue(entry: u64, code_index: &CodeIndex, ptr_size: u64, bitness: u32) -> Option<StackFrame> {
+fn analyze_prologue(
+    entry: u64,
+    code_index: &CodeIndex,
+    ptr_size: u64,
+    bitness: u32,
+) -> Option<StackFrame> {
     let mut uses_frame_pointer = false;
     let mut local_size = 0u64;
     let mut steps = 0;
@@ -59,7 +63,10 @@ fn analyze_prologue(entry: u64, code_index: &CodeIndex, ptr_size: u64, bitness: 
 
         // sub rsp, N / sub esp, N
         if instr.mnemonic() == Mnemonic::Sub
-            && matches!(instr.op0_register(), Register::RSP | Register::ESP | Register::RIP)
+            && matches!(
+                instr.op0_register(),
+                Register::RSP | Register::ESP | Register::RIP
+            )
             && is_immediate_op(instr, 1)
         {
             let n = instr.immediate(1);
@@ -74,7 +81,8 @@ fn analyze_prologue(entry: u64, code_index: &CodeIndex, ptr_size: u64, bitness: 
         if instr.mnemonic() == Mnemonic::Lea
             && matches!(instr.op0_register(), Register::RSP | Register::ESP)
             && let Some(n) = lea_stack_adjustment(instr, bitness)
-            && n > 0 && n <= 0x100_0000
+            && n > 0
+            && n <= 0x100_0000
         {
             local_size = n;
             va = dec.next_ip();

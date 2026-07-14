@@ -1,0 +1,72 @@
+{
+  "program_id": "cmp03_switch_loop",
+  "source": "eval/grand/src/cmp03_switch_loop.c",
+  "functions": [
+    {
+      "id": "step",
+      "source_name": "step",
+      "regions": [
+        "expr_return",
+        "switch"
+      ],
+      "effects": [
+        {
+          "kind": "return",
+          "class": "bin_op",
+          "ops": [],
+          "critical": true
+        },
+        {
+          "kind": "return",
+          "class": null,
+          "ops": [
+            "+",
+            "-"
+          ],
+          "critical": false
+        },
+        {
+          "kind": "switch_partition",
+          "cases": [
+            0,
+            1
+          ],
+          "critical": false
+        }
+      ]
+    },
+    {
+      "id": "run",
+      "source_name": "run",
+      "regions": [
+        "expr_return",
+        "loop"
+      ],
+      "effects": [
+        {
+          "kind": "return",
+          "class": "name",
+          "ops": [],
+          "critical": true
+        },
+        {
+          "kind": "return",
+          "class": null,
+          "ops": [
+            "<"
+          ],
+          "critical": false
+        },
+        {
+          "kind": "call",
+          "target": "step",
+          "critical": false
+        },
+        {
+          "kind": "loop",
+          "critical": false
+        }
+      ]
+    }
+  ]
+}

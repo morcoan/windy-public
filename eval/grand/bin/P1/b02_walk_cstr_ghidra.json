@@ -1,0 +1,12 @@
+[
+  {
+    "entry_va": 5368713216,
+    "pseudocode": "\r\nvoid FUN_140001000(void)\r\n\r\n{\r\n  DAT_14001aad0 = DAT_14001aad0 ^ 1;\r\n  FUN_14000101c(\"grand\");\r\n  return;\r\n}\r\n\r\n",
+    "name": "FUN_140001000"
+  },
+  {
+    "entry_va": 5368713244,
+    "pseudocode": "\r\nint FUN_14000101c(char *param_1)\r\n\r\n{\r\n  char cVar1;\r\n  int iVar2;\r\n  \r\n  iVar2 = 0;\r\n  cVar1 = *param_1;\r\n  while (cVar1 != '\\0') {\r\n    param_1 = param_1 + 1;\r\n    iVar2 = iVar2 + 1;\r\n    cVar1 = *param_1;\r\n  }\r\n  return iVar2;\r\n}\r\n\r\n",
+    "name": "FUN_14000101c"
+  }
+]

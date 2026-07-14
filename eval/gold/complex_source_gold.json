@@ -1,0 +1,118 @@
+{
+  "program": "gclsd/bench/complex.exe",
+  "source": "gclsd/bench/complex.c",
+  "ghidra_export": "gclsd/bench/complex_ghidra_output.json",
+  "notes": "Harder PE gold for classical-decomp quality. Quality gates (no_rsp, no_stack_home, max_assign, null_term, char_cast, return_binop) are engine-agnostic and intended to show Ghidra ahead of Windy-native SSA emission on MSVC /Od code. Ghidra entry VAs are FUN_* addresses after strip (no PDB).",
+  "functions": [
+    {
+      "id": "clamp",
+      "source_name": "clamp",
+      "ghidra_entry_va": "0x140001000",
+      "must_tokens": ["return"],
+      "control": ["if"],
+      "min_params": 3,
+      "calls": [],
+      "strings": [],
+      "quality": ["no_rsp", "no_stack_home", "max_assign:3"]
+    },
+    {
+      "id": "classify",
+      "source_name": "classify",
+      "ghidra_entry_va": "0x140001040",
+      "must_tokens": ["return"],
+      "control": ["if", "else"],
+      "min_params": 1,
+      "calls": [],
+      "strings": [],
+      "quality": ["no_rsp", "no_stack_home", "max_assign:5"]
+    },
+    {
+      "id": "sum_until_zero",
+      "source_name": "sum_until_zero",
+      "ghidra_entry_va": "0x140001090",
+      "must_tokens": ["return", "+"],
+      "control": ["if", "loop"],
+      "min_params": 2,
+      "calls": [],
+      "strings": [],
+      "quality": ["no_rsp", "no_stack_home", "max_assign:6"]
+    },
+    {
+      "id": "walk_cstr",
+      "source_name": "walk_cstr",
+      "ghidra_entry_va": "0x140001100",
+      "must_tokens": ["return"],
+      "control": ["loop"],
+      "min_params": 1,
+      "calls": [],
+      "strings": [],
+      "quality": [
+        "no_rsp",
+        "no_stack_home",
+        "null_term",
+        "char_cast",
+        "max_assign:3"
+      ]
+    },
+    {
+      "id": "point_mag2",
+      "source_name": "point_mag2",
+      "ghidra_entry_va": "0x140001140",
+      "must_tokens": ["return"],
+      "control": [],
+      "min_params": 1,
+      "calls": [],
+      "strings": [],
+      "quality": [
+        "no_rsp",
+        "no_stack_home",
+        "return_binop:*",
+        "return_binop:+",
+        "max_assign:3"
+      ]
+    },
+    {
+      "id": "nested_decide",
+      "source_name": "nested_decide",
+      "ghidra_entry_va": "0x140001160",
+      "must_tokens": ["return"],
+      "control": ["if", "else"],
+      "min_params": 3,
+      "calls": [],
+      "strings": [],
+      "quality": ["no_rsp", "no_stack_home", "max_assign:4"]
+    },
+    {
+      "id": "dispatch",
+      "source_name": "dispatch",
+      "ghidra_entry_va": "0x1400011c0",
+      "must_tokens": ["return"],
+      "control": ["if", "else"],
+      "min_params": 3,
+      "calls": ["classify|fun_140001040"],
+      "strings": [],
+      "quality": ["no_rsp", "no_stack_home", "max_assign:8"]
+    },
+    {
+      "id": "main",
+      "source_name": "main",
+      "ghidra_entry_va": "0x140001250",
+      "must_tokens": ["return"],
+      "control": [],
+      "min_params": 0,
+      "calls": [
+        "clamp|fun_140001000",
+        "classify|fun_140001040",
+        "sum_until_zero|fun_140001090",
+        "walk_cstr|fun_140001100",
+        "point_mag2|fun_140001140",
+        "nested_decide|fun_140001160",
+        "dispatch|fun_1400011c0"
+      ],
+      "calls_complete": false,
+      "strings": ["complex"],
+      "strings_complete": false,
+      "quality": ["no_rsp"]
+    }
+  ]
+}

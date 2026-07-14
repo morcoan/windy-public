@@ -5,9 +5,9 @@
 //! uses [`crate::project::op::Op`] instead; keep this layer for in-process UI
 //! undo stacks that hold trait objects rather than serializable ops.
 
+use crate::project::Project;
 use crate::project::comments::CommentScope;
 use crate::project::symbols::SymbolKind;
-use crate::project::Project;
 
 /// A reversible project mutation.
 ///
@@ -133,7 +133,10 @@ impl SetComment {
 
 impl Command for SetComment {
     fn apply(&mut self, project: &mut Project) {
-        self.old = project.comments.get(self.addr, self.scope).map(String::from);
+        self.old = project
+            .comments
+            .get(self.addr, self.scope)
+            .map(String::from);
         project
             .comments
             .set(self.addr, self.scope, self.text.clone());

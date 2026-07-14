@@ -1,0 +1,73 @@
+{
+  "program_id": "c03_dispatch",
+  "source": "eval/grand/src/c03_dispatch.c",
+  "functions": [
+    {
+      "id": "dispatch",
+      "source_name": "dispatch",
+      "regions": [
+        "expr_return",
+        "switch"
+      ],
+      "effects": [
+        {
+          "kind": "return",
+          "class": "bin_op",
+          "ops": [],
+          "critical": true
+        },
+        {
+          "kind": "return",
+          "class": null,
+          "ops": [
+            "+",
+            "-",
+            "*",
+            "/"
+          ],
+          "critical": false
+        },
+        {
+          "kind": "call",
+          "target": "classify",
+          "critical": false
+        },
+        {
+          "kind": "switch_partition",
+          "cases": [
+            1,
+            2,
+            3,
+            4
+          ],
+          "critical": false
+        }
+      ]
+    },
+    {
+      "id": "classify",
+      "source_name": "classify",
+      "regions": [
+        "expr_return",
+        "if"
+      ],
+      "effects": [
+        {
+          "kind": "return",
+          "class": "const",
+          "ops": [],
+          "critical": true
+        },
+        {
+          "kind": "return",
+          "class": null,
+          "ops": [
+            "-",
+            "=="
+          ],
+          "critical": false
+        }
+      ]
+    }
+  ]
+}

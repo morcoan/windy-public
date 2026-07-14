@@ -1,13 +1,14 @@
 //! Win32 API signature database for LLM reverse engineering.
 //!
-//! Loads per-DLL JSON signature files from `~/.windy/signatures/` (user
-//! overrides) plus the crate-bundled defaults under `signatures/`.  When an
+//! Loads per-DLL JSON signature files from the resolved Windy data directory's
+//! `signatures/` folder (user overrides) plus the crate-bundled defaults under
+//! `signatures/`. When an
 //! LLM sees `__imp_CreateFileW`, this DB supplies the full parameter list so
 //! type recovery and agent-text annotation no longer guess from training data.
 
 use std::collections::HashMap;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use serde::Deserialize;
 
@@ -38,14 +39,18 @@ pub struct SigDB {
 
 #[allow(dead_code)] // MCP / agent / test surface
 impl SigDB {
-    /// Load bundled defaults then overlay `~/.windy/signatures/*.json`.
+    /// Load bundled defaults then overlay the resolved data directory's
+    /// `signatures/*.json` files.
     pub fn load() -> Self {
+        Self::load_from(crate::project::persistence::windy_home_dir())
+    }
+
+    /// Load bundled defaults then overlay an explicit Windy data directory.
+    pub fn load_from(home_dir: impl AsRef<Path>) -> Self {
         let types = DataTypeManager::new();
         let mut db = Self::default();
         db.load_bundled(&types);
-        if let Some(dir) = user_signatures_dir() {
-            db.load_dir(&dir, &types);
-        }
+        db.load_dir(home_dir.as_ref().join("signatures"), &types);
         // Also load from the crate-adjacent `signatures/` on disk so developers
         // can edit JSON without a rebuild (overlays bundled).
         if let Ok(manifest) = std::env::var("CARGO_MANIFEST_DIR") {
@@ -145,8 +150,7 @@ impl SigDB {
                 .entry(dll.clone())
                 .or_default()
                 .push(entry.name.clone());
-            self.by_name
-                .insert(entry.name.clone(), sig.clone());
+            self.by_name.insert(entry.name.clone(), sig.clone());
             self.by_key.insert((dll, entry.name), sig);
         }
         Ok(())
@@ -203,10 +207,7 @@ impl SigDB {
 
 fn normalize_dll(dll: &str) -> String {
     let lower = dll.to_ascii_lowercase();
-    lower
-        .strip_suffix(".dll")
-        .unwrap_or(&lower)
-        .to_string()
+    lower.strip_suffix(".dll").unwrap_or(&lower).to_string()
 }
 
 /// Resolve a JSON type name through the DataTypeManager, falling back to Named.
@@ -245,10 +246,6 @@ pub fn resolve_type_name(types: &DataTypeManager, name: &str) -> DataType {
         .unwrap_or_else(|| DataType::Named(name.to_string()))
 }
 
-fn user_signatures_dir() -> Option<PathBuf> {
-    directories::UserDirs::new().map(|u| u.home_dir().join(".windy").join("signatures"))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -279,7 +276,11 @@ mod tests {
         let dlls = db.dlls();
         assert!(dlls.iter().any(|d| d == "kernel32"));
         assert!(dlls.iter().any(|d| d == "ntdll"));
-        assert!(db.len() >= 250, "expected bundled API count >= 250, got {}", db.len());
+        assert!(
+            db.len() >= 250,
+            "expected bundled API count >= 250, got {}",
+            db.len()
+        );
     }
 
     #[test]

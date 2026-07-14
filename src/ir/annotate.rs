@@ -46,8 +46,7 @@ pub fn annotate_operands_with_db(
     function_frame: Option<&StackFrame>,
     sig_db: Option<&SigDB>,
 ) -> String {
-    let resolver =
-        TypedResolver::new(symbols, typed_globals, types, function_signatures, sig_db);
+    let resolver = TypedResolver::new(symbols, typed_globals, types, function_signatures, sig_db);
     let mut output = String::new();
     IntelFormatter::with_options(Some(Box::new(resolver)), None).format(instr, &mut output);
 
@@ -121,8 +120,10 @@ fn annotate_stack_operands(
 
     static STACK_RE: OnceLock<Regex> = OnceLock::new();
     let re = STACK_RE.get_or_init(|| {
-        Regex::new(r"(?P<bracket>\[(?P<base>r?bp|r?sp)(?P<sign>[+-])(?P<disp>0x[0-9a-fA-F]+|\d+)\])")
-            .expect("valid stack regex")
+        Regex::new(
+            r"(?P<bracket>\[(?P<base>r?bp|r?sp)(?P<sign>[+-])(?P<disp>0x[0-9a-fA-F]+|\d+)\])",
+        )
+        .expect("valid stack regex")
     });
 
     re.replace_all(operands, |caps: &regex::Captures| {
@@ -135,7 +136,11 @@ fn annotate_stack_operands(
         } else {
             disp_str.parse().unwrap_or(0)
         };
-        let signed = if sign == "-" { -(disp as i64) } else { disp as i64 };
+        let signed = if sign == "-" {
+            -(disp as i64)
+        } else {
+            disp as i64
+        };
 
         let annotation = if base == "rbp" || base == "ebp" {
             frame_arg_or_local_type(frame, signed, types)
@@ -151,7 +156,11 @@ fn annotate_stack_operands(
     .into_owned()
 }
 
-fn frame_arg_or_local_type(frame: &StackFrame, offset: i64, types: &DataTypeManager) -> Option<String> {
+fn frame_arg_or_local_type(
+    frame: &StackFrame,
+    offset: i64,
+    types: &DataTypeManager,
+) -> Option<String> {
     let var = if offset > 0 {
         frame.args.iter().find(|a| a.offset == offset)
     } else {
@@ -215,4 +224,3 @@ impl SymbolResolver for TypedResolver {
             .map(|s| SymbolResult::with_str(address, s))
     }
 }
-

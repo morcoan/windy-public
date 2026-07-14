@@ -42,5 +42,4 @@ impl FunctionMemoryCard {
             "updated_seq": self.updated_seq,
         })
     }
-
 }

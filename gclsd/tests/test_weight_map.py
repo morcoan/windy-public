@@ -11,10 +11,18 @@ import sys
 import torch
 from safetensors.torch import load_file
 
-TEACHER_PATH = r"model.safetensors"
+TEACHER_PATH = os.environ.get("GCLSD_TEACHER_PATH")
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 from windy_gclsd.ssm import HybridBackbone, MLABlock, SparseMoEGDNBlock
+
+
+def load_teacher():
+    """Load the opt-in archived teacher, or skip when it is not configured."""
+    if not TEACHER_PATH:
+        import pytest
+        pytest.skip("set GCLSD_TEACHER_PATH to run archived weight-transfer tests")
+    return load_file(TEACHER_PATH)
 
 
 def svd_down(weight: torch.Tensor, target_dim: int):
@@ -30,7 +38,7 @@ def variance_explained(weight: torch.Tensor, k: int) -> float:
 
 
 def test_teacher_loads_and_has_expected_keys():
-    teacher = load_file(TEACHER_PATH)
+    teacher = load_teacher()
     assert "model.embed_tokens.weight" in teacher
     assert "lm_head.weight" in teacher
     assert "model.norm.weight" in teacher
@@ -43,7 +51,7 @@ def test_teacher_loads_and_has_expected_keys():
 
 def test_embedding_svd_preserves_variance():
     """Embeddings have a flat singular spectrum; SVD at k=1024 retains ~78%."""
-    teacher = load_file(TEACHER_PATH)
+    teacher = load_teacher()
     embed = teacher["model.embed_tokens.weight"]
     ve = variance_explained(embed, 1024)
     print(f"Embedding SVD variance explained (k=1024): {ve:.4%}")
@@ -53,7 +61,7 @@ def test_embedding_svd_preserves_variance():
 
 def test_lm_head_svd_preserves_variance():
     """LM head similarly flat; ~80% at k=1024."""
-    teacher = load_file(TEACHER_PATH)
+    teacher = load_teacher()
     lm_head = teacher["lm_head.weight"]
     ve = variance_explained(lm_head, 1024)
     print(f"LM head SVD variance explained (k=1024): {ve:.4%}")
@@ -62,7 +70,7 @@ def test_lm_head_svd_preserves_variance():
 
 def test_attention_proj_svd_high_variance():
     """Attention projections are genuinely low-rank; ~99% at k=1024, ~98% at k=512."""
-    teacher = load_file(TEACHER_PATH)
+    teacher = load_teacher()
     q = teacher["model.layers.0.self_attn.q_proj.weight"]
     ve_512 = variance_explained(q, 512)
     ve_1024 = variance_explained(q, 1024)

@@ -1,0 +1,38 @@
+{
+  "program_id": "b03_nested_loop",
+  "source": "eval/grand/src/b03_nested_loop.c",
+  "functions": [
+    {
+      "id": "mat_sum",
+      "source_name": "mat_sum",
+      "regions": [
+        "expr_return",
+        "loop"
+      ],
+      "effects": [
+        {
+          "kind": "return",
+          "class": "name",
+          "ops": [],
+          "critical": true
+        },
+        {
+          "kind": "return",
+          "class": null,
+          "ops": [
+            "<"
+          ],
+          "critical": false
+        },
+        {
+          "kind": "store",
+          "critical": false
+        },
+        {
+          "kind": "loop",
+          "critical": false
+        }
+      ]
+    }
+  ]
+}

@@ -1,4 +1,3 @@
-
 use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
@@ -233,7 +232,10 @@ impl DataTypeManager {
             ("PWSTR", DataType::Ptr(Box::new(DataType::Uint(16)))),
             ("LPDWORD", DataType::Ptr(Box::new(DataType::Uint(32)))),
             ("PDWORD", DataType::Ptr(Box::new(DataType::Uint(32)))),
-            ("PHANDLE", DataType::Ptr(Box::new(DataType::Ptr(Box::new(DataType::Void))))),
+            (
+                "PHANDLE",
+                DataType::Ptr(Box::new(DataType::Ptr(Box::new(DataType::Void)))),
+            ),
             ("PBOOL", DataType::Ptr(Box::new(DataType::Int(32)))),
             ("LPBOOL", DataType::Ptr(Box::new(DataType::Int(32)))),
         ];
@@ -254,10 +256,11 @@ impl DataTypeManager {
         match ty {
             DataType::Named(n) => self.named.get(n).cloned().unwrap_or(DataType::Unknown(0)),
             DataType::Ptr(inner) => DataType::Ptr(Box::new(self.resolve(inner))),
-            DataType::Array(inner, count) => {
-                DataType::Array(Box::new(self.resolve(inner)), *count)
-            }
-            DataType::FuncPtr { params, return_type } => DataType::FuncPtr {
+            DataType::Array(inner, count) => DataType::Array(Box::new(self.resolve(inner)), *count),
+            DataType::FuncPtr {
+                params,
+                return_type,
+            } => DataType::FuncPtr {
                 params: params.iter().map(|p| self.resolve(p)).collect(),
                 return_type: Box::new(self.resolve(return_type)),
             },
@@ -303,7 +306,10 @@ impl DataTypeManager {
             DataType::Double => "double".to_string(),
             DataType::Ptr(inner) => format!("{}*", self.render(inner)),
             DataType::Array(inner, count) => format!("{}[{}]", self.render(inner), count),
-            DataType::FuncPtr { params, return_type } => {
+            DataType::FuncPtr {
+                params,
+                return_type,
+            } => {
                 let params = params
                     .iter()
                     .map(|p| self.render(p))
@@ -325,7 +331,10 @@ mod tests {
     fn primitives_seeded() {
         let mgr = DataTypeManager::new();
         assert_eq!(mgr.get("int"), Some(&DataType::Int(32)));
-        assert_eq!(mgr.get("LPWSTR"), Some(&DataType::Ptr(Box::new(DataType::Uint(16)))));
+        assert_eq!(
+            mgr.get("LPWSTR"),
+            Some(&DataType::Ptr(Box::new(DataType::Uint(16))))
+        );
     }
 
     #[test]

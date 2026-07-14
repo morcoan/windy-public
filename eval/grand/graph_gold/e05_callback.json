@@ -1,0 +1,49 @@
+{
+  "program_id": "e05_callback",
+  "source": "eval/grand/src/e05_callback.c",
+  "functions": [
+    {
+      "id": "id",
+      "source_name": "id",
+      "regions": [
+        "expr_return"
+      ],
+      "effects": [
+        {
+          "kind": "return",
+          "class": "name",
+          "ops": [],
+          "critical": true
+        }
+      ]
+    },
+    {
+      "id": "run",
+      "source_name": "run",
+      "regions": [
+        "expr_return"
+      ],
+      "effects": [
+        {
+          "kind": "return",
+          "class": "bin_op",
+          "ops": [],
+          "critical": true
+        },
+        {
+          "kind": "return",
+          "class": null,
+          "ops": [
+            "+"
+          ],
+          "critical": false
+        },
+        {
+          "kind": "call",
+          "target": "f",
+          "critical": false
+        }
+      ]
+    }
+  ]
+}

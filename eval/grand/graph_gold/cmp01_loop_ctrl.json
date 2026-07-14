@@ -1,0 +1,61 @@
+{
+  "program_id": "cmp01_loop_ctrl",
+  "source": "eval/grand/src/cmp01_loop_ctrl.c",
+  "functions": [
+    {
+      "id": "clamp",
+      "source_name": "clamp",
+      "regions": [
+        "expr_return",
+        "if"
+      ],
+      "effects": [
+        {
+          "kind": "return",
+          "class": "name",
+          "ops": [],
+          "critical": true
+        },
+        {
+          "kind": "return",
+          "class": null,
+          "ops": [
+            "<",
+            ">"
+          ],
+          "critical": false
+        }
+      ]
+    },
+    {
+      "id": "sum_until_zero",
+      "source_name": "sum_until_zero",
+      "regions": [
+        "expr_return",
+        "if",
+        "loop"
+      ],
+      "effects": [
+        {
+          "kind": "return",
+          "class": "name",
+          "ops": [],
+          "critical": true
+        },
+        {
+          "kind": "return",
+          "class": null,
+          "ops": [
+            "==",
+            "<"
+          ],
+          "critical": false
+        },
+        {
+          "kind": "loop",
+          "critical": false
+        }
+      ]
+    }
+  ]
+}

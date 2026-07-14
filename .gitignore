@@ -2,6 +2,10 @@
 debug/
 *.exe
 !gclsd/bench/sample.exe
+!gclsd/bench/complex.exe
+# Authored Grand fixtures: every PE has checked-in C source, build profile,
+# and SHA-256 provenance in eval/grand/manifest.json.
+!eval/grand/bin/**/*.exe
 *.pdb
 !gclsd/bench/sample.pdb
 *.obj
@@ -11,6 +15,10 @@ debug/
 *.exp
 *.ilk
 *.idb
+# Linker MAPs are reproducible build intermediates. Exact source identities are
+# frozen in eval/grand/manifest.json.
+/eval/grand/bin/**/*.map
+/eval/grand/bin/**/*_ghidra_targets.txt
 
 # Secrets / credentials — never commit
 *_key.txt
@@ -37,6 +45,27 @@ mcps/
 build_warnings.txt
 *.log
 decomp_scorecard.json
+/dist/
+/.artifacts/
+/windy.cdx.json
+
+# Known local planning / probe artifacts (not release inputs)
+/1.txt
+/2.md
+/Windy Grand Decompilation Benchmark.pdf
+/agent-tools/
+/tools_av_probe_main.rs.tmp
+/tools_list_cands.rs
+/src/deep_probe_test.rs
+/eval/grand/ghidra_proj/
+/eval/grand/identity_maps/
+/eval/grand/apply_struct_math_gold.py
+/eval/grand/enrich_gold.py
+/eval/grand/export_ghidra_all.py
+/eval/grand/export_ghidra_batch.ps1
+/eval/grand/link_ghidra_manifest.py
+/eval/grand/patch_noinline.py
+/eval/grand/patch_volatile_main.py
 
 # IDE / tooling
 .vscode/

@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::mpsc;
 use std::sync::Arc;
+use std::sync::mpsc;
 use std::time::{Duration, SystemTime};
 
 use eframe::{CreationContext, Frame};
@@ -9,18 +9,19 @@ use egui::{Context, Ui};
 use egui_dock::{DockArea, Style};
 use tracing::{error, info};
 
-use crate::decompiler::client::{DecompilerCacheKey, DecompilerClient};
+use crate::decompiler::DecompileCacheKey;
 use crate::disasm::{Disassembler, Syntax};
+use crate::project::Project;
 use crate::project::op::Op;
 use crate::project::workspace::{WorkspaceId, WorkspaceSummary};
-use crate::project::Project;
 use crate::project_manager::{ProjectId, ProjectManager};
 use crate::ui::view::View;
-use crate::ui::{empty_tree, project_tree, WindyTabViewer};
+use crate::ui::{WindyTabViewer, empty_tree, project_tree};
 
 pub struct App {
     manager: Arc<ProjectManager>,
-    decompiler: Arc<DecompilerClient>,
+    _mcp_server: crate::mcp::McpServerHandle,
+    mcp_endpoint: String,
     project: Option<Arc<Project>>,
     active_id: Option<ProjectId>,
     activity_filter: Option<ProjectId>,
@@ -29,37 +30,33 @@ pub struct App {
     cursor_va: u64,
     goto_input: String,
     disassembler: Disassembler,
-    decompiler_cache: HashMap<DecompilerCacheKey, String>,
-    decompiler_tx: mpsc::Sender<(DecompilerCacheKey, Result<String, String>)>,
-    decompiler_rx: mpsc::Receiver<(DecompilerCacheKey, Result<String, String>)>,
+    decompiler_cache: HashMap<DecompileCacheKey, String>,
+    decompiler_tx: mpsc::Sender<(DecompileCacheKey, Result<String, String>)>,
+    decompiler_rx: mpsc::Receiver<(DecompileCacheKey, Result<String, String>)>,
 }
 
 impl App {
-    pub fn new(_cc: &CreationContext<'_>) -> Self {
-        let manager = Arc::new(ProjectManager::new().expect("tokio runtime required"));
-        // The HTTP decompiler (legacy GCLSD model) is optional: Windy runs fully
-        // standalone off its native P-code decompiler. If the endpoint can't be
-        // constructed we fall back to the default and keep going.
-        let decompiler = Arc::new(
-            DecompilerClient::from_env().unwrap_or_else(|e| {
-                tracing::warn!("HTTP decompiler unavailable ({e}); using native P-code decompiler");
-                DecompilerClient::new(crate::decompiler::client::DEFAULT_ENDPOINT)
-                    .expect("reqwest client build failed")
-            }),
-        );
-        let mcp_port = manager
-            .start_http_server(decompiler.clone(), "127.0.0.1:0".parse().unwrap())
+    pub fn new(
+        _cc: &CreationContext<'_>,
+        data_dir: PathBuf,
+        initial_path: Option<PathBuf>,
+    ) -> Self {
+        let manager =
+            Arc::new(ProjectManager::with_home_dir(&data_dir).expect("tokio runtime required"));
+        let mcp_server = manager
+            .start_http_server("127.0.0.1:0".parse().unwrap())
             .expect("MCP server required");
+        let mcp_port = mcp_server.port();
+        let mcp_endpoint = format!("http://127.0.0.1:{mcp_port}/mcp");
         let (decompiler_tx, decompiler_rx) = mpsc::channel();
         let mut console = vec!["Windy ready. Use File → Open to load a PE.".to_string()];
-        console.push(format!("MCP server listening on http://127.0.0.1:{mcp_port}/mcp"));
-        console.push(format!(
-            "Decompiler endpoint: {}",
-            decompiler.endpoint()
-        ));
-        Self {
+        console.push(format!("MCP server listening on {mcp_endpoint}"));
+        console.push(format!("State directory: {}", data_dir.display()));
+        console.push("Decompiler: native Windy V2 (no external service)".to_string());
+        let mut app = Self {
             manager,
-            decompiler,
+            _mcp_server: mcp_server,
+            mcp_endpoint,
             project: None,
             active_id: None,
             activity_filter: None,
@@ -71,7 +68,11 @@ impl App {
             decompiler_cache: HashMap::new(),
             decompiler_tx,
             decompiler_rx,
+        };
+        if let Some(path) = initial_path {
+            app.start_open(path);
         }
+        app
     }
 
     fn push_console(&mut self, msg: impl Into<String>) {
@@ -128,7 +129,10 @@ impl App {
                 }
 
                 if ui
-                    .add_enabled(self.has_project(), egui::Button::new("Export function JSON"))
+                    .add_enabled(
+                        self.has_project(),
+                        egui::Button::new("Export function JSON"),
+                    )
                     .clicked()
                 {
                     ui.close();
@@ -158,6 +162,16 @@ impl App {
                 self.goto(va);
                 self.goto_input.clear();
             }
+
+            ui.separator();
+            if ui
+                .button(format!("MCP {}", self.mcp_endpoint))
+                .on_hover_text("Copy the embedded MCP endpoint")
+                .clicked()
+            {
+                ui.ctx().copy_text(self.mcp_endpoint.clone());
+                self.push_console("Copied MCP endpoint".to_string());
+            }
         });
     }
 
@@ -173,17 +187,23 @@ impl App {
         if let Some(rest) = s.strip_prefix("0x").or_else(|| s.strip_prefix("0X")) {
             u64::from_str_radix(rest, 16).ok()
         } else {
-            u64::from_str_radix(s, 16).ok().or_else(|| s.parse::<u64>().ok())
+            u64::from_str_radix(s, 16)
+                .ok()
+                .or_else(|| s.parse::<u64>().ok())
         }
     }
 
     fn goto(&mut self, va: u64) {
         self.cursor_va = va;
         if let Some(id) = self.active_id {
-            if let Err(e) = self
-                .manager
-                .apply_op_sync(id, "ui", Op::SetFocus { va, old_focus: None })
-            {
+            if let Err(e) = self.manager.apply_op_sync(
+                id,
+                "ui",
+                Op::SetFocus {
+                    va,
+                    old_focus: None,
+                },
+            ) {
                 error!("focus op failed: {}", e);
             } else {
                 self.project = self.manager.get(id);
@@ -233,10 +253,11 @@ impl App {
     }
 
     fn switch_project(&mut self, id: ProjectId) {
-        let Some(project) = self.manager.get(id) else { return };
+        let Some(project) = self.manager.get(id) else {
+            return;
+        };
         self.cursor_va = project.focus.unwrap_or(0);
-        self.disassembler =
-            Disassembler::new_from_symbol_table(Syntax::Intel, &project.symbols);
+        self.disassembler = Disassembler::new_from_symbol_table(Syntax::Intel, &project.symbols);
         self.project = Some(project);
         self.active_id = Some(id);
         self.dock_state = project_tree();
@@ -296,10 +317,12 @@ impl App {
                             }
                         }
                         if let Some(ws_id) = assigned {
-                            grouped
-                                .entry(ws_id)
-                                .or_default()
-                                .push((*project_id, path.clone(), *fn_count, *insn_count));
+                            grouped.entry(ws_id).or_default().push((
+                                *project_id,
+                                path.clone(),
+                                *fn_count,
+                                *insn_count,
+                            ));
                         } else {
                             ungrouped.push((*project_id, path.clone(), *fn_count, *insn_count));
                         }
@@ -448,6 +471,17 @@ impl eframe::App for App {
         // Keep the UI ticking so agent-driven mutations appear in the activity feed
         // and async decompile results are drained into the cache.
         self.drain_decompiler_channel();
+        let dropped: Vec<PathBuf> = ctx.input(|input| {
+            input
+                .raw
+                .dropped_files
+                .iter()
+                .filter_map(|file| file.path.clone())
+                .collect()
+        });
+        for path in dropped {
+            self.start_open(path);
+        }
         ctx.request_repaint_after(Duration::from_millis(500));
     }
 
@@ -474,7 +508,6 @@ impl eframe::App for App {
                     decompiler_cache: &mut self.decompiler_cache,
                     decompiler_tx: self.decompiler_tx.clone(),
                     manager: self.manager.clone(),
-                    decompiler: self.decompiler.clone(),
                 };
                 DockArea::new(&mut self.dock_state)
                     .style(Style::from_egui(ui.style().as_ref()))

@@ -1,4 +1,3 @@
-
 use std::collections::BTreeMap;
 
 use iced_x86::{Code, Decoder, DecoderOptions, Instruction};
@@ -37,7 +36,14 @@ impl CodeIndex {
         let mut va_to_idx = BTreeMap::new();
 
         for section in address_space.exec_sections() {
-            decode_section(image, address_space.image_base, bitness, section, &mut instrs, &mut va_to_idx);
+            decode_section(
+                image,
+                address_space.image_base,
+                bitness,
+                section,
+                &mut instrs,
+                &mut va_to_idx,
+            );
         }
 
         Self { instrs, va_to_idx }
@@ -52,7 +58,9 @@ impl CodeIndex {
     }
 
     pub fn at_va(&self, va: u64) -> Option<&DecodedInstr> {
-        self.va_to_idx.get(&va).and_then(|&idx| self.instrs.get(idx))
+        self.va_to_idx
+            .get(&va)
+            .and_then(|&idx| self.instrs.get(idx))
     }
 
     #[allow(dead_code)] // Used by future index-based windowing callers
@@ -62,7 +70,12 @@ impl CodeIndex {
 
     /// Returns `count` instructions starting at the index closest to `va` (floor).
     pub fn window(&self, va: u64, count: usize) -> &[DecodedInstr] {
-        let idx = self.va_to_idx.range(..=va).next_back().map(|(_, &i)| i).unwrap_or(0);
+        let idx = self
+            .va_to_idx
+            .range(..=va)
+            .next_back()
+            .map(|(_, &i)| i)
+            .unwrap_or(0);
         let end = (idx + count).min(self.instrs.len());
         &self.instrs[idx..end]
     }
@@ -90,7 +103,9 @@ fn decode_section(
     va_to_idx: &mut BTreeMap<u64, usize>,
 ) {
     let raw_start = section.raw_addr as usize;
-    let raw_end = raw_start.saturating_add(section.raw_size as usize).min(image.len());
+    let raw_end = raw_start
+        .saturating_add(section.raw_size as usize)
+        .min(image.len());
     if raw_start >= image.len() || raw_end <= raw_start {
         return;
     }
@@ -101,12 +116,8 @@ fn decode_section(
 
     while offset < section_bytes.len() {
         let ip = base_ip.saturating_add(offset as u64);
-        let mut decoder = Decoder::with_ip(
-            bitness,
-            &section_bytes[offset..],
-            ip,
-            DecoderOptions::NONE,
-        );
+        let mut decoder =
+            Decoder::with_ip(bitness, &section_bytes[offset..], ip, DecoderOptions::NONE);
         let instr = decoder.decode();
 
         // Robustness: invalid bytes advance by one and retry.

@@ -1,0 +1,159 @@
+{
+  "program_id": "boss_extra_6",
+  "pack_tags": [
+    "I",
+    "J"
+  ],
+  "kind": "boss",
+  "source": "eval/grand/src/boss_extra_6.c",
+  "functions": [
+    {
+      "id": "deep",
+      "source_name": "deep",
+      "facts": [
+        {
+          "id": "loop",
+          "kind": "loop",
+          "dimension": "control",
+          "critical": true,
+          "must_match": [],
+          "match_any": [
+            "while",
+            "for"
+          ],
+          "forbid": [],
+          "depends_on": [],
+          "slice": "predicate",
+          "residual_on_miss": "LOOP_RECURRENCE_WRONG"
+        },
+        {
+          "id": "acc",
+          "kind": "operation",
+          "dimension": "semantic",
+          "critical": true,
+          "must_match": [],
+          "match_any": [
+            "+",
+            "*"
+          ],
+          "forbid": [],
+          "depends_on": [],
+          "slice": "any",
+          "residual_on_miss": "SEMANTIC_STATE_UPDATE_MISSING",
+          "catastrophic_cap": 0.35
+        },
+        {
+          "id": "mul",
+          "kind": "operation",
+          "dimension": "semantic",
+          "critical": true,
+          "must_match": [],
+          "match_any": [
+            "*",
+            "i+1",
+            "+ 1"
+          ],
+          "forbid": [],
+          "depends_on": [],
+          "slice": "any",
+          "residual_on_miss": "SEMANTIC_STATE_UPDATE_MISSING"
+        },
+        {
+          "id": "ret",
+          "kind": "return",
+          "dimension": "semantic",
+          "critical": true,
+          "must_match": [
+            "return"
+          ],
+          "match_any": [],
+          "forbid": [],
+          "depends_on": [
+            "acc"
+          ],
+          "slice": "return",
+          "residual_on_miss": "SEMANTIC_RETURN_WRONG",
+          "catastrophic_cap": 0.35
+        },
+        {
+          "id": "nogoto",
+          "kind": "control_region",
+          "dimension": "clarity",
+          "critical": false,
+          "must_match": [],
+          "match_any": [],
+          "forbid": [
+            "goto "
+          ],
+          "depends_on": [],
+          "slice": "any"
+        }
+      ]
+    },
+    {
+      "id": "main",
+      "source_name": "main",
+      "facts": [
+        {
+          "id": "call",
+          "kind": "call_site",
+          "dimension": "calls",
+          "critical": true,
+          "must_match": [],
+          "match_any": [
+            "deep",
+            "FUN_",
+            "fun_"
+          ],
+          "forbid": [],
+          "depends_on": [],
+          "slice": "call",
+          "residual_on_miss": "CALL_TARGET_WRONG",
+          "catastrophic_cap": 0.4
+        },
+        {
+          "id": "const",
+          "kind": "constant",
+          "dimension": "semantic",
+          "critical": false,
+          "must_match": [],
+          "match_any": [
+            "16",
+            "0x10"
+          ],
+          "forbid": [],
+          "depends_on": [],
+          "slice": "any"
+        },
+        {
+          "id": "ret",
+          "kind": "return",
+          "dimension": "semantic",
+          "critical": true,
+          "must_match": [
+            "return"
+          ],
+          "match_any": [],
+          "forbid": [],
+          "depends_on": [],
+          "slice": "return",
+          "residual_on_miss": "SEMANTIC_RETURN_WRONG",
+          "catastrophic_cap": 0.35
+        },
+        {
+          "id": "nogoto",
+          "kind": "control_region",
+          "dimension": "clarity",
+          "critical": false,
+          "must_match": [],
+          "match_any": [],
+          "forbid": [
+            "goto "
+          ],
+          "depends_on": [],
+          "slice": "any"
+        }
+      ]
+    }
+  ]
+}

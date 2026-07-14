@@ -1,0 +1,89 @@
+{
+  "schema": "windy_release_benchmark_provenance_v1",
+  "generated_at_utc": "2026-07-13T22:39:53Z",
+  "release_candidate": "0.1.0",
+  "source": {
+    "branch": "codex/public-ready",
+    "head_commit": "2a4e4947faf6817c74e09da21d521d677dfdf69c",
+    "worktree_dirty": true,
+    "publishable_commit_identity": false
+  },
+  "corpus": {
+    "manifest": "eval/grand/manifest.json",
+    "manifest_sha256": "3f36b5d135e139188b0ede653bb9bbc7326a48ae662a1de245f7919e4b9600c4",
+    "authorship": "Windy-authored C fixtures",
+    "compiler": "Microsoft C/C++ 19.44.35228",
+    "linker": "Microsoft Incremental Linker 14.44.35228.0",
+    "profiles": {
+      "P0": "/Od /Ob0",
+      "P1": "/O1",
+      "P2": "/O2 /Ob2",
+      "P3": "/O2 /GL and /LTCG"
+    },
+    "function_identity": "exact linker MAP entry VAs embedded in the manifest"
+  },
+  "ghidra": {
+    "version": "11.3.2_PUBLIC",
+    "java": "Eclipse Temurin 17.0.13+11",
+    "analysis": "full analysis with exact linker target boundaries",
+    "exports_sha256_pinned_in_manifest": true,
+    "exported_functions": 475
+  },
+  "reports": {
+    "strict_pure_v2": {
+      "path": "docs/benchmarks/v0.1.0-rc-strict-v2.json",
+      "sha256": "c15461424b11fc514f92934e2e15de790353aafdbe35a41ea837786763ca18b6"
+    },
+    "four_lanes": {
+      "path": "docs/benchmarks/v0.1.0-rc/grand_v2_four_lanes.json",
+      "sha256": "f37a7492684de2691f5fff624d476cc36729ce94eb85740ac602ce4b6d318618"
+    },
+    "engine_share": {
+      "path": "docs/benchmarks/v0.1.0-rc/engine_share_v2.json",
+      "sha256": "79f1f6c64929c941a17f5f5d7b394390ffc1be13c9e8cfd83fb829813edb8658"
+    }
+  },
+  "artifact": {
+    "path": "dist/windy-v0.1.0-windows-x64.zip",
+    "sha256": "351e012c4e23c3d0fdf9f703a76ca86a2fab9a8bfe83e75480fae5bdbef5d47c",
+    "zip_size_bytes": 23096668,
+    "exe_size_bytes": 77736960,
+    "target": "x86_64-pc-windows-msvc",
+    "profile": "release (thin LTO, one codegen unit, stripped symbols)",
+    "crt": "static",
+    "code_signing": "disabled; artifact is intentionally unsigned",
+    "packaged_exe_smoke": "pass"
+  },
+  "results": {
+    "functions_scored": 475,
+    "omitted_functions": 5,
+    "empty_present_functions": 0,
+    "pure_v2_share": 1.0,
+    "pure_v2_fallbacks": 0,
+    "windy_overall": 0.6976985453832655,
+    "windy_catastrophic_rate": 0.35157894736842105,
+    "ghidra_overall": 0.8793615980833477,
+    "ghidra_catastrophic_rate": 0.06947368421052631
+  },
+  "targeted_semantic_return_regressions": {
+    "status": "pass",
+    "coverage": [
+      "distinct RAX values at divergent exits",
+      "HRESULT failure and success exits",
+      "compare versus arithmetic exits",
+      "phi-merged single exit",
+      "cross-exit expression leakage prevention",
+      "checker rejection of collapsed or changed exit classes"
+    ]
+  },
+  "release_acceptance": {
+    "pure_v2_share": "pass",
+    "fallback_count": "pass",
+    "omitted_count": "pass against the reported count of 24",
+    "targeted_semantic_return": "pass",
+    "comparable_prechange_baseline": "blocked",
+    "overall_and_catastrophic_non_regression": "not established",
+    "status": "blocked"
+  },
+  "blocker": "The only supplied pre-change result is an approximate summary whose identity maps selected CRT functions and whose Ghidra exports were stale. Its raw report and a source snapshot for a like-for-like rerun are unavailable. The repaired exact-address report must not be represented as passing that invalid comparison."
+}

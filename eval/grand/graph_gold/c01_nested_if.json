@@ -1,0 +1,38 @@
+{
+  "program_id": "c01_nested_if",
+  "source": "eval/grand/src/c01_nested_if.c",
+  "functions": [
+    {
+      "id": "nested_decide",
+      "source_name": "nested_decide",
+      "regions": [
+        "expr_return",
+        "if"
+      ],
+      "effects": [
+        {
+          "kind": "return",
+          "class": "bin_op",
+          "ops": [],
+          "critical": true
+        },
+        {
+          "kind": "return",
+          "class": null,
+          "ops": [
+            "+",
+            "-",
+            "*",
+            "!=",
+            ">"
+          ],
+          "critical": false
+        },
+        {
+          "kind": "store",
+          "critical": false
+        }
+      ]
+    }
+  ]
+}

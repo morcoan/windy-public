@@ -1,0 +1,49 @@
+{
+  "program_id": "e02_fn_ptr",
+  "source": "eval/grand/src/e02_fn_ptr.c",
+  "functions": [
+    {
+      "id": "add1",
+      "source_name": "add1",
+      "regions": [
+        "expr_return"
+      ],
+      "effects": [
+        {
+          "kind": "return",
+          "class": "bin_op",
+          "ops": [],
+          "critical": true
+        },
+        {
+          "kind": "return",
+          "class": null,
+          "ops": [
+            "+"
+          ],
+          "critical": false
+        }
+      ]
+    },
+    {
+      "id": "apply",
+      "source_name": "apply",
+      "regions": [
+        "expr_return"
+      ],
+      "effects": [
+        {
+          "kind": "return",
+          "class": "call",
+          "ops": [],
+          "critical": true
+        },
+        {
+          "kind": "call",
+          "target": "f",
+          "critical": false
+        }
+      ]
+    }
+  ]
+}

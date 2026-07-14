@@ -2,9 +2,9 @@ use egui::{RichText, ScrollArea, Separator, Ui};
 use egui_extras::{Column, TableBuilder};
 
 use crate::project::Project;
+use crate::ui::WindyTabViewer;
 use crate::ui::view::View;
 use crate::ui::{disasm_view, function_tree, hex_view, xrefs_view};
-use crate::ui::WindyTabViewer;
 
 pub fn render_view(ui: &mut Ui, view: &View, viewer: &mut WindyTabViewer<'_>) {
     match viewer.project {
@@ -130,10 +130,10 @@ fn render_json_array(ui: &mut Ui, arr: &[serde_json::Value]) {
                     let value = &arr[idx];
                     let map = value.as_object().unwrap();
                     for key in &keys {
-                    row.col(|ui| {
-                        let v = map.get(key).unwrap_or(&serde_json::Value::Null);
-                        ui.label(value_summary(v));
-                    });
+                        row.col(|ui| {
+                            let v = map.get(key).unwrap_or(&serde_json::Value::Null);
+                            ui.label(value_summary(v));
+                        });
                     }
                 });
             });
@@ -170,10 +170,22 @@ fn headers_panel(ui: &mut Ui, project: &Project) {
     section_heading(ui, "PE Headers");
     ScrollArea::vertical().show(ui, |ui| {
         for (label, value) in [
-            ("File", &serde_json::to_value(&project.pe.triage.file_info).unwrap_or_default()),
-            ("DOS Header", &serde_json::to_value(&project.pe.triage.dos_header).unwrap_or_default()),
-            ("COFF Header", &serde_json::to_value(&project.pe.triage.coff_header).unwrap_or_default()),
-            ("Optional Header", &serde_json::to_value(&project.pe.triage.optional_header).unwrap_or_default()),
+            (
+                "File",
+                &serde_json::to_value(&project.pe.triage.file_info).unwrap_or_default(),
+            ),
+            (
+                "DOS Header",
+                &serde_json::to_value(&project.pe.triage.dos_header).unwrap_or_default(),
+            ),
+            (
+                "COFF Header",
+                &serde_json::to_value(&project.pe.triage.coff_header).unwrap_or_default(),
+            ),
+            (
+                "Optional Header",
+                &serde_json::to_value(&project.pe.triage.optional_header).unwrap_or_default(),
+            ),
         ] {
             ui.collapsing(label, |ui| render_json_value(ui, value));
         }
@@ -264,16 +276,19 @@ fn imports_panel(ui: &mut Ui, project: &Project) {
 
     ScrollArea::vertical().show(ui, |ui| {
         for entry in imports {
-            ui.collapsing(format!("{} ({} funcs)", entry.dll, entry.functions.len()), |ui| {
-                for func in &entry.functions {
-                    let risk = func
-                        .risk
-                        .as_ref()
-                        .map(|r| format!(" [{}: {}]", r.category, r.severity))
-                        .unwrap_or_default();
-                    ui.label(format!("{}{}", func.name, risk));
-                }
-            });
+            ui.collapsing(
+                format!("{} ({} funcs)", entry.dll, entry.functions.len()),
+                |ui| {
+                    for func in &entry.functions {
+                        let risk = func
+                            .risk
+                            .as_ref()
+                            .map(|r| format!(" [{}: {}]", r.category, r.severity))
+                            .unwrap_or_default();
+                        ui.label(format!("{}{}", func.name, risk));
+                    }
+                },
+            );
         }
     });
 }
@@ -385,7 +400,10 @@ fn project_status_panel(ui: &mut Ui, project: &Project) {
         ui.separator();
         ui.heading("Analysis");
         ui.label(format!("Functions: {}", project.analysis.functions.len()));
-        ui.label(format!("Instructions: {}", project.analysis.code_index.len()));
+        ui.label(format!(
+            "Instructions: {}",
+            project.analysis.code_index.len()
+        ));
         ui.label(format!("Symbols: {}", project.symbols.iter().count()));
         ui.label(format!("Stack frames: {}", project.function_frames.len()));
         ui.label(format!(

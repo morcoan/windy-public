@@ -1,0 +1,38 @@
+{
+  "program_id": "boss_extra_7",
+  "source": "eval/grand/src/boss_extra_7.c",
+  "functions": [
+    {
+      "id": "deep",
+      "source_name": "deep",
+      "regions": [
+        "expr_return",
+        "loop"
+      ],
+      "effects": [
+        {
+          "kind": "return",
+          "class": "name",
+          "ops": [],
+          "critical": true
+        },
+        {
+          "kind": "return",
+          "class": null,
+          "ops": [
+            "<"
+          ],
+          "critical": false
+        },
+        {
+          "kind": "store",
+          "critical": false
+        },
+        {
+          "kind": "loop",
+          "critical": false
+        }
+      ]
+    }
+  ]
+}

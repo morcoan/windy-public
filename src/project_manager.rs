@@ -16,13 +16,15 @@ use tokio::runtime::Runtime;
 use tokio::sync::{mpsc, oneshot};
 use uuid::Uuid;
 
+use crate::project::Project;
 pub use crate::project::activity_log::ActivityEvent;
 use crate::project::activity_log::ActivityJournal;
 use crate::project::op::Op;
 use crate::project::op_log::Journal;
 use crate::project::persistence::{hash_file, windy_home_dir};
-use crate::project::workspace::{Workspace, WorkspaceId, WorkspaceMember, WorkspaceStore, WorkspaceSummary};
-use crate::project::Project;
+use crate::project::workspace::{
+    Workspace, WorkspaceId, WorkspaceMember, WorkspaceStore, WorkspaceSummary,
+};
 
 const ACTIVITY_CAPACITY: usize = 200;
 
@@ -79,10 +81,12 @@ pub struct ProjectManager {
     activity_log: Arc<std::sync::Mutex<VecDeque<ActivityEvent>>>,
     home_dir: PathBuf,
     /// Phase 7 E: cross-binary index keyed by workspace id (rebuilt on open).
-    cross_project: Arc<std::sync::Mutex<BTreeMap<WorkspaceId, crate::cross_project::CrossProjectIndex>>>,
+    cross_project:
+        Arc<std::sync::Mutex<BTreeMap<WorkspaceId, crate::cross_project::CrossProjectIndex>>>,
 }
 
 impl ProjectManager {
+    #[allow(dead_code)] // compatibility entry point; app/CLI inject the resolved home
     pub fn new() -> Result<Self> {
         Self::with_home_dir(windy_home_dir())
     }
@@ -98,7 +102,7 @@ impl ProjectManager {
     }
 
     /// Construct a manager with an explicit Windy home directory.
-    /// Useful for tests that must not pollute the user's `~/.windy`.
+    /// Useful for tests that must not pollute the user's default Windy data directory.
     pub fn with_home_dir(home_dir: impl Into<PathBuf>) -> Result<Self> {
         let runtime = Runtime::new().context("create tokio runtime")?;
         let home_dir = home_dir.into();
@@ -118,12 +122,12 @@ impl ProjectManager {
 
     /// Open a PE file, build a project, and start its write task.
     pub fn open(&self, path: impl AsRef<Path>) -> Result<ProjectId> {
-        let project = Project::open(path)?;
+        let project = Project::open_with_data_dir(path, &self.home_dir)?;
         let id = ProjectId::new_v4();
         let path = project.pe.path.clone();
         let sha256 = project.image_sha256.clone();
         let read_state = Arc::new(ArcSwap::from(Arc::new(project)));
-        let journal = Journal::open(&sha256);
+        let journal = Journal::open_in(&self.home_dir, &sha256);
         let activity_journal = ActivityJournal::open(&self.home_dir, &sha256);
         let (write_tx, write_rx) = mpsc::unbounded_channel();
 
@@ -174,22 +178,17 @@ impl ProjectManager {
 
     /// Get the latest snapshot of a project, if it is still open.
     pub fn get(&self, id: ProjectId) -> Option<Arc<Project>> {
-        self.projects
-            .lock()
-            .unwrap()
-            .get(&id)
-            .map(|h| h.get())
+        self.projects.lock().unwrap().get(&id).map(|h| h.get())
     }
 
     /// Start the MCP HTTP server bound to `addr`. Returns the actual port.
     pub fn start_http_server(
         self: &Arc<Self>,
-        decompiler: Arc<crate::decompiler::client::DecompilerClient>,
         addr: SocketAddr,
-    ) -> Result<u16> {
+    ) -> Result<crate::mcp::McpServerHandle> {
         let manager = self.clone();
         self.runtime
-            .block_on(crate::mcp::serve_http(manager, decompiler, addr))
+            .block_on(crate::mcp::serve_http(manager, addr))
             .context("start MCP HTTP server")
     }
 
@@ -285,7 +284,10 @@ impl ProjectManager {
     /// Reopen all members of a workspace. Returns per-member results with fresh
     /// project IDs. Members whose SHA256 no longer match their stored path are
     /// reported as errors and left in the workspace metadata for review.
-    pub fn open_workspace(&self, workspace_id: WorkspaceId) -> Result<Vec<(PathBuf, Result<ProjectId>)>> {
+    pub fn open_workspace(
+        &self,
+        workspace_id: WorkspaceId,
+    ) -> Result<Vec<(PathBuf, Result<ProjectId>)>> {
         let ws = self
             .get_workspace(workspace_id)
             .context("workspace not found")?;
@@ -345,11 +347,7 @@ impl ProjectManager {
                 pairs.push((h.id, h.get()));
             }
         }
-        if pairs.is_empty() {
-            None
-        } else {
-            Some(pairs)
-        }
+        if pairs.is_empty() { None } else { Some(pairs) }
     }
 
     /// Cross-project call graph for a workspace (Phase 7 E).
@@ -434,11 +432,7 @@ impl ProjectManager {
     }
 
     /// Undo the last operation submitted by `client_id` (asynchronous).
-    pub async fn undo_last(
-        &self,
-        id: ProjectId,
-        client_id: impl Into<String>,
-    ) -> Result<Op> {
+    pub async fn undo_last(&self, id: ProjectId, client_id: impl Into<String>) -> Result<Op> {
         let handle = self
             .projects
             .lock()
@@ -460,11 +454,7 @@ impl ProjectManager {
     }
 
     /// Redo the last undone operation for `client_id` (asynchronous).
-    pub async fn redo_last(
-        &self,
-        id: ProjectId,
-        client_id: impl Into<String>,
-    ) -> Result<Op> {
+    pub async fn redo_last(&self, id: ProjectId, client_id: impl Into<String>) -> Result<Op> {
         let handle = self
             .projects
             .lock()
@@ -486,37 +476,20 @@ impl ProjectManager {
     }
 
     /// Apply an operation synchronously (UI thread, not inside the runtime).
-    pub fn apply_op_sync(
-        &self,
-        id: ProjectId,
-        client_id: impl Into<String>,
-        op: Op,
-    ) -> Result<Op> {
-        self.runtime
-            .block_on(self.apply_op(id, client_id, op))
+    pub fn apply_op_sync(&self, id: ProjectId, client_id: impl Into<String>, op: Op) -> Result<Op> {
+        self.runtime.block_on(self.apply_op(id, client_id, op))
     }
 
     /// Undo the last operation from `client_id` synchronously (UI thread).
-    pub fn undo_last_sync(
-        &self,
-        id: ProjectId,
-        client_id: impl Into<String>,
-    ) -> Result<Op> {
-        self.runtime
-            .block_on(self.undo_last(id, client_id))
+    pub fn undo_last_sync(&self, id: ProjectId, client_id: impl Into<String>) -> Result<Op> {
+        self.runtime.block_on(self.undo_last(id, client_id))
     }
 
     /// Redo the last undone operation from `client_id` synchronously (UI thread).
     #[allow(dead_code)] // UI redo binding (Ctrl+Y); wired when UI gains redo
-    pub fn redo_last_sync(
-        &self,
-        id: ProjectId,
-        client_id: impl Into<String>,
-    ) -> Result<Op> {
-        self.runtime
-            .block_on(self.redo_last(id, client_id))
+    pub fn redo_last_sync(&self, id: ProjectId, client_id: impl Into<String>) -> Result<Op> {
+        self.runtime.block_on(self.redo_last(id, client_id))
     }
-
 }
 
 async fn writer_loop(
@@ -533,7 +506,11 @@ async fn writer_loop(
 
     while let Some(req) = rx.recv().await {
         match req {
-            WriteRequest::Apply { client_id, op, respond } => {
+            WriteRequest::Apply {
+                client_id,
+                op,
+                respond,
+            } => {
                 let result = apply_one(&mut project, &journal, &client_id, *op, &mut history);
                 read_state.store(Arc::new(project.clone()));
                 if let Ok(ref applied) = result {
@@ -701,13 +678,7 @@ fn redo_one(
 #[cfg(test)]
 #[allow(dead_code)]
 pub fn project_ids(manager: &ProjectManager) -> HashSet<ProjectId> {
-    manager
-        .projects
-        .lock()
-        .unwrap()
-        .keys()
-        .copied()
-        .collect()
+    manager.projects.lock().unwrap().keys().copied().collect()
 }
 
 #[cfg(test)]
@@ -838,7 +809,10 @@ mod tests {
                 n < CHECKPOINT_OPS,
                 "oplog should be bounded by auto-checkpoint, got {n} records"
             );
-            assert!(n <= 50, "only the un-checkpointed tail should remain, got {n}");
+            assert!(
+                n <= 50,
+                "only the un-checkpointed tail should remain, got {n}"
+            );
         }
 
         fs::remove_dir_all(&tmp).ok();
@@ -897,7 +871,9 @@ mod tests {
 
         let ws_id = {
             let manager = ProjectManager::with_home_dir(&tmp).unwrap();
-            let ws_id = manager.create_workspace(Some("persist".to_string())).unwrap();
+            let ws_id = manager
+                .create_workspace(Some("persist".to_string()))
+                .unwrap();
             let results = manager.add_files_to_workspace(ws_id, vec![&path]).unwrap();
             assert!(results[0].1.is_ok());
             ws_id

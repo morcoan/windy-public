@@ -101,7 +101,14 @@ Museum-specific: CIDOC-CRM, AAT/TGN, condition OCR, crate GiST constraints, regi
 
 ## Decompile quality loop (this goal)
 
-- Gold: `eval/gold/sample_source_gold.json` from `gclsd/bench/sample.c`  
-- Engines: Windy `function_decompile_native` vs checked-in `gclsd/bench/ghidra_output.json`  
-- Command: `windy decomp-scorecard`  
-- Test: `decomp_scorecard::tests::scorecard_on_sample_exe_is_deterministic`
+- Smoke gold: `eval/gold/sample_source_gold.json` from `gclsd/bench/sample.c`
+- Quality gold: `eval/gold/complex_source_gold.json` from `gclsd/bench/complex.c`
+  (nested control, switch-like dispatch, loops, struct-ish args; quality gates
+  `no_rsp` / `no_stack_home` / `max_assign` / `null_term` / `char_cast`)
+- Engines: Windy `function_decompile_native` vs checked-in Ghidra JSON
+  (`gclsd/bench/ghidra_output.json`, `gclsd/bench/complex_ghidra_output.json`)
+- Commands: `windy bench scorecard` and
+  `windy bench scorecard --gold eval/gold/complex_source_gold.json`
+- Tests: `scorecard_on_sample_exe_is_deterministic`,
+  `complex_scorecard_shows_ghidra_ahead_when_fixture_present`,
+  `quality_gates_prefer_ghidra_clean_over_ssa_stack_homes`

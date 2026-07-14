@@ -1,0 +1,39 @@
+{
+  "program_id": "c02_switch_dense",
+  "source": "eval/grand/src/c02_switch_dense.c",
+  "functions": [
+    {
+      "id": "classify",
+      "source_name": "classify",
+      "regions": [
+        "expr_return",
+        "switch"
+      ],
+      "effects": [
+        {
+          "kind": "return",
+          "class": "const",
+          "ops": [],
+          "critical": true
+        },
+        {
+          "kind": "return",
+          "class": null,
+          "ops": [
+            "-"
+          ],
+          "critical": false
+        },
+        {
+          "kind": "switch_partition",
+          "cases": [
+            0,
+            1,
+            2
+          ],
+          "critical": false
+        }
+      ]
+    }
+  ]
+}

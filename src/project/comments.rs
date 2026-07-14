@@ -1,4 +1,3 @@
-
 use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
@@ -31,7 +30,10 @@ impl CommentStore {
     }
 
     pub fn function_entries(&self) -> Vec<(u64, String)> {
-        self.by_function.iter().map(|(&k, v)| (k, v.clone())).collect()
+        self.by_function
+            .iter()
+            .map(|(&k, v)| (k, v.clone()))
+            .collect()
     }
 
     pub fn set(&mut self, va: u64, scope: CommentScope, text: impl Into<String>) {

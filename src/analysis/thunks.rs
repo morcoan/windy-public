@@ -1,4 +1,3 @@
-
 //! Detect import forwarder thunks: small functions consisting of a single
 //! `jmp [__imp_<Api>]`. These are renamed to the API name so call sites
 //! resolve cleanly for the LLM.
@@ -78,11 +77,7 @@ pub fn find_thunk_renames(
 #[allow(dead_code)] // Used by Project open when bulk-applying thunk renames
 pub fn apply_thunk_renames(symbols: &mut SymbolTable, renames: &[ThunkRename]) {
     for rename in renames {
-        symbols.insert(
-            rename.thunk_va,
-            rename.api_name.clone(),
-            SymbolKind::Import,
-        );
+        symbols.insert(rename.thunk_va, rename.api_name.clone(), SymbolKind::Import);
     }
 }
 

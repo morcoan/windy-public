@@ -1,0 +1,7 @@
+[
+  {
+    "entry_va": 5368713392,
+    "pseudocode": "\r\nvoid FUN_1400010b0(void)\r\n\r\n{\r\n  int iVar1;\r\n  undefined1 auStack_48 [32];\r\n  undefined4 local_28;\r\n  undefined4 uStack_24;\r\n  undefined4 uStack_20;\r\n  undefined4 uStack_1c;\r\n  ulonglong local_18;\r\n  \r\n  local_18 = DAT_14001a000 ^ (ulonglong)auStack_48;\r\n  DAT_14001aab0 = DAT_14001aab0 ^ 1;\r\n  local_28 = 1;\r\n  uStack_24 = 2;\r\n  uStack_20 = 0;\r\n  uStack_1c = 9;\r\n  iVar1 = FUN_140001040((longlong)&local_28,4);\r\n  FUN_140001000(iVar1,0,100);\r\n  FUN_1400011e0(local_18 ^ (ulonglong)auStack_48);\r\n  return;\r\n}\r\n\r\n",
+    "name": "FUN_1400010b0"
+  }
+]

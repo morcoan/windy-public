@@ -8,8 +8,8 @@ use std::sync::Arc;
 
 use serde::Serialize;
 
-use crate::project::symbols::SymbolKind;
 use crate::project::Project;
+use crate::project::symbols::SymbolKind;
 use crate::project_manager::ProjectId;
 
 /// One cross-project import→export edge.
@@ -208,9 +208,7 @@ pub fn build_fingerprints(projects: &[(ProjectId, Arc<Project>)]) -> Vec<FuncFin
             shape = shape.wrapping_mul(131).wrapping_add(insns as u64);
             for block in &f.blocks {
                 for edge in &block.successors {
-                    shape = shape
-                        .wrapping_mul(31)
-                        .wrapping_add(edge.kind as u8 as u64);
+                    shape = shape.wrapping_mul(31).wrapping_add(edge.kind as u8 as u64);
                 }
             }
             for a in &apis {
@@ -263,8 +261,7 @@ pub fn find_similar(
                 continue;
             }
             // Skip exact same name matches (already covered by name index).
-            if strip_decoration(&a.name) == strip_decoration(&b.name)
-                && !a.name.starts_with("sub_")
+            if strip_decoration(&a.name) == strip_decoration(&b.name) && !a.name.starts_with("sub_")
             {
                 continue;
             }
@@ -329,11 +326,7 @@ fn jaccard(a: &[String], b: &[String]) -> f64 {
     let sb: std::collections::HashSet<&str> = b.iter().map(|s| s.as_str()).collect();
     let inter = sa.intersection(&sb).count() as f64;
     let union = sa.union(&sb).count() as f64;
-    if union == 0.0 {
-        0.0
-    } else {
-        inter / union
-    }
+    if union == 0.0 { 0.0 } else { inter / union }
 }
 
 fn sizes_similar(a: u64, b: u64) -> bool {
@@ -423,7 +416,11 @@ mod tests {
                 project_id: p1,
                 va: 0x1000,
                 name: "sub_1000".into(),
-                api_set: vec!["CreateFileW".into(), "ReadFile".into(), "CloseHandle".into()],
+                api_set: vec![
+                    "CreateFileW".into(),
+                    "ReadFile".into(),
+                    "CloseHandle".into(),
+                ],
                 size: 200,
                 blocks: 5,
                 insns: 40,

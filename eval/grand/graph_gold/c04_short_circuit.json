@@ -1,0 +1,30 @@
+{
+  "program_id": "c04_short_circuit",
+  "source": "eval/grand/src/c04_short_circuit.c",
+  "functions": [
+    {
+      "id": "both",
+      "source_name": "both",
+      "regions": [
+        "expr_return"
+      ],
+      "effects": [
+        {
+          "kind": "return",
+          "class": "compare",
+          "ops": [],
+          "critical": true
+        },
+        {
+          "kind": "return",
+          "class": null,
+          "ops": [
+            "!=",
+            "&"
+          ],
+          "critical": false
+        }
+      ]
+    }
+  ]
+}

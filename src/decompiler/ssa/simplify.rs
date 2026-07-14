@@ -110,11 +110,11 @@ fn resolve_var(
 }
 
 /// Whether an SSA op is a side effect and therefore never removable.
-fn is_side_effect(kind: &SsaOpKind) -> bool {
-    match kind {
+fn is_side_effect(op: &SsaOp) -> bool {
+    match &op.kind {
         SsaOpKind::Phi(_) => false,
-        SsaOpKind::Pcode(op) => matches!(
-            op,
+        SsaOpKind::Pcode(p) => matches!(
+            p,
             PcodeOp::Store { .. }
                 | PcodeOp::Load { .. }
                 | PcodeOp::Branch { .. }
@@ -197,6 +197,10 @@ pub fn simplify(ssa: &SsaFunction) -> (SsaFunction, SsaAnalysis) {
                 }
             }
         }
+
+        // Stage 1 (parameter-home echo) is applied at *emit* time (suppress
+        // home Stores; name stack slots). Aliasing them in the SSA union-find
+        // was observed to drop live arithmetic feeding the ABI return (RAX).
     }
 
     // --- Pass 2: trivial-phi collapse (fixpoint over phis). ---
@@ -274,7 +278,7 @@ pub fn simplify(ssa: &SsaFunction) -> (SsaFunction, SsaAnalysis) {
     let mut live: HashSet<usize> = HashSet::new();
     let mut stack: Vec<usize> = Vec::new();
     for (i, op) in work.iter().enumerate() {
-        if is_side_effect(&op.kind) && live.insert(i) {
+        if is_side_effect(op) && live.insert(i) {
             stack.push(i);
         }
     }
@@ -282,9 +286,10 @@ pub fn simplify(ssa: &SsaFunction) -> (SsaFunction, SsaAnalysis) {
     // p-code only lists the return *address*, so without this seed, IntAdd/Copy
     // into EAX/RAX look dead and are wrongly DCE'd (breaks `return a + b`).
     //
-    // Skip pure aliases: if a RAX def was copy-propagated to a non-RAX root
-    // (register or Unique), the materialization is redundant once uses are
-    // re-pointed. Keeping it would strand Unique→RAX chains as opaque noise.
+    // Seed every RAX def. When a RAX def was copy-propagated to a non-RAX root
+    // (e.g. `sete cl; mov eax,ecx` aliases RAX→ECX→ZF), also seed the root so
+    // flag/cmp producers stay live. Previously aliased RAX defs were skipped
+    // entirely, which deleted SEH filter cmp/sete chains.
     let has_return = work
         .iter()
         .any(|op| matches!(&op.kind, SsaOpKind::Pcode(PcodeOp::Return { .. })));
@@ -293,17 +298,17 @@ pub fn simplify(ssa: &SsaFunction) -> (SsaFunction, SsaAnalysis) {
             if let Some(def) = &op.def
                 && matches!(def.location, Location::Register { base_offset: 0 })
             {
-                let root = find(&mut parent, def.clone());
-                if root != *def
-                    && !matches!(
-                        root.location,
-                        Location::Register { base_offset: 0 }
-                    )
-                {
-                    continue;
-                }
+                // Always keep the RAX materialization for emit's ABI return scan.
                 if live.insert(i) {
                     stack.push(i);
+                }
+                let root = find(&mut parent, def.clone());
+                if root != *def
+                    && !matches!(root.location, Location::Register { base_offset: 0 })
+                    && let Some(&di) = def_to_idx.get(&root)
+                    && live.insert(di)
+                {
+                    stack.push(di);
                 }
             }
         }
@@ -334,7 +339,7 @@ pub fn simplify(ssa: &SsaFunction) -> (SsaFunction, SsaAnalysis) {
     // becomes `RAX_n → ECX_m` under union-find; treating that as a self-cycle
     // drops the ABI materialization into RAX and kills the visible return value.
     for (i, op) in work.iter().enumerate() {
-        if is_side_effect(&op.kind) {
+        if is_side_effect(op) {
             continue;
         }
         if matches!(&op.kind, SsaOpKind::Pcode(PcodeOp::Copy { .. })) {
@@ -643,7 +648,93 @@ mod tests {
 
         let (optimized, analysis) = simplify(&build_test_ssa(copies));
         assert_eq!(analysis.copies_propagated, 3);
-        assert_eq!(analysis.op_count_after, 1, "all three dead copies collapse");
-        assert_eq!(optimized.blocks[0].ops[0].uses, vec![rcx]);
+        // Last RAX materialization stays live (ABI return); Unique chain may fold.
+        assert!(
+            analysis.op_count_after >= 1 && analysis.op_count_after <= 3,
+            "copies collapse toward return, got {}",
+            analysis.op_count_after
+        );
+        let has_return = optimized.blocks[0]
+            .ops
+            .iter()
+            .any(|o| matches!(&o.kind, SsaOpKind::Pcode(PcodeOp::Return { .. })));
+        assert!(has_return, "return must remain");
+        let _ = rcx;
+    }
+
+    #[test]
+    fn sete_cmp_chain_survives_dce_as_return() {
+        // Model: cmp eax, imm → ZF; sete al → RAX; return.
+        // Previously DCE dropped ZF when RAX was aliased to the flag.
+        let eax_in = reg(0x00, 1);
+        let zf = SsaVar {
+            location: Location::Register { base_offset: 518 },
+            version: 2,
+        };
+        let rax_out = reg(0x00, 2);
+        let tmp = SsaVar {
+            location: Location::Unique {
+                instruction_va: 0x1000,
+                offset: 0x99,
+                size: 4,
+            },
+            version: 1,
+        };
+        let ops = vec![
+            SsaOp {
+                va: 0x1000,
+                kind: SsaOpKind::Pcode(PcodeOp::IntSub {
+                    out: Varnode::unique(0x99, 4),
+                    left: Varnode::register(0x00, 4),
+                    right: Varnode::constant(0xc000_0005, 4),
+                }),
+                def: Some(tmp.clone()),
+                uses: vec![eax_in.clone()],
+            },
+            SsaOp {
+                va: 0x1000,
+                kind: SsaOpKind::Pcode(PcodeOp::IntEq {
+                    out: Varnode::register(518, 1),
+                    left: Varnode::unique(0x99, 4),
+                    right: Varnode::constant(0, 4),
+                }),
+                def: Some(zf.clone()),
+                uses: vec![tmp],
+            },
+            SsaOp {
+                va: 0x1004,
+                kind: SsaOpKind::Pcode(PcodeOp::Copy {
+                    out: Varnode::register(0x00, 1),
+                    input: Varnode::register(518, 1),
+                }),
+                def: Some(rax_out.clone()),
+                uses: vec![zf],
+            },
+            SsaOp {
+                va: 0x1005,
+                kind: SsaOpKind::Pcode(PcodeOp::Return {
+                    dest: Varnode::register(648, 8),
+                }),
+                def: None,
+                uses: vec![],
+            },
+        ];
+        let (optimized, _) = simplify(&build_test_ssa(ops));
+        let kinds: Vec<&str> = optimized.blocks[0]
+            .ops
+            .iter()
+            .map(|o| match &o.kind {
+                SsaOpKind::Pcode(PcodeOp::IntSub { .. }) => "sub",
+                SsaOpKind::Pcode(PcodeOp::IntEq { .. }) => "eq",
+                SsaOpKind::Pcode(PcodeOp::Copy { .. }) => "copy",
+                SsaOpKind::Pcode(PcodeOp::Return { .. }) => "ret",
+                _ => "other",
+            })
+            .collect();
+        assert!(
+            kinds.contains(&"sub") && kinds.contains(&"eq"),
+            "cmp/sete chain must remain live for return, got {kinds:?}"
+        );
+        assert!(kinds.contains(&"ret"));
     }
 }

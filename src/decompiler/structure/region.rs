@@ -10,21 +10,31 @@ use rsleigh_api::PcodeOp;
 use crate::decompiler::ssa::cfg::build_idom;
 use crate::decompiler::ssa::{SsaBlock, SsaFunction, SsaOpKind};
 
-use super::pdom::{adj_from_ssa, build_ipdom, virtual_exit};
+use super::pdom::{build_ipdom, virtual_exit};
 
 /// Structured region rooted at a control-flow block.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Region {
     /// Two-way branch with non-empty then and else arms meeting at `merge`.
+    /// `invert` means emit `if (!cond)` (then/else already swapped by rewrite).
     IfElse {
         then_entry: u32,
         else_entry: u32,
         merge: u32,
+        invert: bool,
     },
     /// One-way branch; `invert` means emit `if (!cond)` when the non-empty arm
     /// is the fallthrough (cond-false) path.
     If {
         body_entry: u32,
+        merge: u32,
+        invert: bool,
+    },
+    /// Early-return / guard form: `if (cond) { then }; cont…` (no else brace).
+    /// Used by checker-backed early-return extraction (2.md).
+    IfThenFallthrough {
+        then_entry: u32,
+        cont_entry: u32,
         merge: u32,
         invert: bool,
     },
@@ -143,17 +153,44 @@ fn cbranch_arms(block: &SsaBlock) -> Option<(u32, u32)> {
     }
 }
 
-/// Classify structured regions for `ssa`. `switches` supplies case values for
-/// BranchInd blocks (empty → still classify as Switch with block-index cases).
+/// Classify structured regions for `ssa` using full SSA adjacency.
 pub fn classify(ssa: &SsaFunction, switches: &[SwitchInfo]) -> HashMap<u32, Region> {
+    let (succ, pred) = super::pdom::adj_from_ssa(ssa);
+    classify_with_adj(ssa, switches, &succ, &pred, false)
+}
+
+/// Classify using a caller-supplied adjacency (presentation or semantic).
+///
+/// When `resolve_arms` is true, CBranch arm entries are jump-collapsed via
+/// `cfg_norm::resolve_jump_target` so empty forwarding arms become empty then/else
+/// and region selection matches the presentation graph (2.md dual-object path).
+pub fn classify_with_adj(
+    ssa: &SsaFunction,
+    switches: &[SwitchInfo],
+    succ: &[Vec<u32>],
+    pred: &[Vec<u32>],
+    resolve_arms: bool,
+) -> HashMap<u32, Region> {
     let n = ssa.blocks.len();
     if n == 0 {
         return HashMap::new();
     }
-    let (succ, pred) = adj_from_ssa(ssa);
-    let ipdom = build_ipdom(&succ, &pred);
-    let idom = build_idom(&succ, &pred, 0);
+    let entry_idx = ssa
+        .blocks
+        .iter()
+        .position(|b| b.entry_va == ssa.entry_va)
+        .unwrap_or(0) as u32;
+    let ipdom = build_ipdom(succ, pred);
+    let idom = build_idom(succ, pred, entry_idx);
     let ve = virtual_exit(n);
+
+    let map_arm = |arm: u32| -> u32 {
+        if resolve_arms {
+            super::cfg_norm::resolve_jump_target(ssa, arm, 16)
+        } else {
+            arm
+        }
+    };
 
     // Map branch_va → switch cases for quick lookup.
     let switch_by_va: HashMap<u64, &SwitchInfo> =
@@ -207,13 +244,17 @@ pub fn classify(ssa: &SsaFunction, switches: &[SwitchInfo]) -> HashMap<u32, Regi
     }
 
     // --- Loops (While / DoWhile) before plain if, so headers win ---
+    // Stage 8: first-return / natural-loop membership (not just idom arms).
     for (&header, latches) in &back_edge_preds {
         let hblock = &ssa.blocks[header as usize];
+        let loop_nodes = natural_loop_nodes(header, latches, pred);
 
         // Self-loop do-while: header CBranch with a successor edge to itself.
         if is_cbranch(hblock)
             && let Some((fall, taken)) = cbranch_arms(hblock)
         {
+            let fall = map_arm(fall);
+            let taken = map_arm(taken);
             let self_loop = fall == header || taken == header;
             if self_loop {
                 let exit = if fall == header { taken } else { fall };
@@ -229,12 +270,14 @@ pub fn classify(ssa: &SsaFunction, switches: &[SwitchInfo]) -> HashMap<u32, Regi
             }
         }
 
-        // While: header is CBranch; one arm stays in-loop, one exits.
+        // While: header is CBranch; one arm stays in natural loop, one exits.
         if is_cbranch(hblock)
             && let Some((fall, taken)) = cbranch_arms(hblock)
         {
-            let fall_in = is_in_loop(fall, header, &succ, &idom);
-            let taken_in = is_in_loop(taken, header, &succ, &idom);
+            let fall = map_arm(fall);
+            let taken = map_arm(taken);
+            let fall_in = loop_nodes.contains(&fall) || fall == header;
+            let taken_in = loop_nodes.contains(&taken) || taken == header;
             if fall_in != taken_in {
                 let (body, exit) = if taken_in {
                     (taken, fall)
@@ -249,6 +292,31 @@ pub fn classify(ssa: &SsaFunction, switches: &[SwitchInfo]) -> HashMap<u32, Regi
                     },
                 );
                 continue;
+            }
+            // Both arms "in" by crude membership: prefer the arm that can reach
+            // a latch (stage 8 first-return body), exit the other.
+            if fall_in && taken_in {
+                let fall_to_latch = latches
+                    .iter()
+                    .any(|&l| can_reach(fall, l, succ, Some(header)));
+                let taken_to_latch = latches
+                    .iter()
+                    .any(|&l| can_reach(taken, l, succ, Some(header)));
+                if fall_to_latch != taken_to_latch {
+                    let (body, exit) = if taken_to_latch {
+                        (taken, fall)
+                    } else {
+                        (fall, taken)
+                    };
+                    regions.insert(
+                        header,
+                        Region::While {
+                            body_entry: body,
+                            exit,
+                        },
+                    );
+                    continue;
+                }
             }
         }
 
@@ -283,6 +351,37 @@ pub fn classify(ssa: &SsaFunction, switches: &[SwitchInfo]) -> HashMap<u32, Regi
                 break;
             }
         }
+
+        // Stage 8 residual: header is not a CBranch but has latches that are.
+        // Treat as while(true){ body; if(exit) break; } approximated by
+        // DoWhile rooted at header with cond at the first CBranch latch.
+        if !regions.contains_key(&header) {
+            for &latch in latches {
+                let lblock = &ssa.blocks[latch as usize];
+                if is_cbranch(lblock)
+                    && let Some((fall, taken)) = cbranch_arms(lblock)
+                {
+                    let exit = if fall == header {
+                        taken
+                    } else if taken == header {
+                        fall
+                    } else if loop_nodes.contains(&fall) {
+                        taken
+                    } else {
+                        fall
+                    };
+                    regions.insert(
+                        header,
+                        Region::DoWhile {
+                            body_entry: header,
+                            cond_block: latch,
+                            exit,
+                        },
+                    );
+                    break;
+                }
+            }
+        }
     }
 
     // --- If / IfElse for remaining CBranches ---
@@ -294,23 +393,26 @@ pub fn classify(ssa: &SsaFunction, switches: &[SwitchInfo]) -> HashMap<u32, Regi
         if !is_cbranch(block) {
             continue;
         }
-        let Some((fall, taken)) = cbranch_arms(block) else {
+        let Some((fall0, taken0)) = cbranch_arms(block) else {
             continue;
         };
+        let fall = map_arm(fall0);
+        let taken = map_arm(taken0);
 
         // Merge = immediate post-dominator of the branch (real block or ve).
+        // With resolve_arms, jump-only empty arms collapse into merge → If.
         let merge = ipdom.get(i).and_then(|x| *x).unwrap_or(ve);
 
         // If an arm *is* the merge, that arm is empty.
         let then_reach = if taken == merge {
             HashSet::new()
         } else {
-            reach(taken, merge, &succ)
+            reach(taken, merge, succ)
         };
         let else_reach = if fall == merge {
             HashSet::new()
         } else {
-            reach(fall, merge, &succ)
+            reach(fall, merge, succ)
         };
 
         let then_empty = then_reach.is_empty();
@@ -324,6 +426,7 @@ pub fn classify(ssa: &SsaFunction, switches: &[SwitchInfo]) -> HashMap<u32, Regi
                         then_entry: taken,
                         else_entry: fall,
                         merge,
+                        invert: false,
                     },
                 );
             }
@@ -358,15 +461,66 @@ pub fn classify(ssa: &SsaFunction, switches: &[SwitchInfo]) -> HashMap<u32, Regi
     // Short-circuit &&/|| merge (S5): fold adjacent CBranches sharing a false
     // (or true) target into a single logical region. Best-effort; failures
     // leave nested ifs (always correct).
-    apply_short_circuit(ssa, &succ, &mut regions);
+    apply_short_circuit(ssa, succ, &mut regions);
 
     regions
 }
 
 /// A successor is "in the loop" of `header` if it is the header itself or
 /// `header` dominates it (natural-loop members are dominated by the header).
+#[allow(dead_code)]
 fn is_in_loop(succ: u32, header: u32, _succ_adj: &[Vec<u32>], idom: &[Option<u32>]) -> bool {
     succ == header || dominates(header, succ, idom)
+}
+
+/// Stage 8: natural-loop nodes for `header` with the given latch set.
+/// Walk predecessors from each latch until the header (standard natural loop).
+fn natural_loop_nodes(header: u32, latches: &[u32], pred: &[Vec<u32>]) -> HashSet<u32> {
+    let mut nodes = HashSet::new();
+    nodes.insert(header);
+    let mut stack: Vec<u32> = latches.to_vec();
+    while let Some(b) = stack.pop() {
+        if !nodes.insert(b) {
+            continue;
+        }
+        if (b as usize) >= pred.len() {
+            continue;
+        }
+        for &p in &pred[b as usize] {
+            if p != header {
+                stack.push(p);
+            }
+        }
+    }
+    nodes
+}
+
+/// BFS reachability from `start` to `target`, optionally not expanding `avoid`.
+fn can_reach(start: u32, target: u32, succ: &[Vec<u32>], avoid: Option<u32>) -> bool {
+    if start == target {
+        return true;
+    }
+    let n = succ.len();
+    let mut seen = HashSet::new();
+    let mut stack = vec![start];
+    while let Some(b) = stack.pop() {
+        if Some(b) == avoid && b != start {
+            continue;
+        }
+        if !seen.insert(b) {
+            continue;
+        }
+        if b == target {
+            return true;
+        }
+        if (b as usize) >= n {
+            continue;
+        }
+        for &s in &succ[b as usize] {
+            stack.push(s);
+        }
+    }
+    false
 }
 
 /// Best-effort short-circuit detection (S5).
@@ -551,10 +705,12 @@ mod tests {
                 then_entry,
                 else_entry,
                 merge,
+                invert,
             }) => {
                 assert_eq!(*then_entry, 1);
                 assert_eq!(*else_entry, 2);
                 assert_eq!(*merge, 3);
+                assert!(!*invert);
             }
             other => panic!("expected IfElse, got {other:?}"),
         }

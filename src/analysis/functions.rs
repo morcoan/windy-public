@@ -1,4 +1,3 @@
-
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 use iced_x86::FlowControl;
@@ -103,7 +102,9 @@ impl Function {
                     target: *start,
                     kind: edge.kind,
                 };
-                if let Some(target_block) = self.blocks.iter_mut().find(|b| b.entry_va == edge.target) {
+                if let Some(target_block) =
+                    self.blocks.iter_mut().find(|b| b.entry_va == edge.target)
+                {
                     target_block.predecessors.push(pred);
                 }
             }
@@ -187,14 +188,35 @@ pub fn discover_functions(
     address_space: &AddressSpace,
     seeds: &[u64],
 ) -> FunctionTable {
+    discover_functions_with_entry_hints(code_index, address_space, seeds, &[])
+}
+
+/// Discover functions while preserving a caller-supplied subset of seeds as
+/// hard boundaries. PE/PDB/runtime-function seeds retain the established
+/// recursive-descent behavior; exact linker entries cannot be absorbed by a
+/// neighboring function.
+pub fn discover_functions_with_entry_hints(
+    code_index: &CodeIndex,
+    address_space: &AddressSpace,
+    seeds: &[u64],
+    entry_hints: &[u64],
+) -> FunctionTable {
     let mut discovery = Discovery {
         code_index,
         address_space,
         function_entries: seeds.iter().copied().collect(),
+        hard_function_entries: entry_hints.iter().copied().collect(),
         block_owners: BTreeMap::new(),
         functions: BTreeMap::new(),
     };
     discovery.run(seeds);
+    // Uncalled leaf helpers (e.g. COM `Release`) often have no inbound call
+    // and no `.pdata` entry. Seed them from int3-padded gaps between known
+    // functions so they still enter the function table.
+    discovery.seed_int3_gap_leaves();
+    // SEH filter leaves (ACCESS_VIOLATION compares) are often only referenced
+    // from scope tables, not calls/.pdata — seed them from the AV immediate.
+    discovery.seed_access_violation_filter_leaves();
     FunctionTable {
         by_entry: discovery.functions,
     }
@@ -204,6 +226,7 @@ struct Discovery<'a> {
     code_index: &'a CodeIndex,
     address_space: &'a AddressSpace,
     function_entries: BTreeSet<u64>,
+    hard_function_entries: BTreeSet<u64>,
     block_owners: BTreeMap<u64, FunctionId>,
     functions: BTreeMap<FunctionId, Function>,
 }
@@ -211,6 +234,165 @@ struct Discovery<'a> {
 impl<'a> Discovery<'a> {
     fn run(&mut self, seeds: &[u64]) {
         let mut worklist: VecDeque<u64> = seeds.iter().copied().collect();
+        while let Some(entry) = worklist.pop_front() {
+            if self.functions.contains_key(&entry) {
+                continue;
+            }
+            if !self.address_space.is_executable_va(entry) {
+                continue;
+            }
+            self.discover_function(entry, &mut worklist);
+        }
+    }
+
+    /// Seed tiny SEH filter functions that compare against
+    /// `EXCEPTION_ACCESS_VIOLATION` (`0xC0000005` / `-0x3FFFFFFB`). These are
+    /// typically only referenced from `__C_specific_handler` scope tables and
+    /// never appear as call targets or `.pdata` entries.
+    fn seed_access_violation_filter_leaves(&mut self) {
+        const AV: u64 = 0xc000_0005;
+        const AV_NEG: u64 = 0xffff_ffff_c000_0005;
+        let mut imm_vas: Vec<u64> = Vec::new();
+        for dec in self.code_index.iter() {
+            for i in 0..dec.instr.op_count() {
+                use iced_x86::OpKind;
+                let kind = dec.instr.op_kind(i);
+                if !matches!(
+                    kind,
+                    OpKind::Immediate8
+                        | OpKind::Immediate8to16
+                        | OpKind::Immediate8to32
+                        | OpKind::Immediate8to64
+                        | OpKind::Immediate16
+                        | OpKind::Immediate32
+                        | OpKind::Immediate32to64
+                        | OpKind::Immediate64
+                ) {
+                    continue;
+                }
+                let imm = dec.instr.immediate(i);
+                if imm == AV || imm == AV_NEG || imm as u32 == AV as u32 {
+                    imm_vas.push(dec.ip);
+                    break;
+                }
+            }
+        }
+        if imm_vas.is_empty() {
+            return;
+        }
+        // Walk back from each AV compare to the preceding int3-padded entry.
+        let mut by_ip: BTreeMap<u64, &DecodedInstr> = BTreeMap::new();
+        for dec in self.code_index.iter() {
+            by_ip.insert(dec.ip, dec);
+        }
+        let ips: Vec<u64> = by_ip.keys().copied().collect();
+        let mut candidates: Vec<u64> = Vec::new();
+        for imm_va in imm_vas {
+            // Find index of this IP.
+            let Some(idx) = ips.binary_search(&imm_va).ok() else {
+                continue;
+            };
+            // Walk backward for int3 padding; entry is first non-int3 after it.
+            let mut entry = imm_va;
+            let mut j = idx;
+            while j > 0 {
+                j -= 1;
+                let prev = ips[j];
+                let Some(dec) = by_ip.get(&prev) else {
+                    break;
+                };
+                let is_int3 = dec.len == 1 && dec.bytes_slice() == [0xcc];
+                if is_int3 {
+                    // Entry is next IP after this int3 run.
+                    entry = ips[j + 1];
+                    break;
+                }
+                // Prefer the start after int3 padding; do not stop early on a
+                // parent CRT function that swallowed this filter as a mid-body block.
+                entry = prev;
+            }
+            if self.address_space.is_executable_va(entry) {
+                candidates.push(entry);
+            }
+        }
+        candidates.sort_unstable();
+        candidates.dedup();
+        if candidates.is_empty() {
+            return;
+        }
+        // Reclaim: if a candidate is mid-body of a large owner, carve it out.
+        for &entry in &candidates {
+            if self.functions.contains_key(&entry) {
+                continue;
+            }
+            if let Some(&owner) = self.block_owners.get(&entry)
+                && owner != entry
+            {
+                // Drop ownership of entry.. so discover can claim them.
+                let steal: Vec<u64> = self
+                    .block_owners
+                    .iter()
+                    .filter(|(_, o)| **o == owner)
+                    .map(|(va, _)| *va)
+                    .filter(|va| *va >= entry)
+                    .collect();
+                for va in steal {
+                    self.block_owners.remove(&va);
+                }
+                // Truncate the parent function's block list.
+                if let Some(parent) = self.functions.get_mut(&owner) {
+                    parent.blocks.retain(|b| b.entry_va < entry);
+                }
+            }
+        }
+        let mut worklist: VecDeque<u64> = VecDeque::new();
+        for va in candidates {
+            if self.function_entries.insert(va) {
+                worklist.push_back(va);
+            }
+        }
+        while let Some(entry) = worklist.pop_front() {
+            if self.functions.contains_key(&entry) {
+                continue;
+            }
+            if !self.address_space.is_executable_va(entry) {
+                continue;
+            }
+            self.discover_function(entry, &mut worklist);
+        }
+    }
+
+    /// After callgraph discovery, claim unowned code that sits after `int3`
+    /// padding between existing functions. Typical shape for MSVC leaf
+    /// methods that are never called from the scored entry path.
+    fn seed_int3_gap_leaves(&mut self) {
+        let mut candidates: Vec<u64> = Vec::new();
+        let mut prev_was_int3 = false;
+        for dec in self.code_index.iter() {
+            let va = dec.ip;
+            let is_int3 = dec.len == 1 && dec.bytes_slice() == [0xcc];
+            if is_int3 {
+                prev_was_int3 = true;
+                continue;
+            }
+            if prev_was_int3
+                && !self.functions.contains_key(&va)
+                && !self.block_owners.contains_key(&va)
+                && self.address_space.is_executable_va(va)
+            {
+                candidates.push(va);
+            }
+            prev_was_int3 = false;
+        }
+        if candidates.is_empty() {
+            return;
+        }
+        let mut worklist: VecDeque<u64> = VecDeque::new();
+        for va in candidates {
+            if self.function_entries.insert(va) {
+                worklist.push_back(va);
+            }
+        }
         while let Some(entry) = worklist.pop_front() {
             if self.functions.contains_key(&entry) {
                 continue;
@@ -249,13 +431,33 @@ impl<'a> Discovery<'a> {
                 self.block_owners.insert(start, entry);
             }
 
-            self.decode_block(start, entry, &mut blocks, &mut block_queue, function_worklist);
+            self.decode_block(
+                start,
+                entry,
+                &mut blocks,
+                &mut block_queue,
+                function_worklist,
+            );
         }
 
+        // Drop any block that starts before the function entry (foreign code
+        // claimed via misclassified tail-calls). Keep address order otherwise.
+        let mut block_list: Vec<BasicBlock> = blocks
+            .into_values()
+            .filter(|b| b.entry_va >= entry)
+            .collect();
+        // Rewrite successors that pointed into dropped foreign blocks as tail-calls.
+        for b in &mut block_list {
+            for e in &mut b.successors {
+                if e.target != 0 && e.target < entry {
+                    e.kind = EdgeKind::TailCall;
+                }
+            }
+        }
         let mut function = Function {
             id: entry,
             entry_va: entry,
-            blocks: blocks.into_values().collect(),
+            blocks: block_list,
             outgoing: Vec::new(),
             stack_frame: None,
             signature: None,
@@ -279,6 +481,17 @@ impl<'a> Discovery<'a> {
         let mut exit_va = start;
 
         while let Some(dec) = self.code_index.at_va(va) {
+            // Trusted seeds are hard function boundaries. Do not let linear
+            // decoding absorb a later linker/PDB-known entry merely because
+            // the preceding bytes have no recognized terminator.
+            if va != start && self.is_hard_function_entry(va) && va != function_entry {
+                successors.push(Edge {
+                    target: va,
+                    kind: EdgeKind::TailCall,
+                });
+                break;
+            }
+
             // If we crossed into another function's territory, stop this block.
             if self.is_owned_by_other(va, function_entry) {
                 break;
@@ -304,7 +517,13 @@ impl<'a> Discovery<'a> {
                 FlowControl::UnconditionalBranch => {
                     let target = dec.instr.near_branch_target();
                     if self.is_executable_target(target) {
-                        if self.is_function_entry(target) && target != function_entry {
+                        // Never absorb code *before* this function's entry via a
+                        // backward jmp (MSVC tail-calls to earlier helpers like
+                        // AddRef). Treat those as TailCall edges.
+                        let foreign_entry = (self.is_function_entry(target)
+                            && target != function_entry)
+                            || target < function_entry;
+                        if foreign_entry {
                             successors.push(Edge {
                                 target,
                                 kind: EdgeKind::TailCall,
@@ -323,17 +542,33 @@ impl<'a> Discovery<'a> {
                     let next_ip = dec.next_ip();
                     let target = dec.instr.near_branch_target();
                     if self.is_executable_target(next_ip) {
-                        self.claim_or_queue_block(next_ip, function_entry, block_queue);
+                        let foreign_entry =
+                            self.is_hard_function_entry(next_ip) && next_ip != function_entry;
+                        if !foreign_entry {
+                            self.claim_or_queue_block(next_ip, function_entry, block_queue);
+                        }
                         successors.push(Edge {
                             target: next_ip,
-                            kind: EdgeKind::Fallthrough,
+                            kind: if foreign_entry {
+                                EdgeKind::TailCall
+                            } else {
+                                EdgeKind::Fallthrough
+                            },
                         });
                     }
                     if self.is_executable_target(target) {
-                        self.claim_or_queue_block(target, function_entry, block_queue);
+                        let foreign_entry =
+                            self.is_hard_function_entry(target) && target != function_entry;
+                        if !foreign_entry {
+                            self.claim_or_queue_block(target, function_entry, block_queue);
+                        }
                         successors.push(Edge {
                             target,
-                            kind: EdgeKind::Conditional,
+                            kind: if foreign_entry {
+                                EdgeKind::TailCall
+                            } else {
+                                EdgeKind::Conditional
+                            },
                         });
                     }
                     break;
@@ -342,10 +577,18 @@ impl<'a> Discovery<'a> {
                     let next_ip = dec.next_ip();
                     let target = dec.instr.near_branch_target();
                     if self.is_executable_target(next_ip) {
-                        self.claim_or_queue_block(next_ip, function_entry, block_queue);
+                        let foreign_entry =
+                            self.is_hard_function_entry(next_ip) && next_ip != function_entry;
+                        if !foreign_entry {
+                            self.claim_or_queue_block(next_ip, function_entry, block_queue);
+                        }
                         successors.push(Edge {
                             target: next_ip,
-                            kind: EdgeKind::Fallthrough,
+                            kind: if foreign_entry {
+                                EdgeKind::TailCall
+                            } else {
+                                EdgeKind::Fallthrough
+                            },
                         });
                     }
                     if self.is_executable_target(target) {
@@ -418,6 +661,10 @@ impl<'a> Discovery<'a> {
         self.function_entries.contains(&va)
     }
 
+    fn is_hard_function_entry(&self, va: u64) -> bool {
+        self.hard_function_entries.contains(&va)
+    }
+
     fn is_executable_target(&self, va: u64) -> bool {
         va != 0 && self.address_space.is_executable_va(va)
     }
@@ -455,7 +702,11 @@ impl<'a> Discovery<'a> {
                     target: *start,
                     kind: edge.kind,
                 };
-                if let Some(target_block) = function.blocks.iter_mut().find(|b| b.entry_va == edge.target) {
+                if let Some(target_block) = function
+                    .blocks
+                    .iter_mut()
+                    .find(|b| b.entry_va == edge.target)
+                {
                     target_block.predecessors.push(pred);
                 }
             }

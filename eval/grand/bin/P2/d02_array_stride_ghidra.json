@@ -1,0 +1,12 @@
+[
+  {
+    "entry_va": 5368713216,
+    "pseudocode": "\r\nint FUN_140001000(longlong param_1,uint param_2)\r\n\r\n{\r\n  int *piVar1;\r\n  longlong lVar2;\r\n  int iVar3;\r\n  int iVar4;\r\n  ulonglong uVar5;\r\n  int iVar6;\r\n  int iVar7;\r\n  int iVar8;\r\n  int iVar9;\r\n  int iVar10;\r\n  int iVar11;\r\n  int iVar12;\r\n  int iVar13;\r\n  \r\n  iVar4 = 0;\r\n  uVar5 = (ulonglong)(int)param_2;\r\n  iVar7 = 0;\r\n  iVar3 = 0;\r\n  iVar6 = iVar3;\r\n  if ((0 < (int)param_2) && (iVar6 = 0, 7 < param_2)) {\r\n    iVar10 = 0;\r\n    iVar11 = 0;\r\n    iVar12 = 0;\r\n    iVar13 = 0;\r\n    iVar6 = 0;\r\n    iVar7 = 0;\r\n    iVar8 = 0;\r\n    iVar9 = 0;\r\n    lVar2 = 0;\r\n    do {\r\n      piVar1 = (int *)(param_1 + lVar2 * 4);\r\n      iVar3 = iVar3 + 8;\r\n      iVar10 = iVar10 + *piVar1;\r\n      iVar11 = iVar11 + piVar1[1];\r\n      iVar12 = iVar12 + piVar1[2];\r\n      iVar13 = iVar13 + piVar1[3];\r\n      piVar1 = (int *)(param_1 + 0x10 + lVar2 * 4);\r\n      lVar2 = lVar2 + 8;\r\n      iVar6 = iVar6 + *piVar1;\r\n      iVar7 = iVar7 + piVar1[1];\r\n      iVar8 = iVar8 + piVar1[2];\r\n      iVar9 = iVar9 + piVar1[3];\r\n    } while (lVar2 < (longlong)(uVar5 & 0xfffffffffffffff8));\r\n    iVar7 = iVar6 + iVar10 + iVar8 + iVar12 + iVar7 + iVar11 + iVar9 + iVar13;\r\n    iVar6 = iVar3;\r\n  }\r\n  lVar2 = (longlong)iVar6;\r\n  if ((longlong)uVar5 <= lVar2) {\r\n    return iVar7;\r\n  }\r\n  iVar6 = iVar4;\r\n  if (1 < (longlong)(uVar5 - lVar2)) {\r\n    do {\r\n      iVar4 = iVar4 + *(int *)(param_1 + lVar2 * 4);\r\n      iVar6 = iVar6 + *(int *)(param_1 + 4 + lVar2 * 4);\r\n      lVar2 = lVar2 + 2;\r\n    } while (lVar2 < (longlong)(uVar5 - 1));\r\n    if ((longlong)uVar5 <= lVar2) goto LAB_1400010bf;\r\n  }\r\n  iVar7 = iVar7 + *(int *)(param_1 + lVar2 * 4);\r\nLAB_1400010bf:\r\n  return iVar6 + iVar4 + iVar7;\r\n}\r\n\r\n",
+    "name": "FUN_140001000"
+  },
+  {
+    "entry_va": 5368713440,
+    "pseudocode": "\r\nvoid FUN_1400010e0(void)\r\n\r\n{\r\n  undefined4 local_18;\r\n  undefined4 local_14;\r\n  undefined4 local_10;\r\n  \r\n  DAT_14001aad0 = DAT_14001aad0 ^ 1;\r\n  local_18 = 10;\r\n  local_14 = 0x14;\r\n  local_10 = 0x1e;\r\n  FUN_140001000((longlong)&local_18,3);\r\n  return;\r\n}\r\n\r\n",
+    "name": "FUN_1400010e0"
+  }
+]

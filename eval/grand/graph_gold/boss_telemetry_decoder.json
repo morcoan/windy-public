@@ -1,0 +1,89 @@
+{
+  "program_id": "boss_telemetry_decoder",
+  "source": "eval/grand/src/boss_telemetry_decoder.c",
+  "functions": [
+    {
+      "id": "crc_add",
+      "source_name": "crc_add",
+      "regions": [
+        "expr_return"
+      ],
+      "effects": [
+        {
+          "kind": "return",
+          "class": "bin_op",
+          "ops": [],
+          "critical": true
+        },
+        {
+          "kind": "return",
+          "class": null,
+          "ops": [
+            "*",
+            "^"
+          ],
+          "critical": false
+        }
+      ]
+    },
+    {
+      "id": "decode_packet",
+      "source_name": "decode_packet",
+      "regions": [
+        "expr_return",
+        "if",
+        "loop",
+        "switch"
+      ],
+      "effects": [
+        {
+          "kind": "return",
+          "class": "const",
+          "ops": [],
+          "critical": true
+        },
+        {
+          "kind": "return",
+          "class": null,
+          "ops": [
+            "^",
+            "<="
+          ],
+          "critical": false
+        },
+        {
+          "kind": "store",
+          "critical": false
+        },
+        {
+          "kind": "call",
+          "target": "crc_add",
+          "critical": false
+        },
+        {
+          "kind": "call",
+          "target": "crc_add",
+          "critical": false
+        },
+        {
+          "kind": "call",
+          "target": "crc_add",
+          "critical": false
+        },
+        {
+          "kind": "switch_partition",
+          "cases": [
+            1,
+            2,
+            3
+          ],
+          "critical": false
+        },
+        {
+          "kind": "loop",
+          "critical": false
+        }
+      ]
+    }
+  ]
+}

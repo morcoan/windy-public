@@ -1,11 +1,11 @@
 use std::collections::HashMap;
-use std::sync::mpsc;
 use std::sync::Arc;
+use std::sync::mpsc;
 
 use egui::{Ui, WidgetText};
 use egui_dock::{DockState, TabViewer};
 
-use crate::decompiler::client::{DecompilerCacheKey, DecompilerClient};
+use crate::decompiler::DecompileCacheKey;
 use crate::disasm::Disassembler;
 use crate::project::Project;
 use crate::project_manager::ProjectManager;
@@ -26,10 +26,9 @@ pub struct WindyTabViewer<'a> {
     pub console: &'a mut [String],
     pub cursor: &'a mut u64,
     pub disassembler: &'a Disassembler,
-    pub decompiler_cache: &'a mut HashMap<DecompilerCacheKey, String>,
-    pub decompiler_tx: mpsc::Sender<(DecompilerCacheKey, Result<String, String>)>,
+    pub decompiler_cache: &'a mut HashMap<DecompileCacheKey, String>,
+    pub decompiler_tx: mpsc::Sender<(DecompileCacheKey, Result<String, String>)>,
     pub manager: Arc<ProjectManager>,
-    pub decompiler: Arc<DecompilerClient>,
 }
 
 impl<'a> WindyTabViewer<'a> {
@@ -37,7 +36,7 @@ impl<'a> WindyTabViewer<'a> {
     pub fn render_decompiled_view(&mut self, ui: &mut Ui, project: &Project, va: u64) {
         self.poll_decompiler_results();
 
-        let key = DecompilerCacheKey {
+        let key = DecompileCacheKey {
             image_sha256: project.image_sha256.clone(),
             va,
             op_seq: project.op_seq,
@@ -56,7 +55,8 @@ impl<'a> WindyTabViewer<'a> {
         } else {
             ui.label("Decompiling...");
             self.request_decompilation(project, va);
-            ui.ctx().request_repaint_after(std::time::Duration::from_millis(200));
+            ui.ctx()
+                .request_repaint_after(std::time::Duration::from_millis(200));
         }
     }
 
@@ -67,8 +67,7 @@ impl<'a> WindyTabViewer<'a> {
     }
 
     fn request_decompilation(&mut self, project: &Project, va: u64) {
-        let Some(input) = project.function_gclsd_input(va) else { return };
-        let key = DecompilerCacheKey {
+        let key = DecompileCacheKey {
             image_sha256: project.image_sha256.clone(),
             va,
             op_seq: project.op_seq,
@@ -77,14 +76,12 @@ impl<'a> WindyTabViewer<'a> {
             return;
         }
         let tx = self.decompiler_tx.clone();
-        let client = self.decompiler.clone();
+        let project = project.clone();
         let manager = self.manager.clone();
-        manager.runtime().spawn(async move {
-            let result = client
-                .decompile(key.clone(), &input)
-                .await
-                .map(|o| o.pseudocode)
-                .map_err(|e| e.to_string());
+        manager.runtime().spawn_blocking(move || {
+            let result = project
+                .function_decompile_native(va)
+                .ok_or_else(|| "function not found or native decompilation failed".to_string());
             let _ = tx.send((key, result));
         });
     }

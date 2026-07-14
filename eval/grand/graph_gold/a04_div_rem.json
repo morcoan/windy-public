@@ -1,0 +1,52 @@
+{
+  "program_id": "a04_div_rem",
+  "source": "eval/grand/src/a04_div_rem.c",
+  "functions": [
+    {
+      "id": "idiv",
+      "source_name": "idiv",
+      "regions": [
+        "expr_return"
+      ],
+      "effects": [
+        {
+          "kind": "return",
+          "class": "compare",
+          "ops": [],
+          "critical": true
+        },
+        {
+          "kind": "return",
+          "class": null,
+          "ops": [
+            "/"
+          ],
+          "critical": false
+        }
+      ]
+    },
+    {
+      "id": "irem",
+      "source_name": "irem",
+      "regions": [
+        "expr_return"
+      ],
+      "effects": [
+        {
+          "kind": "return",
+          "class": "compare",
+          "ops": [],
+          "critical": true
+        },
+        {
+          "kind": "return",
+          "class": null,
+          "ops": [
+            "%"
+          ],
+          "critical": false
+        }
+      ]
+    }
+  ]
+}

@@ -7,7 +7,13 @@ import os
 from ghidra.app.decompiler import DecompInterface
 from ghidra.util.task import ConsoleTaskMonitor
 
-output_file = os.path.join(os.path.dirname(getSourceFile().getAbsolutePath()), "ghidra_output.json")
+# Optional postScript arg: absolute/relative output path. Defaults to
+# ghidra_output.json next to this script (legacy sample fixture).
+_args = getScriptArgs()
+if _args and len(_args) > 0 and _args[0]:
+    output_file = _args[0]
+else:
+    output_file = os.path.join(os.path.dirname(getSourceFile().getAbsolutePath()), "ghidra_output.json")
 
 decomp = DecompInterface()
 decomp.openProgram(currentProgram)

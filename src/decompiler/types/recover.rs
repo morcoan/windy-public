@@ -818,11 +818,7 @@ fn varnode_type(
         AddressSpaceId::Unique => uses
             .iter()
             .find(|u| match u.location {
-                Location::Unique {
-                    offset,
-                    size,
-                    ..
-                } => offset == vn.offset && size == vn.size,
+                Location::Unique { offset, size, .. } => offset == vn.offset && size == vn.size,
                 _ => false,
             })
             .and_then(|u| types.get(u).cloned())

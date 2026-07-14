@@ -16,16 +16,25 @@ North-star metric inspired by the reconstruction-runtime doctrine:
 ```bash
 # Agent loop (evidence vs dump)
 cargo test eval_metrics -- --nocapture
-windy eval-agent-loop --pe gclsd/bench/sample.exe --limit 16
+windy bench agent-loop --pe gclsd/bench/sample.exe --limit 16
 
 # Decompile scorecard: Windy native vs checked-in Ghidra export vs source gold
 cargo test decomp_scorecard -- --nocapture
-windy decomp-scorecard
-windy decomp-scorecard --output decomp_scorecard.json
+windy bench scorecard
+windy bench scorecard --output decomp_scorecard.json
+
+# Harder quality fixture (Ghidra is expected to beat Windy-native)
+windy bench scorecard --gold eval/gold/complex_source_gold.json
+cargo test complex_scorecard -- --nocapture
 ```
 
-Ground truth: `eval/gold/sample_source_gold.json` from `gclsd/bench/sample.c` / `sample.exe`.
-Ghidra side: `gclsd/bench/ghidra_output.json` (no live Ghidra required).
+Ground truth:
+- Smoke: `eval/gold/sample_source_gold.json` from `gclsd/bench/sample.c` / `sample.exe`
+  (Ghidra: `gclsd/bench/ghidra_output.json`).
+- Quality gap: `eval/gold/complex_source_gold.json` from `gclsd/bench/complex.c` /
+  `complex.exe` (Ghidra: `gclsd/bench/complex_ghidra_output.json`).
+
+No live Ghidra required at score time; re-export with headless when the PE changes.
 
 ## Decompile scorecard v2 (first increment)
 
@@ -43,6 +52,23 @@ body instead of using unrestricted substring matching:
 `score` is integrity-adjusted recall (`recall * precision`), preserving the old
 recall value when there is no unexpected output. This is a deliberately bounded
 lexical check, not proof of semantic equivalence.
+
+### Quality gates (`quality[]`)
+
+Engine-agnostic classical-decomp facts (used heavily by `complex_source_gold.json`):
+
+| Spec | Hit when |
+|---|---|
+| `no_rsp` | body has no `rsp`/`esp`/`sp` identifiers |
+| `no_stack_home` | body has no `*((…)` stack-home store shape |
+| `null_term` | body contains `'\0'` |
+| `char_cast` | body contains a `(char` cast |
+| `field_dot` | body contains `ident.ident` |
+| `return_binop:+` | some `return` expression uses that operator |
+| `max_assign:N` | bare `=` assignment count ≤ N |
+
+These are how the complex fixture shows **where** Windy loses (see each
+function’s `miss_detail` / `fact_results` in the JSON report).
 
 New gold may use structured calls instead of the legacy `calls` strings:
 

@@ -16,9 +16,7 @@
 //! resolved `def` and `uses` (as versioned [`SsaVar`]s); phis carry their own in
 //! [`PhiNode`].
 
-#[cfg(test)]
-use std::collections::HashSet;
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 use crate::analysis::code_index::CodeIndex;
 use crate::analysis::functions::Function;
@@ -126,6 +124,106 @@ pub struct SsaFunction {
     pub image_base: u64,
 }
 
+/// Resolve the SSA value reaching one architectural register at a return block.
+///
+/// Register aliases have already been normalized to their container
+/// `base_offset`, so asking for offset zero covers RAX, EAX, AX, and AL. The
+/// resolver first trusts an explicit use on the `Return`, then a definition in
+/// the return block (including a phi), and finally walks CFG predecessors. A
+/// predecessor merge is accepted only when every incoming path resolves to the
+/// same SSA value; a proper SSA phi in the return block is handled by the local
+/// definition case. Cycles and incomplete predecessor information fail closed.
+pub fn reaching_register_at_return(
+    ssa: &SsaFunction,
+    block_id: u32,
+    base_offset: u64,
+) -> Option<SsaVar> {
+    let return_block = ssa.blocks.iter().find(|block| block.id == block_id)?;
+    return_block
+        .ops
+        .iter()
+        .any(|op| matches!(&op.kind, SsaOpKind::Pcode(PcodeOp::Return { .. })))
+        .then_some(())?;
+
+    fn resolve(
+        ssa: &SsaFunction,
+        block_id: u32,
+        base_offset: u64,
+        memo: &mut HashMap<u32, Option<SsaVar>>,
+        visiting: &mut HashSet<u32>,
+    ) -> Option<SsaVar> {
+        if let Some(cached) = memo.get(&block_id) {
+            return cached.clone();
+        }
+        if !visiting.insert(block_id) {
+            return None;
+        }
+
+        let resolved = ssa
+            .blocks
+            .iter()
+            .find(|block| block.id == block_id)
+            .and_then(|block| {
+                let return_index = block
+                    .ops
+                    .iter()
+                    .position(|op| matches!(&op.kind, SsaOpKind::Pcode(PcodeOp::Return { .. })));
+                let end = return_index.unwrap_or(block.ops.len());
+
+                let explicit_return_use = return_index.and_then(|index| {
+                    block.ops[index]
+                        .uses
+                        .iter()
+                        .find(|var| {
+                            matches!(
+                                var.location,
+                                Location::Register { base_offset: offset } if offset == base_offset
+                            )
+                        })
+                        .cloned()
+                });
+                let local_definition = block.ops[..end]
+                    .iter()
+                    .rev()
+                    .filter_map(|op| op.def.as_ref())
+                    .find(|var| {
+                        matches!(
+                            var.location,
+                            Location::Register { base_offset: offset } if offset == base_offset
+                        )
+                    })
+                    .cloned();
+
+                explicit_return_use.or(local_definition).or_else(|| {
+                    let mut common: Option<SsaVar> = None;
+                    for predecessor_id in &block.predecessor_ids {
+                        let incoming = resolve(ssa, *predecessor_id, base_offset, memo, visiting)?;
+                        if let Some(existing) = &common {
+                            if existing != &incoming {
+                                return None;
+                            }
+                        } else {
+                            common = Some(incoming);
+                        }
+                    }
+                    common
+                })
+            });
+
+        visiting.remove(&block_id);
+        memo.insert(block_id, resolved.clone());
+        resolved
+    }
+
+    resolve(
+        ssa,
+        block_id,
+        base_offset,
+        &mut HashMap::new(),
+        &mut HashSet::new(),
+    )
+}
+
 /// A flat, location-resolved P-code op produced by
 /// [`lower::lower_function_with_call_abi_inputs`].
 ///
@@ -178,6 +276,10 @@ pub fn build_ssa_with_call_abi_inputs(
     // 3) CFG adjacency (block index == position in func.blocks).
     let n = func.blocks.len();
     let index_of = block_index_map(func);
+    // Entry may not be blocks[0] when blocks are address-sorted and a
+    // lower-VA tail-call target was (historically) absorbed — prefer the
+    // true function entry VA.
+    let entry_idx = index_of.get(&func.entry_va).copied().unwrap_or(0);
     let mut succ: Vec<Vec<u32>> = vec![Vec::new(); n];
     let mut pred: Vec<Vec<u32>> = vec![Vec::new(); n];
     for (i, block) in func.blocks.iter().enumerate() {
@@ -185,6 +287,8 @@ pub fn build_ssa_with_call_abi_inputs(
             if e.target == 0 {
                 continue;
             }
+            // Skip edges into blocks outside this function's block list
+            // (true tail-calls / external targets).
             if let Some(&j) = index_of.get(&e.target) {
                 let j = j as u32;
                 if !succ[i].contains(&j) {
@@ -205,8 +309,8 @@ pub fn build_ssa_with_call_abi_inputs(
         }
     }
 
-    // 4) Dominators + dominance frontier.
-    let idom = cfg::build_idom(&succ, &pred, 0);
+    // 4) Dominators + dominance frontier (rooted at real entry).
+    let idom = cfg::build_idom(&succ, &pred, entry_idx as u32);
     let df = cfg::dominance_frontier(&succ, &pred, &idom);
 
     // 5) Collect the blocks that define each location, then place phis at the

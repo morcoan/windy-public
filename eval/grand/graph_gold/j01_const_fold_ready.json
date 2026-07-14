@@ -1,0 +1,30 @@
+{
+  "program_id": "j01_const_fold_ready",
+  "source": "eval/grand/src/j01_const_fold_ready.c",
+  "functions": [
+    {
+      "id": "f",
+      "source_name": "f",
+      "regions": [
+        "expr_return"
+      ],
+      "effects": [
+        {
+          "kind": "return",
+          "class": "bin_op",
+          "ops": [],
+          "critical": true
+        },
+        {
+          "kind": "return",
+          "class": null,
+          "ops": [
+            "+",
+            "*"
+          ],
+          "critical": false
+        }
+      ]
+    }
+  ]
+}

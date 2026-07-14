@@ -1,0 +1,7 @@
+[
+  {
+    "entry_va": 5368713280,
+    "pseudocode": "\r\n/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */\r\n\r\nvoid FUN_140001040(void)\r\n\r\n{\r\n  ulonglong uVar1;\r\n  undefined8 local_18;\r\n  undefined8 uStack_10;\r\n  \r\n  DAT_14001bb38 = DAT_14001bb38 ^ 1;\r\n  local_18 = _DAT_140017900;\r\n  uStack_10 = _UNK_140017908;\r\n  uVar1 = FUN_140001020((longlong)&local_18);\r\n  FUN_140001000((int)uVar1);\r\n  return;\r\n}\r\n\r\n",
+    "name": "FUN_140001040"
+  }
+]

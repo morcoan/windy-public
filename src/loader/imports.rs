@@ -1,4 +1,3 @@
-
 //! Manual import-table parser. Unlike petriage's name-only list, this recovers
 //! the IAT slot virtual addresses so we can emit `__imp_<Api>` symbols.
 
@@ -84,7 +83,10 @@ pub fn parse_import_slots(
                 )
             } else {
                 let import_by_name_rva = (entry & 0xffff_ffff) as u32;
-                (read_ascii_at_rva(image, address_space, image_base, import_by_name_rva + 2), None)
+                (
+                    read_ascii_at_rva(image, address_space, image_base, import_by_name_rva + 2),
+                    None,
+                )
             };
 
             slots.push(ImportSlot {
@@ -122,7 +124,9 @@ fn import_directory_rva(image: &[u8]) -> Option<(u32, u32)> {
         _ => return None,
     };
 
-    let num_dirs = read_u32_le(&image[optional_offset + num_dirs_offset..optional_offset + num_dirs_offset + 4]) as usize;
+    let num_dirs = read_u32_le(
+        &image[optional_offset + num_dirs_offset..optional_offset + num_dirs_offset + 4],
+    ) as usize;
     if num_dirs <= IMAGE_DIRECTORY_ENTRY_IMPORT {
         return None;
     }

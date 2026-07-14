@@ -1,4 +1,3 @@
-
 //! Parse a downloaded PDB and extract symbols, stack-frame records, and a
 //! starter type library. All operations are best-effort; failures are reported
 //! inside [`PdbInfo`] instead of halting analysis.
@@ -11,7 +10,7 @@ use anyhow::{Context, Result};
 use fallible_iterator::FallibleIterator;
 use tracing::{info, warn};
 
-use crate::loader::debug_dir::{find_codeview_record, CodeViewRecord};
+use crate::loader::debug_dir::{CodeViewRecord, find_codeview_record};
 use crate::loader::pe::LoadedPe;
 use crate::project::demangle::demangle_or_raw;
 use crate::project::symbols::{SymbolKind, SymbolTable};
@@ -38,10 +37,10 @@ pub struct PdbInfo {
 }
 
 impl PdbInfo {
-    /// Locate, download, and parse the PDB for a loaded PE. This never fails
-    /// outright; it records an error and returns partial/empty info if symbols
-    /// cannot be obtained.
-    pub fn load_for_pe(pe: &LoadedPe) -> Self {
+    /// Locate, cache, and parse the PDB using an explicit Windy data root.
+    /// This never fails outright; it records an error and returns partial or
+    /// empty information if symbols cannot be obtained.
+    pub fn load_for_pe_in(pe: &LoadedPe, home_dir: impl AsRef<std::path::Path>) -> Self {
         let rec = match find_codeview_record(pe.image.deref()) {
             Some(r) => r,
             None => {
@@ -52,7 +51,7 @@ impl PdbInfo {
             }
         };
 
-        let store = SymbolStore::default();
+        let store = SymbolStore::with_home_dir(home_dir);
         let path = match store.resolve(&rec) {
             Some(p) => p,
             None => {
@@ -64,7 +63,9 @@ impl PdbInfo {
                 } else {
                     return Self {
                         record: Some(rec),
-                        error: Some("PDB not available locally and could not be downloaded".to_string()),
+                        error: Some(
+                            "PDB not available locally and could not be downloaded".to_string(),
+                        ),
                         ..Default::default()
                     };
                 }
@@ -218,7 +219,8 @@ impl PdbInfo {
             if type_index.0 == 0 {
                 continue;
             }
-            if let Some(sig) = build_signature(name, type_index, &type_map, &arg_lists, &procedures) {
+            if let Some(sig) = build_signature(name, type_index, &type_map, &arg_lists, &procedures)
+            {
                 named_signatures.insert(rva, sig);
             }
         }
@@ -346,7 +348,10 @@ fn load_types(
     // Procedure types become function-pointer nodes so other types that
     // reference them can render something other than a placeholder name.
     for (index, proc) in &procedures {
-        let ret = proc.return_type.and_then(|t| map.get(&t).cloned()).unwrap_or(DataType::Void);
+        let ret = proc
+            .return_type
+            .and_then(|t| map.get(&t).cloned())
+            .unwrap_or(DataType::Void);
         let params: Vec<DataType> = arg_lists
             .get(&proc.argument_list)
             .map(|list| {
@@ -355,16 +360,19 @@ fn load_types(
                     .collect()
             })
             .unwrap_or_default();
-        map.insert(*index, DataType::FuncPtr { params, return_type: Box::new(ret) });
+        map.insert(
+            *index,
+            DataType::FuncPtr {
+                params,
+                return_type: Box::new(ret),
+            },
+        );
     }
 
     Ok((manager, map, arg_lists, procedures))
 }
 
-fn map_type_data(
-    data: &::pdb::TypeData,
-    map: &BTreeMap<::pdb::TypeIndex, DataType>,
-) -> DataType {
+fn map_type_data(data: &::pdb::TypeData, map: &BTreeMap<::pdb::TypeIndex, DataType>) -> DataType {
     use ::pdb::TypeData;
     match data {
         TypeData::Primitive(primitive) => map_primitive(primitive),
@@ -420,14 +428,16 @@ fn map_primitive(primitive: &::pdb::PrimitiveType) -> DataType {
         PrimitiveKind::F32 | PrimitiveKind::F32PP | PrimitiveKind::F48 => DataType::Float,
         PrimitiveKind::F64 => DataType::Double,
         PrimitiveKind::F80 | PrimitiveKind::F128 => DataType::Double,
-        PrimitiveKind::Bool8 | PrimitiveKind::Bool16 | PrimitiveKind::Bool32 | PrimitiveKind::Bool64 => {
-            DataType::Bool
-        }
+        PrimitiveKind::Bool8
+        | PrimitiveKind::Bool16
+        | PrimitiveKind::Bool32
+        | PrimitiveKind::Bool64 => DataType::Bool,
         PrimitiveKind::HRESULT => DataType::Int(32),
         PrimitiveKind::NoType | _ => DataType::Unknown(0),
     };
 
-    if let Some(Indirection::Near32 | Indirection::Near64 | Indirection::Far32) = primitive.indirection
+    if let Some(Indirection::Near32 | Indirection::Near64 | Indirection::Far32) =
+        primitive.indirection
     {
         if matches!(base, DataType::Void) {
             DataType::Ptr(Box::new(DataType::Void))
@@ -482,17 +492,19 @@ fn build_signature(
 }
 
 fn calling_conv_name(cc: u8) -> Option<String> {
-    Some(match cc {
-        0x00 => "cdecl",
-        0x03 => "stdcall",
-        0x05 => "fastcall",
-        0x0A => "thiscall",
-        0x14 => "clrcall",
-        0x15 => "inline",
-        0x16 => "vectorcall",
-        _ => return None,
-    }
-    .to_string())
+    Some(
+        match cc {
+            0x00 => "cdecl",
+            0x03 => "stdcall",
+            0x05 => "fastcall",
+            0x0A => "thiscall",
+            0x14 => "clrcall",
+            0x15 => "inline",
+            0x16 => "vectorcall",
+            _ => return None,
+        }
+        .to_string(),
+    )
 }
 
 #[cfg(test)]

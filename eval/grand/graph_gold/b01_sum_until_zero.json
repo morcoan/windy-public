@@ -1,0 +1,36 @@
+{
+  "program_id": "b01_sum_until_zero",
+  "source": "eval/grand/src/b01_sum_until_zero.c",
+  "functions": [
+    {
+      "id": "sum_until_zero",
+      "source_name": "sum_until_zero",
+      "regions": [
+        "expr_return",
+        "if",
+        "loop"
+      ],
+      "effects": [
+        {
+          "kind": "return",
+          "class": "name",
+          "ops": [],
+          "critical": true
+        },
+        {
+          "kind": "return",
+          "class": null,
+          "ops": [
+            "==",
+            "<"
+          ],
+          "critical": false
+        },
+        {
+          "kind": "loop",
+          "critical": false
+        }
+      ]
+    }
+  ]
+}

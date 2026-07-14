@@ -1,0 +1,35 @@
+{
+  "program_id": "b05_continue_skip",
+  "source": "eval/grand/src/b05_continue_skip.c",
+  "functions": [
+    {
+      "id": "kernel",
+      "source_name": "kernel",
+      "regions": [
+        "expr_return",
+        "if",
+        "loop"
+      ],
+      "effects": [
+        {
+          "kind": "return",
+          "class": "name",
+          "ops": [],
+          "critical": true
+        },
+        {
+          "kind": "return",
+          "class": null,
+          "ops": [
+            "<"
+          ],
+          "critical": false
+        },
+        {
+          "kind": "loop",
+          "critical": false
+        }
+      ]
+    }
+  ]
+}

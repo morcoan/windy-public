@@ -1,0 +1,21 @@
+{
+  "program_id": "c05_ternary_chain",
+  "source": "eval/grand/src/c05_ternary_chain.c",
+  "functions": [
+    {
+      "id": "f",
+      "source_name": "f",
+      "regions": [
+        "expr_return"
+      ],
+      "effects": [
+        {
+          "kind": "return",
+          "class": "compare",
+          "ops": [],
+          "critical": true
+        }
+      ]
+    }
+  ]
+}

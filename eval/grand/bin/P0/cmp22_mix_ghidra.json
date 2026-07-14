@@ -1,0 +1,7 @@
+[
+  {
+    "entry_va": 5368713328,
+    "pseudocode": "\r\nvoid FUN_140001070(void)\r\n\r\n{\r\n  DAT_14001aad0 = DAT_14001aad0 ^ 1;\r\n  FUN_140001020(4);\r\n  return;\r\n}\r\n\r\n",
+    "name": "FUN_140001070"
+  }
+]

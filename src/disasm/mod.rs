@@ -1,9 +1,8 @@
-
 use std::collections::HashMap;
 
 use iced_x86::{
-    Decoder, DecoderOptions, Formatter as _, Instruction, IntelFormatter, MasmFormatter, NasmFormatter,
-    SymbolResolver, SymbolResult,
+    Decoder, DecoderOptions, Formatter as _, Instruction, IntelFormatter, MasmFormatter,
+    NasmFormatter, SymbolResolver, SymbolResult,
 };
 
 use crate::project::symbols::SymbolTable;

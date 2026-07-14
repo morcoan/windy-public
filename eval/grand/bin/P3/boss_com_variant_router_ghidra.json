@@ -1,0 +1,22 @@
+[
+  {
+    "entry_va": 5368713216,
+    "pseudocode": "\r\nundefined8 FUN_140001000(undefined8 param_1,undefined8 param_2,undefined8 *param_3)\r\n\r\n{\r\n  if (param_3 == (undefined8 *)0x0) {\r\n    return 0x80004003;\r\n  }\r\n  DAT_14001bb38 = DAT_14001bb38 + 1;\r\n  *param_3 = param_1;\r\n  return 0;\r\n}\r\n\r\n",
+    "name": "FUN_140001000"
+  },
+  {
+    "entry_va": 5368713248,
+    "pseudocode": "\r\nvoid FUN_140001020(void)\r\n\r\n{\r\n  DAT_14001bb38 = DAT_14001bb38 + 1;\r\n  return;\r\n}\r\n\r\n",
+    "name": "FUN_140001020"
+  },
+  {
+    "entry_va": 5368713264,
+    "pseudocode": "\r\nulonglong FUN_140001030(int *param_1)\r\n\r\n{\r\n  int iVar1;\r\n  ulonglong uVar2;\r\n  \r\n  if (param_1 != (int *)0x0) {\r\n    iVar1 = *param_1;\r\n    if (iVar1 == 3) {\r\n      return (ulonglong)(uint)param_1[2];\r\n    }\r\n    if (iVar1 == 8) {\r\n      return (ulonglong)(*(longlong *)(param_1 + 2) != 0);\r\n    }\r\n    if (iVar1 != 0xd) {\r\n      return 0x80070057;\r\n    }\r\n    if (*(longlong *)(param_1 + 2) != 0) {\r\n      uVar2 = FUN_140001020();\r\n      return uVar2;\r\n    }\r\n  }\r\n  return 0x80004003;\r\n}\r\n\r\n",
+    "name": "FUN_140001030"
+  },
+  {
+    "entry_va": 5368713328,
+    "pseudocode": "\r\nint FUN_140001070(void)\r\n\r\n{\r\n  ulonglong uVar1;\r\n  longlong lVar2;\r\n  longlong local_res8 [4];\r\n  int local_18 [2];\r\n  undefined4 local_10;\r\n  \r\n  lVar2 = 0;\r\n  local_18[0] = 3;\r\n  local_res8[0] = 0;\r\n  local_10 = 7;\r\n  FUN_140001000(local_18,0,local_res8);\r\n  uVar1 = FUN_140001030(local_18);\r\n  return (int)uVar1 + (int)CONCAT71((int7)((ulonglong)lVar2 >> 8),local_res8[0] == lVar2);\r\n}\r\n\r\n",
+    "name": "FUN_140001070"
+  }
+]

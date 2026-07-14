@@ -3,22 +3,26 @@
 //! The server is token-efficient: tools return bounded JSON summaries by default,
 //! and agents must explicitly ask for full function exports or compact agent text.
 
-use std:: net::SocketAddr;
+use std::net::SocketAddr;
 use std::sync::Arc;
 
-use axum::{Router, extract::State, response::IntoResponse, routing::post};
+use axum::{
+    Json, Router,
+    extract::State,
+    response::IntoResponse,
+    routing::{get, post},
+};
 use http_body_util::BodyExt;
 use rmcp::handler::server::wrapper::Parameters;
 use rmcp::model::{CallToolResult, Content, ErrorCode, ServerCapabilities, ServerInfo};
 use rmcp::schemars;
-use rmcp::{ServerHandler, tool, tool_handler, tool_router};
 use rmcp::transport::streamable_http_server::{
     StreamableHttpServerConfig, StreamableHttpService, session::local::LocalSessionManager,
 };
+use rmcp::{ServerHandler, tool, tool_handler, tool_router};
 use serde_json::json;
 use uuid::Uuid;
 
-use crate::decompiler::client::{DecompilerCacheKey, DecompilerClient};
 use crate::project::comments::CommentScope;
 use crate::project::op::Op;
 use crate::project::symbols::SymbolKind;
@@ -30,15 +34,94 @@ use crate::project_manager::{ProjectId, ProjectManager};
 #[derive(Clone)]
 pub struct WindyMcp {
     manager: Arc<ProjectManager>,
-    decompiler: Arc<DecompilerClient>,
 }
 
 impl WindyMcp {
-    pub fn new(manager: Arc<ProjectManager>, decompiler: Arc<DecompilerClient>) -> Self {
-        Self {
-            manager,
-            decompiler,
+    pub fn new(manager: Arc<ProjectManager>) -> Self {
+        Self { manager }
+    }
+
+    fn decompile_native_result(
+        &self,
+        params: DecompileFunctionParams,
+    ) -> Result<CallToolResult, rmcp::ErrorData> {
+        let id = match Uuid::parse_str(&params.project_id) {
+            Ok(id) => id,
+            Err(error) => {
+                return Ok(tool_error_json(
+                    "INVALID_PROJECT_ID",
+                    format!("bad project_id: {error}"),
+                    json!({ "project_id": params.project_id }),
+                    false,
+                ));
+            }
+        };
+        let Some(project) = self.manager.get(id) else {
+            return Ok(tool_error_json(
+                "PROJECT_NOT_FOUND",
+                "project not found",
+                json!({ "project_id": id.to_string() }),
+                false,
+            ));
+        };
+        let va = match parse_va(&params.va) {
+            Ok(va) => va,
+            Err(_) => {
+                return Ok(tool_error_json(
+                    "INVALID_VA",
+                    "va must be hexadecimal (0x...) or decimal",
+                    json!({ "va": params.va }),
+                    false,
+                ));
+            }
+        };
+        let options = match params.policy {
+            DecompilePolicy::Product => crate::decompiler::v2::DecompileOptions::production(),
+            DecompilePolicy::PureV2 => crate::decompiler::v2::DecompileOptions::pure_no_fallback(),
+            DecompilePolicy::Legacy => crate::decompiler::v2::DecompileOptions::legacy_only(),
+        };
+        let Some(artifact) = project.function_decompile_artifact(va, options) else {
+            return Ok(tool_error_json(
+                "FUNCTION_NOT_FOUND",
+                "function not found or native decompilation failed",
+                json!({ "project_id": id.to_string(), "va": format!("{va:#x}") }),
+                false,
+            ));
+        };
+
+        let rejected_v2 = artifact.engine == crate::decompiler::v2::DecompileEngine::V2
+            && !artifact.check_report.accepted;
+        let omitted = artifact.text.trim().is_empty()
+            || matches!(params.policy, DecompilePolicy::PureV2) && rejected_v2
+            || matches!(params.policy, DecompilePolicy::Product) && rejected_v2;
+        let (pseudocode, truncated) = if omitted {
+            (None, false)
+        } else if let Some(max_tokens) = params.max_tokens {
+            let (text, truncated) = truncate_text_tokens_with_flag(&artifact.text, max_tokens);
+            (Some(text), truncated)
+        } else {
+            (Some(artifact.text.clone()), false)
+        };
+
+        let mut output = json!({
+            "project_id": id.to_string(),
+            "va": format!("{va:#x}"),
+            "status": if omitted { "omitted" } else { "ok" },
+            "pseudocode": pseudocode,
+            "source": "native",
+            "engine": artifact.engine,
+            "policy": params.policy,
+            "truncated": truncated,
+            "check_report": artifact.check_report,
+            "contract_fingerprint": artifact.contract_fingerprint,
+        });
+        if let Some(reason) = artifact.fallback_reason {
+            output
+                .as_object_mut()
+                .expect("decompile result is an object")
+                .insert("fallback_reason".to_string(), json!(reason));
         }
+        Ok(success_json(&output))
     }
 }
 
@@ -235,16 +318,27 @@ struct UndoLastParams {
     client_id: String,
 }
 
+#[derive(
+    Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize, schemars::JsonSchema,
+)]
+#[serde(rename_all = "snake_case")]
+enum DecompilePolicy {
+    #[default]
+    Product,
+    PureV2,
+    Legacy,
+}
+
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
 struct DecompileFunctionParams {
     project_id: String,
     va: String,
-    /// Optional seed pseudo-code for the model to refine (Ghidra, prior output, etc.).
-    #[serde(default)]
-    refine: Option<String>,
     /// Optional token budget for the returned text (~4 tokens per line).
     #[serde(default)]
     max_tokens: Option<usize>,
+    /// product (default), pure_v2 (no fallback), or legacy.
+    #[serde(default)]
+    policy: DecompilePolicy,
 }
 
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
@@ -403,7 +497,9 @@ struct CrossProjectParams {
 
 #[tool_router]
 impl WindyMcp {
-    #[tool(description = "List all currently open projects with their ids, paths, function count and instruction count")]
+    #[tool(
+        description = "List all currently open projects with their ids, paths, function count and instruction count"
+    )]
     async fn list_projects(&self) -> Result<CallToolResult, rmcp::ErrorData> {
         let projects = self.manager.list();
         let arr: Vec<_> = projects
@@ -432,7 +528,9 @@ impl WindyMcp {
         Ok(success_json(&json!({ "project_id": id.to_string() })))
     }
 
-    #[tool(description = "List functions in a project. Optional pattern filters names. Use offset+limit for pagination (default limit 32, max 128).")]
+    #[tool(
+        description = "List functions in a project. Optional pattern filters names. Use offset+limit for pagination (default limit 32, max 128)."
+    )]
     async fn list_functions(
         &self,
         Parameters(params): Parameters<ListFunctionsParams>,
@@ -489,7 +587,9 @@ impl WindyMcp {
         Ok(success_json(&json!({ "functions": arr })))
     }
 
-    #[tool(description = "Get a compact function summary card (name, blocks, instructions, callers, callees).")]
+    #[tool(
+        description = "Get a compact function summary card (name, blocks, instructions, callers, callees)."
+    )]
     async fn get_function_summary(
         &self,
         Parameters(params): Parameters<FunctionParams>,
@@ -502,7 +602,9 @@ impl WindyMcp {
         Ok(success_json(&summary))
     }
 
-    #[tool(description = "One-shot evidence pack for a function: summary, apis, strings, call_sites, points_to, constants, entities, callers/callees. Prefer this before agent_text. Optional include_agent_text.")]
+    #[tool(
+        description = "One-shot evidence pack for a function: summary, apis, strings, call_sites, points_to, constants, entities, callers/callees. Prefer this before agent_text. Optional include_agent_text."
+    )]
     async fn get_function_evidence(
         &self,
         Parameters(params): Parameters<EvidenceParams>,
@@ -523,7 +625,9 @@ impl WindyMcp {
         Ok(success_json(&pack))
     }
 
-    #[tool(description = "Statically verify structured claims about a function. Claim kinds: calls_api (api), has_string (string), local_name (stack_offset+name), local_type (stack_offset+data_type|type_str), param_count (count), signature_arity (optional count). Returns supported|contradicted|unknown + evidence.")]
+    #[tool(
+        description = "Statically verify structured claims about a function. Claim kinds: calls_api (api), has_string (string), local_name (stack_offset+name), local_type (stack_offset+data_type|type_str), param_count (count), signature_arity (optional count). Returns supported|contradicted|unknown + evidence."
+    )]
     async fn verify_claims(
         &self,
         Parameters(params): Parameters<VerifyClaimsParams>,
@@ -540,7 +644,8 @@ impl WindyMcp {
             &project,
             &params.claims,
             Some(self.manager.home_dir()),
-        );
+        )
+        .map_err(|error| internal_error(format!("append claim journal: {error}")))?;
         Ok(success_json(&json!({
             "results": results,
             "checker_ver": crate::llm::verify::CLAIM_CHECKER_VERSION,
@@ -548,7 +653,9 @@ impl WindyMcp {
         })))
     }
 
-    #[tool(description = "Auto consistency report for a function (pass/warn/unknown checks): signature present, stack locals vs frame, import SigDB coverage, SSA simplify stats, call graph. Run after rename batches.")]
+    #[tool(
+        description = "Auto consistency report for a function (pass/warn/unknown checks): signature present, stack locals vs frame, import SigDB coverage, SSA simplify stats, call graph. Run after rename batches."
+    )]
     async fn get_function_consistency(
         &self,
         Parameters(params): Parameters<FunctionParams>,
@@ -561,7 +668,9 @@ impl WindyMcp {
         Ok(success_json(&report))
     }
 
-    #[tool(description = "Read durable agent memory card for a function (purpose, tags, key_apis/strings). Survives IDB reload. Distinct from get_function_summary structural stats.")]
+    #[tool(
+        description = "Read durable agent memory card for a function (purpose, tags, key_apis/strings). Survives IDB reload. Distinct from get_function_summary structural stats."
+    )]
     async fn get_function_memory(
         &self,
         Parameters(params): Parameters<FunctionParams>,
@@ -578,7 +687,9 @@ impl WindyMcp {
         }
     }
 
-    #[tool(description = "Write durable agent memory for a function. Prefer merge=true. Empty key_apis/key_strings auto-seed from evidence when auto_seed=true. Call after solid renames so future sessions skip rediscovery.")]
+    #[tool(
+        description = "Write durable agent memory for a function. Prefer merge=true. Empty key_apis/key_strings auto-seed from evidence when auto_seed=true. Call after solid renames so future sessions skip rediscovery."
+    )]
     async fn set_function_memory(
         &self,
         Parameters(params): Parameters<SetFunctionMemoryParams>,
@@ -626,11 +737,7 @@ impl WindyMcp {
                 card.key_apis = apis.into_iter().take(16).collect();
             }
             if card.key_strings.is_empty() {
-                card.key_strings = strings
-                    .into_iter()
-                    .take(16)
-                    .map(|s| s.value)
-                    .collect();
+                card.key_strings = strings.into_iter().take(16).map(|s| s.value).collect();
             }
         }
 
@@ -676,7 +783,9 @@ impl WindyMcp {
         })))
     }
 
-    #[tool(description = "Find similar functions across workspace members using API-set Jaccard + size/shape (not name-only). Pass optional project_id+va to query one function; else samples.")]
+    #[tool(
+        description = "Find similar functions across workspace members using API-set Jaccard + size/shape (not name-only). Pass optional project_id+va to query one function; else samples."
+    )]
     async fn get_cross_project_similar(
         &self,
         Parameters(params): Parameters<CrossSimilarParams>,
@@ -704,7 +813,9 @@ impl WindyMcp {
         })))
     }
 
-    #[tool(description = "Get the token-efficient annotated agent text for a function. Optional max_instructions truncates large bodies; strip_noise (default true) drops cookie/prologue noise.")]
+    #[tool(
+        description = "Get the token-efficient annotated agent text for a function. Optional max_instructions truncates large bodies; strip_noise (default true) drops cookie/prologue noise."
+    )]
     async fn get_function_agent_text(
         &self,
         Parameters(params): Parameters<AgentTextParams>,
@@ -738,7 +849,9 @@ impl WindyMcp {
         Ok(success_json(&export))
     }
 
-    #[tool(description = "Search the whole project for symbols, instructions, and strings containing a substring. Returns at most 32 hits.")]
+    #[tool(
+        description = "Search the whole project for symbols, instructions, and strings containing a substring. Returns at most 32 hits."
+    )]
     async fn search_summary(
         &self,
         Parameters(params): Parameters<SearchParams>,
@@ -843,7 +956,9 @@ impl WindyMcp {
         Ok(success_json(&arr))
     }
 
-    #[tool(description = "Get the optimized SSA summary for a function: op counts before/after copy+constant propagation, trivial-phi collapse, and conservative DCE.")]
+    #[tool(
+        description = "Get the optimized SSA summary for a function: op counts before/after copy+constant propagation, trivial-phi collapse, and conservative DCE."
+    )]
     async fn get_function_ssa_optimized(
         &self,
         Parameters(params): Parameters<FunctionParams>,
@@ -856,7 +971,9 @@ impl WindyMcp {
         Ok(success_json(&summary))
     }
 
-    #[tool(description = "Get SSA-derived suggestion comments (constants proven by simplification) ready to feed back into apply_ssa_suggestions.")]
+    #[tool(
+        description = "Get SSA-derived suggestion comments (constants proven by simplification) ready to feed back into apply_ssa_suggestions."
+    )]
     async fn get_function_ssa_suggestions(
         &self,
         Parameters(params): Parameters<FunctionParams>,
@@ -874,7 +991,9 @@ impl WindyMcp {
         Ok(success_json(&arr))
     }
 
-    #[tool(description = "Preview recovered types for a function over its optimized SSA: stack-local types and the refined return type. Read-only.")]
+    #[tool(
+        description = "Preview recovered types for a function over its optimized SSA: stack-local types and the refined return type. Read-only."
+    )]
     async fn get_function_types(
         &self,
         Parameters(params): Parameters<FunctionParams>,
@@ -888,7 +1007,9 @@ impl WindyMcp {
         Ok(success_json(&report))
     }
 
-    #[tool(description = "Apply recovered types to a function: stack-local types + refined return signature, persisted as a single reversible Op::Batch.")]
+    #[tool(
+        description = "Apply recovered types to a function: stack-local types + refined return signature, persisted as a single reversible Op::Batch."
+    )]
     async fn apply_type_recovery(
         &self,
         Parameters(params): Parameters<ApplyTypeRecoveryParams>,
@@ -912,7 +1033,9 @@ impl WindyMcp {
         })))
     }
 
-    #[tool(description = "Get context text (signature header, block labels, type annotations, and xrefs) for a function. Optional max_tokens bounds the agent-text body.")]
+    #[tool(
+        description = "Get context text (signature header, block labels, type annotations, and xrefs) for a function. Optional max_tokens bounds the agent-text body."
+    )]
     async fn get_function_context(
         &self,
         Parameters(params): Parameters<ContextParams>,
@@ -926,7 +1049,9 @@ impl WindyMcp {
         Ok(CallToolResult::success(vec![Content::text(text)]))
     }
 
-    #[tool(description = "Compact SSA def-use dataflow JSON for a function (no assembly). Token-dense; optional max_defs (default 128) truncates large functions.")]
+    #[tool(
+        description = "Compact SSA def-use dataflow JSON for a function (no assembly). Token-dense; optional max_defs (default 128) truncates large functions."
+    )]
     async fn get_function_dataflow(
         &self,
         Parameters(params): Parameters<DataflowParams>,
@@ -940,7 +1065,9 @@ impl WindyMcp {
         Ok(success_json(&value))
     }
 
-    #[tool(description = "List call sites inside a function with traced argument sources (constant/global/local/param) and Win32 param names when known.")]
+    #[tool(
+        description = "List call sites inside a function with traced argument sources (constant/global/local/param) and Win32 param names when known."
+    )]
     async fn get_call_sites(
         &self,
         Parameters(params): Parameters<FunctionParams>,
@@ -954,7 +1081,9 @@ impl WindyMcp {
         Ok(success_json(&value))
     }
 
-    #[tool(description = "Structured decompilation export: signature, variable table, blocks with region kinds, control-flow summary, and def_types. Machine-parseable alternative to free-form C.")]
+    #[tool(
+        description = "Structured decompilation export: signature, variable table, blocks with region kinds, control-flow summary, and def_types. Machine-parseable alternative to free-form C."
+    )]
     async fn get_function_decompilation_structured(
         &self,
         Parameters(params): Parameters<FunctionParams>,
@@ -968,24 +1097,14 @@ impl WindyMcp {
         Ok(success_json(&value))
     }
 
-    #[tool(description = "List Win32 API signatures known to the SigDB. Pass dll (e.g. kernel32, ntdll) to list APIs for that DLL; empty dll returns the list of loaded DLLs.")]
+    #[tool(
+        description = "List Win32 API signatures known to the SigDB. Pass dll (e.g. kernel32, ntdll) to list APIs for that DLL; empty dll returns the list of loaded DLLs."
+    )]
     async fn list_api_signatures(
         &self,
         Parameters(params): Parameters<ListApiSignaturesParams>,
     ) -> Result<CallToolResult, rmcp::ErrorData> {
-        // SigDB is project-independent for bundled defaults; use first open
-        // project if any, else load bundled-only.
-        let db_owned;
-        let db = if let Some((_, path, _, _)) = self.manager.list().into_iter().next() {
-            // Prefer a live project's DB (includes user overlays).
-            // list() returns (id, path, fns, insns) — re-open is heavy; load once.
-            let _ = path;
-            db_owned = crate::analysis::win32_sigs::SigDB::load();
-            &db_owned
-        } else {
-            db_owned = crate::analysis::win32_sigs::SigDB::load();
-            &db_owned
-        };
+        let db = crate::analysis::win32_sigs::SigDB::load_from(self.manager.home_dir());
         if params.dll.is_empty() {
             return Ok(success_json(&json!({
                 "dlls": db.dlls(),
@@ -1011,62 +1130,24 @@ impl WindyMcp {
         })))
     }
 
-    #[tool(description = "Decompile a function to C-like pseudocode using the external GCLSD model. Optional refine text seeds refinement. Falls back to the native structurer (Phase 5) if the model service is unreachable.")]
+    #[tool(
+        description = "Decompile with Windy's native checked pipeline. policy=product uses V2 with explicit Legacy fallback; pure_v2 never falls back; legacy is for comparison. Returns engine/checker metadata."
+    )]
     async fn decompile_function(
         &self,
         Parameters(params): Parameters<DecompileFunctionParams>,
     ) -> Result<CallToolResult, rmcp::ErrorData> {
-        let id = parse_project_id(&params.project_id)?;
-        let project = get_project(&self.manager, id)?;
-        let va = parse_va(&params.va)?;
-        let mut input = project
-            .function_gclsd_input(va)
-            .ok_or_else(|| invalid_params("function not found or could not be exported"))?;
-        // Auto-seed refine with native decompilation when the client did not
-        // supply one (keeps GCLSD refinement grounded in structured output).
-        input.refine = params
-            .refine
-            .or_else(|| project.function_decompile_native(va));
-        let key = DecompilerCacheKey {
-            image_sha256: project.image_sha256.clone(),
-            va,
-            op_seq: project.op_seq,
-        };
-        match self.decompiler.decompile(key, &input).await {
-            Ok(output) => {
-                let mut code = output.pseudocode;
-                if let Some(budget) = params.max_tokens {
-                    code = truncate_text_tokens(&code, budget);
-                }
-                Ok(success_json(&json!({ "pseudocode": code, "source": "gclsd" })))
-            }
-            Err(_e) => {
-                // Graceful fallback: synthesize pseudo-C natively when the
-                // GCLSD HTTP service is unavailable.
-                let native = project
-                    .function_decompile_native_bounded(va, params.max_tokens)
-                    .ok_or_else(|| invalid_params("function not found"))?;
-                Ok(success_json(&json!({ "pseudocode": native, "source": "native" })))
-            }
-        }
+        self.decompile_native_result(params)
     }
 
-    #[tool(description = "Decompile a function to C-like pseudocode using the native SSA structurer (no external model). Always native. Optional max_tokens truncates with a summary line.")]
+    #[tool(
+        description = "Deprecated v0.1 alias of decompile_function. Uses the same native policy and structured result; prefer decompile_function."
+    )]
     async fn decompile_function_native(
         &self,
         Parameters(params): Parameters<DecompileFunctionParams>,
     ) -> Result<CallToolResult, rmcp::ErrorData> {
-        let id = parse_project_id(&params.project_id)?;
-        let project = get_project(&self.manager, id)?;
-        let va = parse_va(&params.va)?;
-        let pseudocode = project
-            .function_decompile_native_bounded(va, params.max_tokens)
-            .ok_or_else(|| invalid_params("function not found"))?;
-        Ok(success_json(&json!({
-            "pseudocode": pseudocode,
-            "source": "native",
-            "truncated": params.max_tokens.is_some() && pseudocode.contains("truncated"),
-        })))
+        self.decompile_native_result(params)
     }
 
     #[tool(description = "Rename a symbol at a virtual address.")]
@@ -1103,7 +1184,9 @@ impl WindyMcp {
         apply_and_report(&self.manager, id, op, "mcp").await
     }
 
-    #[tool(description = "Retype a global variable at a virtual address with a DataType (e.g. {\"Uint\":[32]} or {\"Ptr\":[{\"Int\":[8]}]}).")]
+    #[tool(
+        description = "Retype a global variable at a virtual address with a DataType (e.g. {\"Uint\":[32]} or {\"Ptr\":[{\"Int\":[8]}]})."
+    )]
     async fn retype_global(
         &self,
         Parameters(params): Parameters<RetypeGlobalParams>,
@@ -1133,7 +1216,9 @@ impl WindyMcp {
         apply_and_report(&self.manager, id, op, "mcp").await
     }
 
-    #[tool(description = "Set the focused function for a project to the function starting at a virtual address.")]
+    #[tool(
+        description = "Set the focused function for a project to the function starting at a virtual address."
+    )]
     async fn set_focus(
         &self,
         Parameters(params): Parameters<SetFocusParams>,
@@ -1147,7 +1232,9 @@ impl WindyMcp {
         apply_and_report(&self.manager, id, op, "mcp").await
     }
 
-    #[tool(description = "Apply SSA-derived renames and comments as a single reversible batch. Each suggestion maps a defining VA to an optional name and/or comment.")]
+    #[tool(
+        description = "Apply SSA-derived renames and comments as a single reversible batch. Each suggestion maps a defining VA to an optional name and/or comment."
+    )]
     async fn apply_ssa_suggestions(
         &self,
         Parameters(params): Parameters<ApplySsaSuggestionsParams>,
@@ -1184,10 +1271,14 @@ impl WindyMcp {
             .apply_op(id, "mcp", op)
             .await
             .map_err(|e| invalid_params(e.to_string()))?;
-        Ok(success_json(&json!({ "applied": preview.len(), "preview": preview, "op": applied })))
+        Ok(success_json(
+            &json!({ "applied": preview.len(), "preview": preview, "op": applied }),
+        ))
     }
 
-    #[tool(description = "List rename/retype targets for a function: function id, args (arg:N), stack locals (local:-0x..). Call before apply_rename_batch.")]
+    #[tool(
+        description = "List rename/retype targets for a function: function id, args (arg:N), stack locals (local:-0x..). Call before apply_rename_batch."
+    )]
     async fn get_function_entities(
         &self,
         Parameters(params): Parameters<FunctionParams>,
@@ -1201,7 +1292,9 @@ impl WindyMcp {
         Ok(success_json(&entities))
     }
 
-    #[tool(description = "Apply structured renames/retypes to a function. Targets: function, arg (index), local (stack_offset like -0x10), address (va), address_comment, function_comment. Optional data_type on arg/local/address. Optional evidence[] cites for claim-first soft write path. Set dry_run to preview.")]
+    #[tool(
+        description = "Apply structured renames/retypes to a function. Targets: function, arg (index), local (stack_offset like -0x10), address (va), address_comment, function_comment. Optional data_type on arg/local/address. Optional evidence[] cites for claim-first soft write path. Set dry_run to preview."
+    )]
     async fn apply_rename_batch(
         &self,
         Parameters(params): Parameters<ApplyRenameBatchParams>,
@@ -1261,12 +1354,11 @@ impl WindyMcp {
                     }
                 }
                 "address_comment" => {
-                    let va = r
-                        .va
-                        .as_deref()
-                        .map(parse_va)
-                        .transpose()?
-                        .unwrap_or(function_va);
+                    let va =
+                        r.va.as_deref()
+                            .map(parse_va)
+                            .transpose()?
+                            .unwrap_or(function_va);
                     ops.push(Op::SetComment {
                         va,
                         scope: CommentScope::Address,
@@ -1314,8 +1406,7 @@ impl WindyMcp {
                             });
                         while sig.params.len() <= idx {
                             let i = sig.params.len();
-                            sig.params
-                                .push((format!("arg{i}"), DataType::Unknown(0)));
+                            sig.params.push((format!("arg{i}"), DataType::Unknown(0)));
                         }
                         sig.params[idx] = (r.new_name.clone(), ty.clone());
                         ops.push(Op::SetFunctionSignature {
@@ -1368,9 +1459,10 @@ impl WindyMcp {
                             ty: ty.clone(),
                             old_ty: None,
                         });
-                        card.as_object_mut()
-                            .unwrap()
-                            .insert("data_type".into(), serde_json::to_value(&ty).unwrap_or_default());
+                        card.as_object_mut().unwrap().insert(
+                            "data_type".into(),
+                            serde_json::to_value(&ty).unwrap_or_default(),
+                        );
                     }
                     preview.push(card);
                 }
@@ -1454,7 +1546,9 @@ impl WindyMcp {
         Ok(success_json(&json!({ "workspace_id": id.to_string() })))
     }
 
-    #[tool(description = "Add PE files to a workspace. Each path is opened and the result is reported per file.")]
+    #[tool(
+        description = "Add PE files to a workspace. Each path is opened and the result is reported per file."
+    )]
     async fn add_files_to_workspace(
         &self,
         Parameters(params): Parameters<AddFilesToWorkspaceParams>,
@@ -1556,7 +1650,9 @@ impl WindyMcp {
 
     // ── Phase 7 MCP tools ────────────────────────────────────────────────
 
-    #[tool(description = "Get the points-to map for a function: each Load/Store resolved to Global/IATSlot/StackRef/ParamPtr/HeapUnknown.")]
+    #[tool(
+        description = "Get the points-to map for a function: each Load/Store resolved to Global/IATSlot/StackRef/ParamPtr/HeapUnknown."
+    )]
     async fn get_function_points_to(
         &self,
         Parameters(params): Parameters<FunctionParams>,
@@ -1570,12 +1666,14 @@ impl WindyMcp {
         Ok(success_json(&value))
     }
 
-    #[tool(description = "List COM/interface vtable signatures. Pass interface (e.g. IUnknown) for methods; empty returns loaded interface names.")]
+    #[tool(
+        description = "List COM/interface vtable signatures. Pass interface (e.g. IUnknown) for methods; empty returns loaded interface names."
+    )]
     async fn list_vtable_signatures(
         &self,
         Parameters(params): Parameters<ListVtableSignaturesParams>,
     ) -> Result<CallToolResult, rmcp::ErrorData> {
-        let db = crate::analysis::vtable_sigs::VtableDB::load();
+        let db = crate::analysis::vtable_sigs::VtableDB::load_from(self.manager.home_dir());
         if params.interface.is_empty() {
             return Ok(success_json(&json!({
                 "interfaces": db.interfaces(),
@@ -1608,7 +1706,9 @@ impl WindyMcp {
         })))
     }
 
-    #[tool(description = "List resolved COM/vtable calls inside a function (this->Method with param types when known).")]
+    #[tool(
+        description = "List resolved COM/vtable calls inside a function (this->Method with param types when known)."
+    )]
     async fn get_vtable_calls(
         &self,
         Parameters(params): Parameters<FunctionParams>,
@@ -1622,7 +1722,9 @@ impl WindyMcp {
         Ok(success_json(&value))
     }
 
-    #[tool(description = "What does this binary import from other workspace members? Pass workspace_id and project_id.")]
+    #[tool(
+        description = "What does this binary import from other workspace members? Pass workspace_id and project_id."
+    )]
     async fn get_cross_project_calls(
         &self,
         Parameters(params): Parameters<CrossProjectParams>,
@@ -1649,10 +1751,14 @@ impl WindyMcp {
                 })
             })
             .collect();
-        Ok(success_json(&json!({ "imports": imports, "count": imports.len() })))
+        Ok(success_json(
+            &json!({ "imports": imports, "count": imports.len() }),
+        ))
     }
 
-    #[tool(description = "What does each workspace member export? Returns api_name → exporter list for the workspace.")]
+    #[tool(
+        description = "What does each workspace member export? Returns api_name → exporter list for the workspace."
+    )]
     async fn get_cross_project_exports(
         &self,
         Parameters(params): Parameters<WorkspaceParams>,
@@ -1675,10 +1781,14 @@ impl WindyMcp {
                 })
             })
             .collect();
-        Ok(success_json(&json!({ "exports": exports, "count": exports.len() })))
+        Ok(success_json(
+            &json!({ "exports": exports, "count": exports.len() }),
+        ))
     }
 
-    #[tool(description = "High-level cross-binary call graph JSON for a workspace (import→export edges).")]
+    #[tool(
+        description = "High-level cross-binary call graph JSON for a workspace (import→export edges)."
+    )]
     async fn get_cross_project_dataflow(
         &self,
         Parameters(params): Parameters<WorkspaceParams>,
@@ -1691,7 +1801,9 @@ impl WindyMcp {
         Ok(success_json(&index.to_json()))
     }
 
-    #[tool(description = "List PE imports (DLL + API names). Paginated with offset/limit (default 32, max 128).")]
+    #[tool(
+        description = "List PE imports (DLL + API names). Paginated with offset/limit (default 32, max 128)."
+    )]
     async fn list_imports(
         &self,
         Parameters(params): Parameters<ListStringsParams>,
@@ -1722,11 +1834,7 @@ impl WindyMcp {
             }
         }
         let total = items.len();
-        let page: Vec<_> = items
-            .into_iter()
-            .skip(params.offset)
-            .take(limit)
-            .collect();
+        let page: Vec<_> = items.into_iter().skip(params.offset).take(limit).collect();
         let next = params.offset.saturating_add(page.len());
         Ok(success_json(&json!({
             "imports": page,
@@ -1736,7 +1844,9 @@ impl WindyMcp {
         })))
     }
 
-    #[tool(description = "List PE exports (name + VA when available). Paginated (offset/limit, max 128).")]
+    #[tool(
+        description = "List PE exports (name + VA when available). Paginated (offset/limit, max 128)."
+    )]
     async fn list_exports(
         &self,
         Parameters(params): Parameters<ListStringsParams>,
@@ -1763,11 +1873,7 @@ impl WindyMcp {
             }
         }
         let total = items.len();
-        let page: Vec<_> = items
-            .into_iter()
-            .skip(params.offset)
-            .take(limit)
-            .collect();
+        let page: Vec<_> = items.into_iter().skip(params.offset).take(limit).collect();
         let next = params.offset.saturating_add(page.len());
         Ok(success_json(&json!({
             "exports": page,
@@ -1797,10 +1903,14 @@ impl WindyMcp {
                 })
             })
             .collect();
-        Ok(success_json(&json!({ "sections": arr, "count": arr.len() })))
+        Ok(success_json(
+            &json!({ "sections": arr, "count": arr.len() }),
+        ))
     }
 
-    #[tool(description = "List printable strings from the PE triage table. min_len filters length; offset/limit paginate (max 128).")]
+    #[tool(
+        description = "List printable strings from the PE triage table. min_len filters length; offset/limit paginate (max 128)."
+    )]
     async fn list_strings(
         &self,
         Parameters(params): Parameters<ListStringsParams>,
@@ -1823,11 +1933,7 @@ impl WindyMcp {
             }
         }
         let total = items.len();
-        let page: Vec<_> = items
-            .into_iter()
-            .skip(params.offset)
-            .take(limit)
-            .collect();
+        let page: Vec<_> = items.into_iter().skip(params.offset).take(limit).collect();
         let next = params.offset.saturating_add(page.len());
         Ok(success_json(&json!({
             "strings": page,
@@ -1837,7 +1943,9 @@ impl WindyMcp {
         })))
     }
 
-    #[tool(description = "Read up to len bytes at a VA as hex (default 64, hard cap 512). Prefer evidence tools first; use only when needed.")]
+    #[tool(
+        description = "Read up to len bytes at a VA as hex (default 64, hard cap 512). Prefer evidence tools first; use only when needed."
+    )]
     async fn read_va(
         &self,
         Parameters(params): Parameters<ReadVaParams>,
@@ -1863,7 +1971,9 @@ impl WindyMcp {
         })))
     }
 
-    #[tool(description = "Bounded fragment excerpt at a VA (alias of read_va with cite). Cap 512 bytes. Prefer get_function_evidence first.")]
+    #[tool(
+        description = "Bounded fragment excerpt at a VA (alias of read_va with cite). Cap 512 bytes. Prefer get_function_evidence first."
+    )]
     async fn get_fragment(
         &self,
         Parameters(params): Parameters<ReadVaParams>,
@@ -1871,7 +1981,9 @@ impl WindyMcp {
         self.read_va(Parameters(params)).await
     }
 
-    #[tool(description = "List symbol rename lineage (old→new) for a project. Pass va to filter one address; use va=0 or omit via 0x0 for all.")]
+    #[tool(
+        description = "List symbol rename lineage (old→new) for a project. Pass va to filter one address; use va=0 or omit via 0x0 for all."
+    )]
     async fn get_alias_history(
         &self,
         Parameters(params): Parameters<FunctionParams>,
@@ -1879,7 +1991,11 @@ impl WindyMcp {
         let id = parse_project_id(&params.project_id)?;
         let project = get_project(&self.manager, id)?;
         let filter_va = parse_va(&params.va).unwrap_or(0);
-        let filter = if filter_va == 0 { None } else { Some(filter_va) };
+        let filter = if filter_va == 0 {
+            None
+        } else {
+            Some(filter_va)
+        };
         let events: Vec<_> = project
             .alias_history
             .iter()
@@ -1896,36 +2012,158 @@ impl WindyMcp {
                 })
             })
             .collect();
-        Ok(success_json(&json!({ "aliases": events, "count": events.len() })))
+        Ok(success_json(
+            &json!({ "aliases": events, "count": events.len() }),
+        ))
     }
 }
 
 #[tool_handler]
 impl ServerHandler for WindyMcp {
+    async fn call_tool(
+        &self,
+        request: rmcp::model::CallToolRequestParams,
+        context: rmcp::service::RequestContext<rmcp::RoleServer>,
+    ) -> Result<CallToolResult, rmcp::ErrorData> {
+        let tool_context =
+            rmcp::handler::server::tool::ToolCallContext::new(self, request, context);
+        match Self::tool_router().call(tool_context).await {
+            Ok(result) => Ok(result),
+            Err(error) => {
+                let message = error.message.into_owned();
+                let code = if message.to_ascii_lowercase().contains("not found") {
+                    "NOT_FOUND"
+                } else if error.code == ErrorCode::INVALID_PARAMS {
+                    "INVALID_ARGUMENT"
+                } else if error.code == ErrorCode::RESOURCE_NOT_FOUND {
+                    "NOT_FOUND"
+                } else {
+                    "TOOL_EXECUTION_FAILED"
+                };
+                Ok(tool_error_json(
+                    code,
+                    message,
+                    json!({ "rpc_code": error.code.0, "data": error.data }),
+                    error.code == ErrorCode::INTERNAL_ERROR,
+                ))
+            }
+        }
+    }
+
+    async fn list_tools(
+        &self,
+        _request: Option<rmcp::model::PaginatedRequestParams>,
+        _context: rmcp::service::RequestContext<rmcp::RoleServer>,
+    ) -> Result<rmcp::model::ListToolsResult, rmcp::ErrorData> {
+        Ok(rmcp::model::ListToolsResult {
+            tools: Self::tool_router()
+                .list_all()
+                .into_iter()
+                .map(annotate_tool)
+                .collect(),
+            meta: None,
+            next_cursor: None,
+        })
+    }
+
+    fn get_tool(&self, name: &str) -> Option<rmcp::model::Tool> {
+        Self::tool_router().get(name).cloned().map(annotate_tool)
+    }
+
     fn get_info(&self) -> ServerInfo {
         let mut info = ServerInfo::new(ServerCapabilities::builder().enable_tools().build());
-        info.protocol_version = rmcp::model::ProtocolVersion::V_2024_11_05;
-        info.server_info = rmcp::model::Implementation::from_build_env();
+        info.protocol_version = rmcp::model::ProtocolVersion::LATEST;
+        info.server_info = rmcp::model::Implementation::new("windy", env!("CARGO_PKG_VERSION"))
+            .with_title("Windy")
+            .with_description(
+                "Static Windows PE reverse-engineering workbench and pure MCP substrate",
+            );
         info.instructions = Some(
-            "Windy is a pure MCP reverse-engineering substrate for external agents \
-             (OpenCode, Claude, Cursor, etc.). Windy does not plan — you do. \
-             Ladder: open_project → list_functions/list_imports/list_strings/search_summary → \
-             get_function_evidence (prefer; includes memory if set) → apply_rename_batch → \
-             verify_claims / get_function_consistency → set_function_memory (purpose/tags) → \
-             re-read evidence. Multi-DLL: get_cross_project_similar. Prefer evidence over decompile."
+            "Windy is a local, static PE analysis substrate; the MCP client owns planning. \
+             Recommended ladder: list_projects/open_project; triage with imports, exports, strings, \
+             sections, and search_summary; inspect list_functions; prefer get_function_evidence; \
+             write back with apply_rename_batch; check verify_claims/get_function_consistency; \
+             persist conclusions with set_function_memory; then re-read evidence. Use \
+             get_cross_project_similar for multi-binary workspaces."
                 .to_string(),
         );
         info
     }
 }
 
-fn success_json(value: &impl serde::Serialize) -> CallToolResult {
-    CallToolResult::success(vec![Content::text(
-        serde_json::to_string(value).unwrap_or_default(),
-    )])
+fn annotate_tool(mut tool: rmcp::model::Tool) -> rmcp::model::Tool {
+    let name = tool.name.as_ref();
+    let stateful = matches!(
+        name,
+        "open_project"
+            | "verify_claims"
+            | "set_function_memory"
+            | "apply_type_recovery"
+            | "rename_symbol"
+            | "set_comment"
+            | "retype_global"
+            | "set_function_signature"
+            | "set_focus"
+            | "apply_ssa_suggestions"
+            | "apply_rename_batch"
+            | "undo_last"
+            | "redo_last"
+            | "create_workspace"
+            | "add_files_to_workspace"
+            | "add_project_to_workspace"
+            | "open_workspace"
+            | "remove_from_workspace"
+    );
+    let destructive = matches!(name, "remove_from_workspace");
+    tool.annotations = Some(
+        rmcp::model::ToolAnnotations::with_title(tool_title(name))
+            .read_only(!stateful)
+            .destructive(destructive)
+            .idempotent(!stateful)
+            .open_world(false),
+    );
+    tool
 }
 
-fn get_project(manager: &ProjectManager, id: ProjectId) -> Result<Arc<crate::project::Project>, rmcp::ErrorData> {
+fn tool_title(name: &str) -> String {
+    name.split('_')
+        .map(|part| {
+            let mut chars = part.chars();
+            chars.next().map_or_else(String::new, |first| {
+                first.to_uppercase().collect::<String>() + chars.as_str()
+            })
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn success_json(value: &impl serde::Serialize) -> CallToolResult {
+    match serde_json::to_value(value) {
+        Ok(value) => CallToolResult::structured(value),
+        Err(error) => tool_error_json("SERIALIZATION_ERROR", error.to_string(), json!({}), false),
+    }
+}
+
+fn tool_error_json(
+    code: &str,
+    message: impl Into<String>,
+    details: serde_json::Value,
+    retryable: bool,
+) -> CallToolResult {
+    CallToolResult::structured_error(json!({
+        "error": {
+            "code": code,
+            "message": message.into(),
+            "details": details,
+            "retryable": retryable,
+        }
+    }))
+}
+
+fn get_project(
+    manager: &ProjectManager,
+    id: ProjectId,
+) -> Result<Arc<crate::project::Project>, rmcp::ErrorData> {
     manager
         .get(id)
         .ok_or_else(|| invalid_params("project not found"))
@@ -1944,21 +2182,21 @@ async fn apply_and_report(
     Ok(success_json(&json!({ "applied": applied })))
 }
 
-fn truncate_text_tokens(text: &str, max_tokens: usize) -> String {
+fn truncate_text_tokens_with_flag(text: &str, max_tokens: usize) -> (String, bool) {
     let max_lines = max_tokens / 4;
     if max_lines == 0 {
-        return "// truncated\n".to_string();
+        return ("// truncated\n".to_string(), true);
     }
     let lines: Vec<&str> = text.lines().collect();
     if lines.len() <= max_lines {
-        return text.to_string();
+        return (text.to_string(), false);
     }
     let mut out = lines[..max_lines].join("\n");
     out.push_str(&format!(
         "\n// ... {} more lines truncated. Call get_function_dataflow for full SSA.\n",
         lines.len() - max_lines
     ));
-    out
+    (out, true)
 }
 
 fn invalid_params(message: impl Into<String>) -> rmcp::ErrorData {
@@ -2028,20 +2266,92 @@ async fn mcp_http_handler(
     }
 }
 
-/// Start the streamable-HTTP MCP server on `bind`.  Returns the bound port.
+async fn enforce_loopback_origin(
+    req: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> axum::response::Response {
+    if let Some(origin) = req.headers().get(axum::http::header::ORIGIN)
+        && !origin.to_str().ok().is_some_and(origin_is_loopback)
+    {
+        return axum::response::Response::builder()
+            .status(axum::http::StatusCode::FORBIDDEN)
+            .body(axum::body::Body::from("forbidden Origin"))
+            .unwrap();
+    }
+    next.run(req).await
+}
+
+fn origin_is_loopback(origin: &str) -> bool {
+    let Ok(uri) = origin.parse::<axum::http::Uri>() else {
+        return false;
+    };
+    let Some(authority) = uri.authority() else {
+        return false;
+    };
+    let host = authority.host().trim_matches(['[', ']']);
+    host.eq_ignore_ascii_case("localhost")
+        || host
+            .parse::<std::net::IpAddr>()
+            .is_ok_and(|ip| ip.is_loopback())
+}
+
+async fn healthz() -> Json<serde_json::Value> {
+    Json(json!({
+        "status": "ok",
+        "name": "windy",
+        "version": env!("CARGO_PKG_VERSION"),
+        "protocol": rmcp::model::ProtocolVersion::LATEST.as_str(),
+    }))
+}
+
+/// Handle for a running local MCP server.
+pub struct McpServerHandle {
+    port: u16,
+    shutdown: Option<tokio::sync::oneshot::Sender<()>>,
+    finished: Option<tokio::sync::oneshot::Receiver<()>>,
+}
+
+impl McpServerHandle {
+    pub fn port(&self) -> u16 {
+        self.port
+    }
+
+    /// Stop accepting requests and wait briefly for graceful completion.
+    pub async fn shutdown(&mut self) -> anyhow::Result<()> {
+        if let Some(shutdown) = self.shutdown.take() {
+            let _ = shutdown.send(());
+        }
+        if let Some(finished) = self.finished.take() {
+            tokio::time::timeout(std::time::Duration::from_secs(5), finished)
+                .await
+                .map_err(|_| anyhow::anyhow!("timed out waiting for MCP server shutdown"))?
+                .map_err(|_| anyhow::anyhow!("MCP server shutdown task was cancelled"))?;
+        }
+        Ok(())
+    }
+}
+
+impl Drop for McpServerHandle {
+    fn drop(&mut self) {
+        if let Some(shutdown) = self.shutdown.take() {
+            let _ = shutdown.send(());
+        }
+    }
+}
+
+/// Start the streamable-HTTP MCP server on `bind`.
 pub async fn serve_http(
     manager: Arc<ProjectManager>,
-    decompiler: Arc<DecompilerClient>,
     bind: SocketAddr,
-) -> anyhow::Result<u16> {
+) -> anyhow::Result<McpServerHandle> {
+    anyhow::ensure!(
+        bind.ip().is_loopback(),
+        "Windy v0.1 MCP is local-only; refusing non-loopback bind {}",
+        bind.ip()
+    );
     let session_manager = Arc::new(LocalSessionManager::default());
     let service = Arc::new(StreamableHttpService::new(
-        move || {
-            Ok(WindyMcp::new(
-                manager.clone(),
-                decompiler.clone(),
-            ))
-        },
+        move || Ok(WindyMcp::new(manager.clone())),
         session_manager,
         StreamableHttpServerConfig::default(),
     ));
@@ -2050,13 +2360,408 @@ pub async fn serve_http(
     let port = listener.local_addr()?.port();
     let app = Router::new()
         .route("/mcp", post(mcp_http_handler))
-        .with_state(service);
+        .route("/healthz", get(healthz))
+        .with_state(service)
+        .layer(axum::middleware::from_fn(enforce_loopback_origin));
 
+    let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel();
+    let (finished_tx, finished_rx) = tokio::sync::oneshot::channel();
     tokio::spawn(async move {
-        if let Err(e) = axum::serve(listener, app).await {
+        if let Err(e) = axum::serve(listener, app)
+            .with_graceful_shutdown(async move {
+                let _ = shutdown_rx.await;
+            })
+            .await
+        {
             tracing::error!("MCP HTTP server error: {e}");
         }
+        let _ = finished_tx.send(());
     });
 
-    Ok(port)
+    Ok(McpServerHandle {
+        port,
+        shutdown: Some(shutdown_tx),
+        finished: Some(finished_rx),
+    })
+}
+
+#[cfg(test)]
+mod http_tests {
+    use super::*;
+
+    struct TestClient {
+        endpoint: String,
+        session: String,
+        next_id: u64,
+    }
+
+    impl TestClient {
+        fn initialize(endpoint: String) -> Self {
+            let response = post_json(
+                &endpoint,
+                None,
+                None,
+                &json!({
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "method": "initialize",
+                    "params": {
+                        "protocolVersion": "2025-11-25",
+                        "capabilities": {},
+                        "clientInfo": { "name": "windy-http-test", "version": "0.1.0" }
+                    }
+                }),
+            );
+            let session = response
+                .header("Mcp-Session-Id")
+                .expect("initialize session header")
+                .to_string();
+            let body = response_json(response);
+            assert_eq!(body["result"]["serverInfo"]["name"], "windy");
+            assert_eq!(
+                body["result"]["serverInfo"]["version"],
+                env!("CARGO_PKG_VERSION")
+            );
+            assert_eq!(body["result"]["protocolVersion"], "2025-11-25");
+
+            let _ = post_json(
+                &endpoint,
+                Some(&session),
+                None,
+                &json!({
+                    "jsonrpc": "2.0",
+                    "method": "notifications/initialized"
+                }),
+            );
+            Self {
+                endpoint,
+                session,
+                next_id: 2,
+            }
+        }
+
+        fn request(&mut self, method: &str, params: serde_json::Value) -> serde_json::Value {
+            let id = self.next_id;
+            self.next_id += 1;
+            response_json(post_json(
+                &self.endpoint,
+                Some(&self.session),
+                None,
+                &json!({
+                    "jsonrpc": "2.0",
+                    "id": id,
+                    "method": method,
+                    "params": params,
+                }),
+            ))
+        }
+
+        fn call(&mut self, name: &str, arguments: serde_json::Value) -> serde_json::Value {
+            self.request(
+                "tools/call",
+                json!({ "name": name, "arguments": arguments }),
+            )
+        }
+    }
+
+    fn post_json(
+        endpoint: &str,
+        session: Option<&str>,
+        origin: Option<&str>,
+        body: &serde_json::Value,
+    ) -> ureq::Response {
+        let mut request = ureq::post(endpoint)
+            .set("Content-Type", "application/json")
+            .set("Accept", "application/json, text/event-stream")
+            .set("MCP-Protocol-Version", "2025-11-25");
+        if let Some(session) = session {
+            request = request.set("Mcp-Session-Id", session);
+        }
+        if let Some(origin) = origin {
+            request = request.set("Origin", origin);
+        }
+        request
+            .send_string(&body.to_string())
+            .expect("MCP HTTP request")
+    }
+
+    fn response_json(response: ureq::Response) -> serde_json::Value {
+        let text = response.into_string().expect("read MCP response");
+        if text.trim_start().starts_with("data:") || text.contains("\ndata:") {
+            let data = text
+                .lines()
+                .filter_map(|line| line.strip_prefix("data:").map(str::trim))
+                .find(|data| !data.is_empty())
+                .expect("SSE data line");
+            serde_json::from_str(data).expect("parse MCP SSE JSON")
+        } else {
+            serde_json::from_str(&text).expect("parse MCP JSON")
+        }
+    }
+
+    fn structured(result: &serde_json::Value) -> &serde_json::Value {
+        let call = &result["result"];
+        let structured = &call["structuredContent"];
+        let legacy_text = call["content"][0]["text"]
+            .as_str()
+            .expect("legacy text content");
+        let legacy_json: serde_json::Value =
+            serde_json::from_str(legacy_text).expect("legacy JSON content");
+        assert_eq!(
+            &legacy_json, structured,
+            "legacy and structured JSON differ"
+        );
+        structured
+    }
+
+    #[test]
+    fn streamable_http_release_contract_and_persistence() {
+        let fixture =
+            std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("gclsd/bench/sample.exe");
+        assert!(fixture.exists(), "sample.exe fixture is required");
+        let home = std::env::temp_dir().join(format!(
+            "windy-mcp-e2e-{}-{}",
+            std::process::id(),
+            Uuid::new_v4()
+        ));
+
+        let manager = Arc::new(ProjectManager::with_home_dir(&home).expect("test manager"));
+        assert!(
+            manager
+                .runtime()
+                .block_on(serve_http(manager.clone(), "0.0.0.0:0".parse().unwrap()))
+                .is_err()
+        );
+
+        let mut server = manager
+            .runtime()
+            .block_on(serve_http(manager.clone(), "127.0.0.1:0".parse().unwrap()))
+            .expect("start MCP server");
+        let endpoint = format!("http://127.0.0.1:{}/mcp", server.port());
+        let base = endpoint.trim_end_matches("/mcp");
+
+        let health: serde_json::Value = serde_json::from_str(
+            &ureq::get(&format!("{base}/healthz"))
+                .call()
+                .expect("healthz")
+                .into_string()
+                .expect("health body"),
+        )
+        .expect("health JSON");
+        assert_eq!(health["name"], "windy");
+        assert_eq!(health["status"], "ok");
+        assert_eq!(health["protocol"], "2025-11-25");
+
+        let bad_health_origin = ureq::get(&format!("{base}/healthz"))
+            .set("Origin", "https://attacker.example")
+            .call()
+            .expect_err("non-loopback health Origin must fail");
+        assert_eq!(bad_health_origin.into_response().unwrap().status(), 403);
+        assert_eq!(
+            ureq::get(&format!("{base}/healthz"))
+                .set("Origin", "http://localhost:3000")
+                .call()
+                .expect("loopback health Origin")
+                .status(),
+            200
+        );
+
+        for method in ["GET", "DELETE"] {
+            let error = ureq::request(method, &endpoint)
+                .call()
+                .expect_err("unsupported MCP method must fail");
+            assert_eq!(error.into_response().unwrap().status(), 405);
+        }
+
+        let bad_origin = ureq::post(&endpoint)
+            .set("Content-Type", "application/json")
+            .set("Accept", "application/json, text/event-stream")
+            .set("Origin", "https://attacker.example")
+            .send_string(
+                &json!({
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "method": "initialize",
+                    "params": {
+                        "protocolVersion": "2025-11-25",
+                        "capabilities": {},
+                        "clientInfo": { "name": "bad-origin", "version": "1" }
+                    }
+                })
+                .to_string(),
+            )
+            .expect_err("non-loopback Origin must fail");
+        assert_eq!(bad_origin.into_response().unwrap().status(), 403);
+
+        let loopback_origin = post_json(
+            &endpoint,
+            None,
+            Some("http://localhost:3000"),
+            &json!({
+                "jsonrpc": "2.0",
+                "id": 2,
+                "method": "initialize",
+                "params": {
+                    "protocolVersion": "2025-11-25",
+                    "capabilities": {},
+                    "clientInfo": { "name": "loopback-origin", "version": "1" }
+                }
+            }),
+        );
+        assert_eq!(
+            response_json(loopback_origin)["result"]["serverInfo"]["name"],
+            "windy"
+        );
+
+        let mut client = TestClient::initialize(endpoint.clone());
+        let listed = client.request("tools/list", json!({}));
+        let tools = listed["result"]["tools"].as_array().expect("tools array");
+        assert!(tools.len() >= 60, "expected the complete MCP surface");
+        assert!(tools.iter().all(|tool| !tool["annotations"].is_null()));
+        let tool = |name: &str| {
+            tools
+                .iter()
+                .find(|tool| tool["name"] == name)
+                .unwrap_or_else(|| panic!("missing tool {name}"))
+        };
+        assert_eq!(
+            tool("get_function_evidence")["annotations"]["readOnlyHint"],
+            true
+        );
+        assert_eq!(tool("verify_claims")["annotations"]["readOnlyHint"], false);
+        assert_eq!(
+            tool("remove_from_workspace")["annotations"]["destructiveHint"],
+            true
+        );
+        assert!(
+            tool("decompile_function")["inputSchema"]["properties"]
+                .get("policy")
+                .is_some()
+        );
+        assert!(
+            tool("decompile_function")["inputSchema"]["properties"]
+                .get("refine")
+                .is_none()
+        );
+
+        let self_correcting = client.call("list_functions", json!({ "project_id": "not-a-uuid" }));
+        assert_eq!(self_correcting["result"]["isError"], true);
+        assert_eq!(
+            structured(&self_correcting)["error"]["code"],
+            "INVALID_ARGUMENT"
+        );
+
+        let opened = client.call("open_project", json!({ "path": fixture.to_string_lossy() }));
+        let project_id = structured(&opened)["project_id"]
+            .as_str()
+            .expect("project id")
+            .to_string();
+        let imports = client.call("list_imports", json!({ "project_id": project_id }));
+        assert!(structured(&imports)["total"].as_u64().is_some());
+        let functions = client.call(
+            "list_functions",
+            json!({ "project_id": project_id, "limit": 32 }),
+        );
+        let va = structured(&functions)["functions"][0]["va"]
+            .as_str()
+            .expect("function VA")
+            .to_string();
+        let evidence = client.call(
+            "get_function_evidence",
+            json!({ "project_id": project_id, "va": va }),
+        );
+        assert_eq!(evidence["result"]["isError"], false);
+        let _ = structured(&evidence);
+
+        for policy in ["product", "pure_v2", "legacy"] {
+            let decompiled = client.call(
+                "decompile_function",
+                json!({ "project_id": project_id, "va": va, "policy": policy }),
+            );
+            assert_eq!(decompiled["result"]["isError"], false, "policy={policy}");
+            let output = structured(&decompiled);
+            assert_eq!(output["project_id"], project_id);
+            assert_eq!(output["policy"], policy);
+            assert!(matches!(output["status"].as_str(), Some("ok" | "omitted")));
+            assert!(output.get("check_report").is_some());
+            assert!(output.get("contract_fingerprint").is_some());
+        }
+
+        let memory_args = json!({
+            "project_id": project_id,
+            "va": va,
+            "purpose": "MCP persistence smoke marker",
+            "tags": ["release-smoke"],
+            "confidence": 88,
+            "auto_seed": false
+        });
+        let memory = client.call("set_function_memory", memory_args.clone());
+        assert_eq!(memory["result"]["isError"], false, "{memory:#}");
+        assert_eq!(
+            structured(&memory)["memory"]["purpose"],
+            "MCP persistence smoke marker"
+        );
+        let undo = client.call(
+            "undo_last",
+            json!({ "project_id": project_id, "client_id": "mcp" }),
+        );
+        assert_eq!(undo["result"]["isError"], false);
+        let after_undo = client.call(
+            "get_function_memory",
+            json!({ "project_id": project_id, "va": va }),
+        );
+        assert!(structured(&after_undo)["memory"].is_null());
+        let restored = client.call("set_function_memory", memory_args);
+        assert_eq!(restored["result"]["isError"], false);
+
+        let claims = client.call(
+            "verify_claims",
+            json!({
+                "project_id": project_id,
+                "claims": [{ "kind": "param_count", "function_va": va, "count": 0 }]
+            }),
+        );
+        assert_eq!(claims["result"]["isError"], false);
+        assert_eq!(structured(&claims)["results"].as_array().unwrap().len(), 1);
+        assert!(
+            std::fs::read_dir(home.join("projects"))
+                .expect("projects state dir")
+                .flatten()
+                .any(|entry| entry.path().to_string_lossy().ends_with(".claims.jsonl"))
+        );
+
+        manager
+            .runtime()
+            .block_on(server.shutdown())
+            .expect("graceful shutdown");
+        drop(client);
+        drop(manager);
+
+        let manager = Arc::new(ProjectManager::with_home_dir(&home).expect("restarted manager"));
+        let mut server = manager
+            .runtime()
+            .block_on(serve_http(manager.clone(), "127.0.0.1:0".parse().unwrap()))
+            .expect("restart MCP server");
+        let mut client = TestClient::initialize(format!("http://127.0.0.1:{}/mcp", server.port()));
+        let reopened = client.call("open_project", json!({ "path": fixture.to_string_lossy() }));
+        let reopened_id = structured(&reopened)["project_id"]
+            .as_str()
+            .expect("reopened project id");
+        let persisted = client.call(
+            "get_function_memory",
+            json!({ "project_id": reopened_id, "va": va }),
+        );
+        assert_eq!(
+            structured(&persisted)["purpose"],
+            "MCP persistence smoke marker"
+        );
+
+        manager
+            .runtime()
+            .block_on(server.shutdown())
+            .expect("second graceful shutdown");
+        drop(client);
+        drop(manager);
+        let _ = std::fs::remove_dir_all(home);
+    }
 }

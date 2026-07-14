@@ -1,0 +1,17 @@
+[
+  {
+    "entry_va": 5368713216,
+    "pseudocode": "\r\nundefined8 FUN_140001000(void)\r\n\r\n{\r\n  return 3;\r\n}\r\n\r\n",
+    "name": "FUN_140001000"
+  },
+  {
+    "entry_va": 5368713232,
+    "pseudocode": "\r\nundefined8 FUN_140001010(void)\r\n\r\n{\r\n  return 2;\r\n}\r\n\r\n",
+    "name": "FUN_140001010"
+  },
+  {
+    "entry_va": 5368713248,
+    "pseudocode": "\r\nint FUN_140001020(void)\r\n\r\n{\r\n  undefined8 uVar1;\r\n  int iVar2;\r\n  \r\n  DAT_14001bb38 = DAT_14001bb38 ^ 1;\r\n  uVar1 = FUN_140001000();\r\n  iVar2 = (int)uVar1;\r\n  uVar1 = FUN_140001010();\r\n  return (int)uVar1 + iVar2;\r\n}\r\n\r\n",
+    "name": "FUN_140001020"
+  }
+]

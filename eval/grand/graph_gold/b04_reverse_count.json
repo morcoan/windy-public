@@ -1,0 +1,34 @@
+{
+  "program_id": "b04_reverse_count",
+  "source": "eval/grand/src/b04_reverse_count.c",
+  "functions": [
+    {
+      "id": "count_down",
+      "source_name": "count_down",
+      "regions": [
+        "expr_return",
+        "loop"
+      ],
+      "effects": [
+        {
+          "kind": "return",
+          "class": "name",
+          "ops": [],
+          "critical": true
+        },
+        {
+          "kind": "return",
+          "class": null,
+          "ops": [
+            ">"
+          ],
+          "critical": false
+        },
+        {
+          "kind": "loop",
+          "critical": false
+        }
+      ]
+    }
+  ]
+}

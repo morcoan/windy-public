@@ -84,7 +84,7 @@ pub fn verify_claims_logged(
     project: &Project,
     claims: &[Claim],
     home_dir: Option<&std::path::Path>,
-) -> Vec<ClaimResult> {
+) -> std::io::Result<Vec<ClaimResult>> {
     let results = verify_claims(project, claims);
     if let Some(home) = home_dir {
         let journal = ClaimJournal::open(home, &project.image_sha256);
@@ -93,7 +93,7 @@ pub fn verify_claims_logged(
             .map(|d| d.as_millis())
             .unwrap_or(0);
         for r in &results {
-            let _ = journal.append(&ClaimEvaluationRecord {
+            journal.append(&ClaimEvaluationRecord {
                 ts_unix_ms: now,
                 image_sha256: project.image_sha256.clone(),
                 kind: r.kind.clone(),
@@ -107,10 +107,10 @@ pub fn verify_claims_logged(
                 evidence: r.evidence.clone(),
                 detail: r.detail.clone(),
                 checker_ver: r.checker_ver.clone(),
-            });
+            })?;
         }
     }
-    results
+    Ok(results)
 }
 
 /// Append-only claim evaluation journal keyed by image SHA256.
@@ -146,7 +146,12 @@ impl ClaimJournal {
 
 fn verify_one(project: &Project, claim: &Claim) -> ClaimResult {
     let Some(va) = parse_va_loose(&claim.function_va) else {
-        return result(claim, ClaimVerdict::Unknown, vec![], Some("bad function_va".into()));
+        return result(
+            claim,
+            ClaimVerdict::Unknown,
+            vec![],
+            Some("bad function_va".into()),
+        );
     };
     if project.function_at(va).is_none() {
         return result(
@@ -254,10 +259,7 @@ fn verify_has_string(project: &Project, va: u64, claim: &Claim) -> ClaimResult {
     for sref in &strings {
         if sref.value.contains(s) {
             hit = true;
-            evidence.push(format!(
-                "{:#x} ({}):{}",
-                sref.va, sref.encoding, sref.value
-            ));
+            evidence.push(format!("{:#x} ({}):{}", sref.va, sref.encoding, sref.value));
         }
     }
     result(
@@ -506,9 +508,7 @@ fn verify_signature_arity(project: &Project, va: u64, claim: &Claim) -> ClaimRes
 
     if let Some(expected) = claim.count {
         return match recovered {
-            Some(n) if n == expected => {
-                result(claim, ClaimVerdict::Supported, evidence, None)
-            }
+            Some(n) if n == expected => result(claim, ClaimVerdict::Supported, evidence, None),
             Some(n) => result(
                 claim,
                 ClaimVerdict::Contradicted,
@@ -708,10 +708,7 @@ fn verify_callee_arity(project: &Project, va: u64, claim: &Claim) -> ClaimResult
                 .cloned()
         });
         if let Some(sig) = sig {
-            evidence.push(format!(
-                "{name}@{cva:#x} params={}",
-                sig.params.len()
-            ));
+            evidence.push(format!("{name}@{cva:#x} params={}", sig.params.len()));
             if sig.params.len() == expected {
                 hit = true;
             }

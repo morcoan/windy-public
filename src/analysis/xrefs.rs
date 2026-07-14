@@ -1,9 +1,6 @@
-
 use std::collections::BTreeMap;
 
-use iced_x86::{
-    FlowControl, InstructionInfoFactory, OpAccess, OpKind, Register, UsedMemory,
-};
+use iced_x86::{FlowControl, InstructionInfoFactory, OpAccess, OpKind, Register, UsedMemory};
 
 use crate::analysis::code_index::{CodeIndex, DecodedInstr};
 use crate::loader::address_space::AddressSpace;

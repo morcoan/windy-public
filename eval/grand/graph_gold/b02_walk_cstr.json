@@ -1,0 +1,34 @@
+{
+  "program_id": "b02_walk_cstr",
+  "source": "eval/grand/src/b02_walk_cstr.c",
+  "functions": [
+    {
+      "id": "walk_cstr",
+      "source_name": "walk_cstr",
+      "regions": [
+        "expr_return",
+        "loop"
+      ],
+      "effects": [
+        {
+          "kind": "return",
+          "class": "name",
+          "ops": [],
+          "critical": true
+        },
+        {
+          "kind": "return",
+          "class": null,
+          "ops": [
+            "!="
+          ],
+          "critical": false
+        },
+        {
+          "kind": "loop",
+          "critical": false
+        }
+      ]
+    }
+  ]
+}

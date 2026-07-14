@@ -1,0 +1,32 @@
+{
+  "program_id": "d04_tagged_union",
+  "source": "eval/grand/src/d04_tagged_union.c",
+  "functions": [
+    {
+      "id": "tu_value",
+      "source_name": "tu_value",
+      "regions": [
+        "expr_return",
+        "if"
+      ],
+      "effects": [
+        {
+          "kind": "return",
+          "class": "compare",
+          "ops": [],
+          "critical": true
+        },
+        {
+          "kind": "return",
+          "class": null,
+          "ops": [
+            ">",
+            "-",
+            "=="
+          ],
+          "critical": false
+        }
+      ]
+    }
+  ]
+}

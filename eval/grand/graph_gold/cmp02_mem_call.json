@@ -1,0 +1,58 @@
+{
+  "program_id": "cmp02_mem_call",
+  "source": "eval/grand/src/cmp02_mem_call.c",
+  "functions": [
+    {
+      "id": "add2",
+      "source_name": "add2",
+      "regions": [
+        "expr_return"
+      ],
+      "effects": [
+        {
+          "kind": "return",
+          "class": "bin_op",
+          "ops": [],
+          "critical": true
+        },
+        {
+          "kind": "return",
+          "class": null,
+          "ops": [
+            "+"
+          ],
+          "critical": false
+        }
+      ]
+    },
+    {
+      "id": "use_s",
+      "source_name": "use_s",
+      "regions": [
+        "expr_return"
+      ],
+      "effects": [
+        {
+          "kind": "return",
+          "class": "compare",
+          "ops": [],
+          "critical": true
+        },
+        {
+          "kind": "return",
+          "class": null,
+          "ops": [
+            ">",
+            "-"
+          ],
+          "critical": false
+        },
+        {
+          "kind": "call",
+          "target": "add2",
+          "critical": false
+        }
+      ]
+    }
+  ]
+}

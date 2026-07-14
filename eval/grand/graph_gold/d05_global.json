@@ -1,0 +1,29 @@
+{
+  "program_id": "d05_global",
+  "source": "eval/grand/src/d05_global.c",
+  "functions": [
+    {
+      "id": "f",
+      "source_name": "f",
+      "regions": [
+        "expr_return"
+      ],
+      "effects": [
+        {
+          "kind": "return",
+          "class": "bin_op",
+          "ops": [],
+          "critical": true
+        },
+        {
+          "kind": "return",
+          "class": null,
+          "ops": [
+            "+"
+          ],
+          "critical": false
+        }
+      ]
+    }
+  ]
+}

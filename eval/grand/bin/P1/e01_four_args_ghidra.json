@@ -1,0 +1,12 @@
+[
+  {
+    "entry_va": 5368713216,
+    "pseudocode": "\r\nint FUN_140001000(int param_1,int param_2,int param_3,int param_4)\r\n\r\n{\r\n  return param_1 + param_2 + param_3 + param_4;\r\n}\r\n\r\n",
+    "name": "FUN_140001000"
+  },
+  {
+    "entry_va": 5368713228,
+    "pseudocode": "\r\nvoid FUN_14000100c(void)\r\n\r\n{\r\n  DAT_14001aad0 = DAT_14001aad0 ^ 1;\r\n  FUN_140001000(1,2,3,4);\r\n  return;\r\n}\r\n\r\n",
+    "name": "FUN_14000100c"
+  }
+]

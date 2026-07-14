@@ -1,0 +1,30 @@
+{
+  "program_id": "d01_struct_point",
+  "source": "eval/grand/src/d01_struct_point.c",
+  "functions": [
+    {
+      "id": "point_mag2",
+      "source_name": "point_mag2",
+      "regions": [
+        "expr_return"
+      ],
+      "effects": [
+        {
+          "kind": "return",
+          "class": "bin_op",
+          "ops": [],
+          "critical": true
+        },
+        {
+          "kind": "return",
+          "class": null,
+          "ops": [
+            "+",
+            "*"
+          ],
+          "critical": false
+        }
+      ]
+    }
+  ]
+}

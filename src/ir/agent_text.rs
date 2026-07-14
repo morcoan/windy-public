@@ -160,7 +160,8 @@ pub fn to_agent_text_opts(export: &FunctionExport, opts: &AgentTextOpts) -> Stri
                     }
                     continue;
                 }
-                InstrClass::Epilogue if instr.mnemonic != "ret" && !instr.mnemonic.starts_with("ret") =>
+                InstrClass::Epilogue
+                    if instr.mnemonic != "ret" && !instr.mnemonic.starts_with("ret") =>
                 {
                     stripped_epilogue += 1;
                     continue;
@@ -218,9 +219,7 @@ pub fn to_agent_text_opts(export: &FunctionExport, opts: &AgentTextOpts) -> Stri
             "// ... {omitted} more instructions truncated. Call get_function_dataflow for full SSA.\n"
         ));
         // Always emit the final return if present and not yet emitted.
-        if !emitted_return
-            && let Some(ret_line) = last_return
-        {
+        if !emitted_return && let Some(ret_line) = last_return {
             out.push_str(&ret_line);
         }
     }
@@ -274,10 +273,7 @@ mod tests {
                 entry_va: 0x1000,
                 successor_vas: vec![],
             }],
-            instructions: vec![
-                instr(0x1000, "mov", "eax, ecx"),
-                instr(0x1002, "ret", ""),
-            ],
+            instructions: vec![instr(0x1000, "mov", "eax, ecx"), instr(0x1002, "ret", "")],
             xrefs_in: vec![0x500],
             xrefs_out: vec![],
         };
@@ -343,9 +339,18 @@ mod tests {
                 max_instructions: None,
             },
         );
-        assert!(!text.contains("xor rax, rsp"), "cookie should be stripped: {text}");
-        assert!(!text.contains("push rbp"), "prologue should be stripped: {text}");
-        assert!(text.contains("prologue"), "should include prologue summary: {text}");
+        assert!(
+            !text.contains("xor rax, rsp"),
+            "cookie should be stripped: {text}"
+        );
+        assert!(
+            !text.contains("push rbp"),
+            "prologue should be stripped: {text}"
+        );
+        assert!(
+            text.contains("prologue"),
+            "should include prologue summary: {text}"
+        );
         assert!(text.contains("mov eax, ecx"));
         assert!(text.contains("ret"));
     }
@@ -380,7 +385,13 @@ mod tests {
                 max_instructions: Some(5),
             },
         );
-        assert!(text.contains("truncated"), "expected truncation summary: {text}");
-        assert!(text.contains("ret"), "final ret should be preserved: {text}");
+        assert!(
+            text.contains("truncated"),
+            "expected truncation summary: {text}"
+        );
+        assert!(
+            text.contains("ret"),
+            "final ret should be preserved: {text}"
+        );
     }
 }

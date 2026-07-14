@@ -67,7 +67,10 @@ pub struct WorkspaceSummary {
 
 /// Path to a workspace JSON file under a Windy home directory.
 pub fn workspace_path(home_dir: impl AsRef<Path>, id: &str) -> PathBuf {
-    home_dir.as_ref().join("workspaces").join(format!("{id}.json"))
+    home_dir
+        .as_ref()
+        .join("workspaces")
+        .join(format!("{id}.json"))
 }
 
 /// Durably stores workspace metadata as one JSON file per workspace.

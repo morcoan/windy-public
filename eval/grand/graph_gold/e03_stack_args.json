@@ -1,0 +1,29 @@
+{
+  "program_id": "e03_stack_args",
+  "source": "eval/grand/src/e03_stack_args.c",
+  "functions": [
+    {
+      "id": "six",
+      "source_name": "six",
+      "regions": [
+        "expr_return"
+      ],
+      "effects": [
+        {
+          "kind": "return",
+          "class": "bin_op",
+          "ops": [],
+          "critical": true
+        },
+        {
+          "kind": "return",
+          "class": null,
+          "ops": [
+            "+"
+          ],
+          "critical": false
+        }
+      ]
+    }
+  ]
+}

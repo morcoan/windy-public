@@ -1,0 +1,31 @@
+{
+  "program_id": "a06_shift",
+  "source": "eval/grand/src/a06_shift.c",
+  "functions": [
+    {
+      "id": "f",
+      "source_name": "f",
+      "regions": [
+        "expr_return"
+      ],
+      "effects": [
+        {
+          "kind": "return",
+          "class": "bin_op",
+          "ops": [],
+          "critical": true
+        },
+        {
+          "kind": "return",
+          "class": null,
+          "ops": [
+            "<<",
+            ">>",
+            "+"
+          ],
+          "critical": false
+        }
+      ]
+    }
+  ]
+}

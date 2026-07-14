@@ -1,0 +1,29 @@
+{
+  "program_id": "a02_narrow_promo",
+  "source": "eval/grand/src/a02_narrow_promo.c",
+  "functions": [
+    {
+      "id": "narrow_add",
+      "source_name": "narrow_add",
+      "regions": [
+        "expr_return"
+      ],
+      "effects": [
+        {
+          "kind": "return",
+          "class": "bin_op",
+          "ops": [],
+          "critical": true
+        },
+        {
+          "kind": "return",
+          "class": null,
+          "ops": [
+            "+"
+          ],
+          "critical": false
+        }
+      ]
+    }
+  ]
+}

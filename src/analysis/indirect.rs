@@ -1,4 +1,3 @@
-
 //! Resolve indirect jump tables / switch tables by reading the data to which a
 //! RIP-relative `jmp` points. This rewrites CFG successor edges and xrefs so
 //! the LLM sees concrete switch targets instead of an opaque indirect edge.
@@ -166,8 +165,10 @@ pub(crate) fn rip_relative_target_va(instr: &iced_x86::Instruction, bitness: u32
     if instr.memory_base() != Register::RIP || instr.memory_index() != Register::None {
         return None;
     }
-    let disp = instr.memory_displacement64() as i32 as i64;
-    Some(instr.next_ip().wrapping_add(disp as u64))
+    // iced-x86 resolves an IP-relative operand to its absolute linear address
+    // when the decoder was created with the instruction IP. Adding next_ip a
+    // second time produces impossible 0x100... targets for normal 0x180... PEs.
+    Some(instr.ip_rel_memory_address())
 }
 
 pub(crate) fn read_pointer_table(
@@ -254,9 +255,7 @@ pub fn resolve_vtable_calls(
 
     for dec in code_index.iter() {
         let instr = &dec.instr;
-        if instr.flow_control() != FlowControl::IndirectCall
-            || instr.mnemonic() != Mnemonic::Call
-        {
+        if instr.flow_control() != FlowControl::IndirectCall || instr.mnemonic() != Mnemonic::Call {
             continue;
         }
         if instr.op0_kind() != OpKind::Memory {
@@ -313,9 +312,7 @@ pub fn resolve_vtable_calls(
 
         let resolved = vtable_db.resolve_method(offset, None);
         let heuristic = if resolved.is_none() {
-            vtable_db
-                .heuristic_iunknown(offset)
-                .map(|s| s.to_string())
+            vtable_db.heuristic_iunknown(offset).map(|s| s.to_string())
         } else {
             None
         };
@@ -326,11 +323,7 @@ pub fn resolve_vtable_calls(
         }
 
         let (interface, method, signature) = match resolved {
-            Some((iface, m)) => (
-                Some(iface),
-                Some(m.name.clone()),
-                Some(m.signature.clone()),
-            ),
+            Some((iface, m)) => (Some(iface), Some(m.name.clone()), Some(m.signature.clone())),
             None => (None, heuristic.clone(), None),
         };
 
@@ -350,7 +343,9 @@ pub fn resolve_vtable_calls(
 
 #[cfg(test)]
 mod tests {
+    use super::rip_relative_target_va;
     use crate::analysis::vtable_sigs::VtableDB;
+    use iced_x86::{Decoder, DecoderOptions};
 
     #[test]
     fn indirect_module_exists() {
@@ -365,5 +360,18 @@ mod tests {
         assert_eq!(iface, "IUnknown");
         assert_eq!(m.name, "Release");
         assert_eq!(m.offset, 16);
+    }
+
+    #[test]
+    fn rip_relative_target_is_not_double_based() {
+        // call qword ptr [rip+0x20] at 0x180001000; next_ip is 0x180001006.
+        let mut decoder = Decoder::with_ip(
+            64,
+            &[0xff, 0x15, 0x20, 0, 0, 0],
+            0x1800_01000,
+            DecoderOptions::NONE,
+        );
+        let instruction = decoder.decode();
+        assert_eq!(rip_relative_target_va(&instruction, 64), Some(0x1800_01026));
     }
 }

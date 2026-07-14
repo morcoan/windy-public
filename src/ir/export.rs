@@ -1,4 +1,3 @@
-
 use std::collections::HashSet;
 
 use iced_x86::{Formatter as _, InstructionInfoFactory, IntelFormatter, OpAccess};
@@ -72,6 +71,7 @@ pub struct InstrExport {
     /// true P-code no-ops (NOP/LFENCE/SFENCE/MFENCE/PAUSE) and any instruction
     /// the decoder could not lift.
     #[serde(skip)]
+    #[cfg_attr(not(feature = "gclsd-archive"), allow(dead_code))]
     pub pcode_ops: Vec<PcodeOp>,
 }
 
@@ -135,6 +135,7 @@ pub fn to_llm_text(export: &FunctionExport) -> String {
 }
 
 #[allow(clippy::too_many_arguments)]
+#[cfg(feature = "gclsd-archive")]
 pub fn function_to_export(
     func: &Function,
     code_index: &CodeIndex,
@@ -210,11 +211,7 @@ pub fn function_to_export_with_db(
         types,
         function_signatures,
         sig_db,
-        pcode_ops: crate::decompiler::pcode::lift_function_blocking(
-            func,
-            code_index,
-            bitness,
-        ),
+        pcode_ops: crate::decompiler::pcode::lift_function_blocking(func, code_index, bitness),
         export: FunctionExport {
             name,
             entry_va: func.entry_va,
@@ -293,15 +290,17 @@ fn classify_one(
     if flow == "Call" {
         return InstrClass::Call;
     }
-    if matches!(flow, "UnconditionalBranch" | "ConditionalBranch" | "IndirectBranch") {
+    if matches!(
+        flow,
+        "UnconditionalBranch" | "ConditionalBranch" | "IndirectBranch"
+    ) {
         return InstrClass::Branch;
     }
     if flow == "Return" {
         return InstrClass::Return;
     }
 
-    let in_prologue_window = idx < prologue_window
-        && instr.ip.saturating_sub(entry_va) < 0x40;
+    let in_prologue_window = idx < prologue_window && instr.ip.saturating_sub(entry_va) < 0x40;
     let in_epilogue_window = idx + epilogue_window >= len;
 
     if in_prologue_window && is_prologue(instr) {
@@ -456,7 +455,10 @@ impl<'a> FunctionExportBuilder<'a> {
                 reads,
                 writes,
                 mem_refs,
-                comment: self.comments.get(dec.ip, CommentScope::Address).map(String::from),
+                comment: self
+                    .comments
+                    .get(dec.ip, CommentScope::Address)
+                    .map(String::from),
                 pcode_ops: self.pcode_ops.get(&dec.ip).cloned().unwrap_or_default(),
             });
 

@@ -1,6 +1,8 @@
-use crate::analysis::code_index::{CodeIndex};
-use crate::analysis::functions::{discover_functions, FunctionTable};
-use crate::analysis::xrefs::{XrefIndex};
+use crate::analysis::code_index::CodeIndex;
+use crate::analysis::functions::{
+    FunctionTable, discover_functions, discover_functions_with_entry_hints,
+};
+use crate::analysis::xrefs::XrefIndex;
 use crate::loader::address_space::AddressSpace;
 use crate::project::symbols::{SymbolKind, SymbolTable};
 
@@ -40,6 +42,21 @@ impl Analysis {
         entry_va: u64,
         symbols: &SymbolTable,
     ) -> Self {
+        Self::build_with_entry_hints(image, address_space, bitness, entry_va, symbols, &[])
+    }
+
+    /// Build analysis while treating caller-supplied addresses as trusted
+    /// function boundaries. This is intended for authoritative metadata such
+    /// as linker maps used by exact-address evaluations; ordinary product
+    /// opens continue to use [`Self::build`] and PE/PDB-derived seeds only.
+    pub fn build_with_entry_hints(
+        image: &[u8],
+        address_space: &AddressSpace,
+        bitness: u32,
+        entry_va: u64,
+        symbols: &SymbolTable,
+        entry_hints: &[u64],
+    ) -> Self {
         let code_index = CodeIndex::build(image, address_space, bitness);
 
         // On native x64 Windows binaries, `.pdata` is a much stronger source
@@ -62,10 +79,15 @@ impl Analysis {
             }
         }
         seeds.extend(runtime_functions.entry_points());
+        seeds.extend(entry_hints.iter().copied());
         seeds.sort_unstable();
         seeds.dedup();
 
-        let functions = discover_functions(&code_index, address_space, &seeds);
+        let functions = if entry_hints.is_empty() {
+            discover_functions(&code_index, address_space, &seeds)
+        } else {
+            discover_functions_with_entry_hints(&code_index, address_space, &seeds, entry_hints)
+        };
         let xrefs = XrefIndex::build(&code_index, address_space, bitness);
 
         Self {

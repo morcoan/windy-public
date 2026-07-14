@@ -4,7 +4,7 @@
 
 use std::collections::HashSet;
 
-use iced_x86::{Instruction, InstructionInfoFactory, Register};
+use iced_x86::{FlowControl, Instruction, InstructionInfoFactory, Register};
 use serde::Serialize;
 
 use crate::analysis::functions::Function;
@@ -176,12 +176,9 @@ pub fn strings_in_function(project: &Project, va: u64, min_len: usize) -> Vec<St
                 if imm == 0 || !project.address_space.is_data_va(imm) || !seen.insert(imm) {
                     continue;
                 }
-                if let Some(sref) = try_read_string_at_va(
-                    &project.pe.image,
-                    &project.address_space,
-                    imm,
-                    min_len,
-                ) {
+                if let Some(sref) =
+                    try_read_string_at_va(&project.pe.image, &project.address_space, imm, min_len)
+                {
                     out.push(sref);
                     if out.len() >= MAX_LIST {
                         return out;
@@ -223,13 +220,60 @@ pub fn try_read_string_at_va(
 
 /// Context: imported DLL APIs called from this function.
 pub fn apis_called(project: &Project, va: u64) -> Vec<String> {
-    function_callees(project, va)
-        .into_iter()
-        .map(|(_, name)| name)
-        .filter(|name| name.starts_with("__imp_"))
-        .map(|name| name.strip_prefix("__imp_").unwrap_or(&name).to_string())
-        .take(MAX_LIST)
-        .collect()
+    let Some(func) = project.function_at(va) else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+
+    // Direct CFG call edges retain imported thunk names when available.
+    for (_, name) in function_callees(project, va) {
+        if let Some(api) = name.strip_prefix("__imp_")
+            && !out.iter().any(|seen| seen == api)
+        {
+            out.push(api.to_string());
+        }
+    }
+
+    // PE64 normally calls imports through RIP-relative IAT slots. Those calls
+    // are intentionally represented as indirect CFG edges, so relying only on
+    // function_callees silently drops APIs that call-site evidence can see.
+    for block in &func.blocks {
+        for decoded in project
+            .analysis
+            .code_index
+            .window(block.entry_va, block.instr_count)
+            .iter()
+            .take(block.instr_count)
+        {
+            let Some(api) =
+                imported_api_for_instruction(&decoded.instr, project.bitness, &project.symbols)
+            else {
+                continue;
+            };
+            if !out.iter().any(|seen| seen == &api) {
+                out.push(api);
+                if out.len() == MAX_LIST {
+                    return out;
+                }
+            }
+        }
+    }
+    out
+}
+
+fn imported_api_for_instruction(
+    instruction: &Instruction,
+    bitness: u32,
+    symbols: &SymbolTable,
+) -> Option<String> {
+    if instruction.flow_control() != FlowControl::IndirectCall {
+        return None;
+    }
+    let slot_va = crate::analysis::indirect::rip_relative_target_va(instruction, bitness)?;
+    symbols
+        .name(slot_va)?
+        .strip_prefix("__imp_")
+        .map(str::to_string)
 }
 
 /// Context: callers of `va` together with the expected parameter list of `va`.
@@ -340,6 +384,37 @@ pub fn xrefs_to_named(project: &Project, va: u64) -> Vec<(u64, String, String)> 
 
 /// Global search wrapper that returns a concise text summary.
 pub fn search_summary(project: &Project, query: &str) -> Vec<String> {
+    if query.is_empty() {
+        return Vec::new();
+    }
+
+    // Most agent triage searches target a symbol or extracted string. Resolve
+    // those indexed sources first and avoid formatting every instruction in a
+    // million-instruction image merely to duplicate the same named hit.
+    if !query.starts_with('/') && parse_search_number(query).is_none() {
+        let needle = query.to_ascii_lowercase();
+        let mut fast = Vec::new();
+        for (va, symbol) in project.symbols.iter() {
+            if symbol.name.to_ascii_lowercase().contains(&needle) {
+                fast.push(format!("sym {va:#x}: {}", symbol.name));
+                if fast.len() == MAX_LIST {
+                    return fast;
+                }
+            }
+        }
+        for string in project.pe.triage.strings.as_deref().unwrap_or_default() {
+            if string.value.to_ascii_lowercase().contains(&needle) {
+                fast.push(format!("str @{:x}: {}", string.offset, string.value));
+                if fast.len() == MAX_LIST {
+                    return fast;
+                }
+            }
+        }
+        if !fast.is_empty() {
+            return fast;
+        }
+    }
+
     project
         .search(query)
         .into_iter()
@@ -350,6 +425,17 @@ pub fn search_summary(project: &Project, query: &str) -> Vec<String> {
             SearchHit::String { offset, value } => format!("str @{offset:#x}: {value}"),
         })
         .collect()
+}
+
+fn parse_search_number(query: &str) -> Option<u64> {
+    if let Some(hex) = query
+        .strip_prefix("0x")
+        .or_else(|| query.strip_prefix("0X"))
+    {
+        u64::from_str_radix(hex, 16).ok()
+    } else {
+        query.parse().ok()
+    }
 }
 
 /// Options for [`function_evidence`].
@@ -400,7 +486,9 @@ pub fn function_evidence(
     let max = opts.max_items.clamp(1, 64);
 
     // Prefer call-site VAs for API cites when available.
-    let mut call_sites = project.call_sites_with_args(va).unwrap_or(serde_json::json!([]));
+    let mut call_sites = project
+        .call_sites_with_args(va)
+        .unwrap_or(serde_json::json!([]));
     if let Some(arr) = call_sites.as_array_mut() {
         arr.truncate(max);
         for site in arr.iter_mut() {
@@ -498,7 +586,8 @@ pub fn function_evidence(
             .collect();
         let total = entries.len();
         entries.truncate(max);
-        points_to = serde_json::json!({ "entries": entries, "count": total, "truncated": total > max });
+        points_to =
+            serde_json::json!({ "entries": entries, "count": total, "truncated": total > max });
     }
 
     let mut constants = Vec::new();
@@ -605,9 +694,7 @@ fn evidence_open_questions(
         .filter(|c| {
             c.get("name")
                 .and_then(|n| n.as_str())
-                .is_some_and(|n| {
-                    n.starts_with("sub_") || n.starts_with("FUN_") || n == "unknown"
-                })
+                .is_some_and(|n| n.starts_with("sub_") || n.starts_with("FUN_") || n == "unknown")
         })
         .count();
     if unknown_callees > 0 {
@@ -652,7 +739,12 @@ fn caller_names(project: &Project, func: &Function, symbols: &SymbolTable) -> Ve
     project
         .xrefs_to(func.entry_va)
         .iter()
-        .filter(|x| matches!(x.kind, XrefKind::Call | XrefKind::JumpUnconditional | XrefKind::JumpTaken))
+        .filter(|x| {
+            matches!(
+                x.kind,
+                XrefKind::Call | XrefKind::JumpUnconditional | XrefKind::JumpTaken
+            )
+        })
         .map(|x| symbol_or_hex(symbols, x.from_va))
         .take(MAX_LIST)
         .collect()
@@ -689,7 +781,12 @@ fn symbol_or_hex(symbols: &SymbolTable, va: u64) -> String {
 /// Resolve a memory operand's effective address based on the instruction and
 /// the used-memory description.  Only constant (RIP-relative or absolute)
 /// targets can be resolved statically.
-pub(crate) fn memory_target_va(instr: &Instruction, base: Register, index: Register, disp: u64) -> u64 {
+pub(crate) fn memory_target_va(
+    instr: &Instruction,
+    base: Register,
+    index: Register,
+    disp: u64,
+) -> u64 {
     let is_rip = base == Register::RIP || base == Register::EIP;
     let is_absolute = base == Register::None && index == Register::None;
     if is_rip {
@@ -720,11 +817,7 @@ fn read_printable_asciiz(
             break;
         }
     }
-    if run.len() < min_len {
-        None
-    } else {
-        Some(run)
-    }
+    if run.len() < min_len { None } else { Some(run) }
 }
 
 /// Read a UTF-16LE NUL-terminated printable string (max `max_chars` code units).
@@ -767,7 +860,10 @@ pub fn read_printable_utf16le(
     // Prefer real wide strings: if all code units are ASCII and the buffer
     // also looks like a short ASCII C string at the same VA, still accept
     // UTF-16 when every other byte is 0 (classic LE wide pattern).
-    if !s.chars().all(|c| c.is_ascii_graphic() || c.is_ascii_whitespace()) {
+    if !s
+        .chars()
+        .all(|c| c.is_ascii_graphic() || c.is_ascii_whitespace())
+    {
         return None;
     }
     Some(s)
@@ -804,9 +900,46 @@ mod tests {
         // Second call should hit SSA cache path (same process).
         let pack2 = function_evidence(&project, va, EvidenceOpts::default()).expect("evidence2");
         assert_eq!(
-            pack["summary"]["va"],
-            pack2["summary"]["va"],
+            pack["summary"]["va"], pack2["summary"]["va"],
             "stable evidence across cache hits"
+        );
+    }
+
+    #[test]
+    fn imported_api_recovers_rip_relative_iat_call() {
+        use iced_x86::{Decoder, DecoderOptions};
+
+        // call qword ptr [rip+0] at 0x1000 addresses the slot at next_ip=0x1006.
+        let mut decoder =
+            Decoder::with_ip(64, &[0xff, 0x15, 0, 0, 0, 0], 0x1000, DecoderOptions::NONE);
+        let instruction = decoder.decode();
+        let mut symbols = SymbolTable::default();
+        symbols.insert(
+            0x1006,
+            "__imp_DogfoodImportedApi",
+            crate::project::symbols::SymbolKind::Import,
+        );
+
+        assert_eq!(
+            imported_api_for_instruction(&instruction, 64, &symbols).as_deref(),
+            Some("DogfoodImportedApi")
+        );
+    }
+
+    #[test]
+    fn search_summary_prefers_indexed_import_symbol_hits() {
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/gclsd/bench/complex.exe");
+        let project = Project::open(path).expect("open complex fixture");
+        let api = project
+            .symbols
+            .iter()
+            .find_map(|(_, symbol)| symbol.name.strip_prefix("__imp_").map(str::to_string))
+            .expect("fixture must contain an import symbol");
+        let hits = search_summary(&project, &api);
+        assert!(
+            hits.iter()
+                .any(|hit| hit.contains("sym ") && hit.contains(&api)),
+            "indexed import symbol should satisfy summary search without a full disassembly scan"
         );
     }
 

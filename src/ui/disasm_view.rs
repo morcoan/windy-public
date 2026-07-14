@@ -1,8 +1,8 @@
 use egui::{RichText, ScrollArea, Ui};
 
 use crate::disasm::Disassembler;
-use crate::project::comments::CommentScope;
 use crate::project::Project;
+use crate::project::comments::CommentScope;
 
 const WINDOW_SIZE: usize = 250;
 

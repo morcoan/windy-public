@@ -15,7 +15,7 @@ use crate::analysis::code_index::CodeIndex;
 use crate::analysis::functions::{BasicBlock, EdgeKind, Function};
 use crate::analysis::xrefs::XrefIndex;
 use crate::decompiler::pcode::PcodeOp;
-use crate::ir::export::{function_to_export, InstrExport, MemRefExport, Param};
+use crate::ir::export::{InstrExport, MemRefExport, Param, function_to_export};
 use crate::project::comments::CommentStore;
 use crate::project::symbols::SymbolTable;
 use crate::project::types::{DataType, DataTypeManager, FunctionSignature, StackFrame};
@@ -110,6 +110,7 @@ impl From<EdgeKind> for GclsdEdgeKind {
 
 /// Model output: a single C-like pseudo-code string.
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
+#[allow(dead_code)]
 pub struct GclsdOutput {
     pub pseudocode: String,
 }
@@ -197,6 +198,7 @@ pub fn function_to_gclsd_input(
 
 /// Iterate every function in `project` that has at least `min_insns`
 /// instructions and emit a `GclsdInput`. Used for headless corpus export.
+#[cfg_attr(not(feature = "gclsd-archive"), allow(dead_code))]
 pub fn export_project_gclsd(
     project: &crate::project::Project,
     min_insns: usize,
@@ -276,10 +278,7 @@ mod tests {
                     successor_vas: vec![],
                 },
             ],
-            instructions: vec![
-                instr(0x1000, "cmp", "eax, 0"),
-                instr(0x1002, "ret", ""),
-            ],
+            instructions: vec![instr(0x1000, "cmp", "eax, 0"), instr(0x1002, "ret", "")],
             xrefs_in: vec![],
             xrefs_out: vec![],
         };
@@ -339,10 +338,18 @@ mod tests {
 
         assert_eq!(gclsd_block.instr_ips, vec![0x1000]);
         assert_eq!(gclsd_block.successors.len(), 2);
-        assert!(gclsd_block.successors.iter().any(|e| e.kind
-            == GclsdEdgeKind::Conditional));
-        assert!(gclsd_block.successors.iter().any(|e| e.kind
-            == GclsdEdgeKind::Unconditional));
+        assert!(
+            gclsd_block
+                .successors
+                .iter()
+                .any(|e| e.kind == GclsdEdgeKind::Conditional)
+        );
+        assert!(
+            gclsd_block
+                .successors
+                .iter()
+                .any(|e| e.kind == GclsdEdgeKind::Unconditional)
+        );
         assert!(block_by_entry.contains_key(&0x1000));
     }
 

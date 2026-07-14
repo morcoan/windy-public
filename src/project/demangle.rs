@@ -20,11 +20,15 @@ pub fn demangle(name: &str) -> Option<String> {
         return None;
     }
 
-    if let Some(d) = demangle_msvc(body) && d != body {
+    if let Some(d) = demangle_msvc(body)
+        && d != body
+    {
         return Some(format!("{prefix}{d}"));
     }
 
-    if let Some(d) = demangle_itanium(body) && d != body {
+    if let Some(d) = demangle_itanium(body)
+        && d != body
+    {
         return Some(format!("{prefix}{d}"));
     }
 

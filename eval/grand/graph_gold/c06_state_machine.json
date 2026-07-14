@@ -1,0 +1,22 @@
+{
+  "program_id": "c06_state_machine",
+  "source": "eval/grand/src/c06_state_machine.c",
+  "functions": [
+    {
+      "id": "f",
+      "source_name": "f",
+      "regions": [
+        "expr_return",
+        "if"
+      ],
+      "effects": [
+        {
+          "kind": "return",
+          "class": "name",
+          "ops": [],
+          "critical": true
+        }
+      ]
+    }
+  ]
+}

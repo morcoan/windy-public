@@ -1,0 +1,373 @@
+{
+  "program_id": "boss_telemetry_decoder",
+  "pack_tags": [
+    "I",
+    "B",
+    "C",
+    "D",
+    "E",
+    "J"
+  ],
+  "kind": "boss",
+  "source": "eval/grand/src/boss_telemetry_decoder",
+  "functions": [
+    {
+      "id": "crc_add",
+      "source_name": "crc_add",
+      "facts": [
+        {
+          "id": "xor",
+          "kind": "operation",
+          "dimension": "semantic",
+          "critical": true,
+          "must_match": [],
+          "match_any": [
+            "^",
+            "xor"
+          ],
+          "forbid": [],
+          "depends_on": [],
+          "slice": "any",
+          "residual_on_miss": "SEMANTIC_STATE_UPDATE_MISSING",
+          "catastrophic_cap": 0.35
+        },
+        {
+          "id": "mul",
+          "kind": "constant",
+          "dimension": "semantic",
+          "critical": true,
+          "must_match": [],
+          "match_any": [
+            "1315423911",
+            "0x4e67c6a7",
+            "4e67c6a7"
+          ],
+          "forbid": [],
+          "depends_on": [],
+          "slice": "any",
+          "residual_on_miss": "SEMANTIC_RETURN_WRONG",
+          "catastrophic_cap": 0.35
+        },
+        {
+          "id": "ret",
+          "kind": "return",
+          "dimension": "semantic",
+          "critical": true,
+          "must_match": [
+            "return"
+          ],
+          "match_any": [],
+          "forbid": [],
+          "depends_on": [
+            "xor"
+          ],
+          "slice": "return",
+          "residual_on_miss": "SEMANTIC_RETURN_WRONG",
+          "catastrophic_cap": 0.35
+        },
+        {
+          "id": "nogoto",
+          "kind": "control_region",
+          "dimension": "clarity",
+          "critical": false,
+          "must_match": [],
+          "match_any": [],
+          "forbid": [
+            "goto "
+          ],
+          "depends_on": [],
+          "slice": "any"
+        }
+      ]
+    },
+    {
+      "id": "read_header",
+      "source_name": "read_header",
+      "facts": [
+        {
+          "id": "store_ver",
+          "kind": "store",
+          "dimension": "memory",
+          "critical": true,
+          "must_match": [],
+          "match_any": [
+            "ver",
+            "->",
+            "=",
+            "."
+          ],
+          "forbid": [],
+          "depends_on": [],
+          "slice": "store",
+          "residual_on_miss": "MISSING_STORE",
+          "catastrophic_cap": 0.35
+        },
+        {
+          "id": "bound",
+          "kind": "predicate",
+          "dimension": "control",
+          "critical": true,
+          "must_match": [],
+          "match_any": [
+            "<",
+            "size",
+            "8",
+            "0x8"
+          ],
+          "forbid": [],
+          "depends_on": [],
+          "slice": "predicate",
+          "residual_on_miss": "BOUND_RELATION_MISSING",
+          "catastrophic_cap": 0.45
+        },
+        {
+          "id": "ret",
+          "kind": "return",
+          "dimension": "semantic",
+          "critical": true,
+          "must_match": [
+            "return"
+          ],
+          "match_any": [],
+          "forbid": [],
+          "depends_on": [],
+          "slice": "return",
+          "residual_on_miss": "SEMANTIC_RETURN_WRONG",
+          "catastrophic_cap": 0.35
+        },
+        {
+          "id": "nogoto",
+          "kind": "control_region",
+          "dimension": "clarity",
+          "critical": false,
+          "must_match": [],
+          "match_any": [],
+          "forbid": [
+            "goto "
+          ],
+          "depends_on": [],
+          "slice": "any"
+        }
+      ]
+    },
+    {
+      "id": "handle_record",
+      "source_name": "handle_record",
+      "facts": [
+        {
+          "id": "j6_tag_payload",
+          "kind": "switch",
+          "dimension": "control",
+          "critical": true,
+          "match_any": [
+            "switch",
+            "case"
+          ],
+          "residual_on_miss": "SWITCH_CASE_MISSING",
+          "depends_on": [],
+          "slice": "any",
+          "must_match": [],
+          "forbid": []
+        },
+        {
+          "id": "call_crc",
+          "kind": "call_site",
+          "dimension": "calls",
+          "critical": true,
+          "match_any": [
+            "crc_add",
+            "FUN_",
+            "fun_"
+          ],
+          "residual_on_miss": "CALL_TARGET_WRONG",
+          "catastrophic_cap": 0.4,
+          "slice": "call",
+          "depends_on": [],
+          "must_match": [],
+          "forbid": []
+        },
+        {
+          "id": "ret",
+          "kind": "return",
+          "dimension": "semantic",
+          "critical": true,
+          "must_match": [
+            "return"
+          ],
+          "residual_on_miss": "SEMANTIC_RETURN_WRONG",
+          "catastrophic_cap": 0.35,
+          "slice": "return",
+          "depends_on": [],
+          "match_any": [],
+          "forbid": []
+        }
+      ]
+    },
+    {
+      "id": "decode_packet",
+      "source_name": "decode_packet",
+      "facts": [
+        {
+          "id": "j3_bound",
+          "kind": "predicate",
+          "dimension": "control",
+          "critical": true,
+          "match_any": [
+            "cursor",
+            "end",
+            "record_count",
+            "<"
+          ],
+          "residual_on_miss": "BOUND_RELATION_MISSING",
+          "catastrophic_cap": 0.45,
+          "slice": "predicate",
+          "depends_on": [],
+          "must_match": [],
+          "forbid": []
+        },
+        {
+          "id": "j5_partition",
+          "kind": "switch",
+          "dimension": "control",
+          "critical": true,
+          "match_any": [
+            "switch",
+            "case",
+            "type"
+          ],
+          "residual_on_miss": "SWITCH_CASE_MISSING",
+          "depends_on": [],
+          "slice": "any",
+          "must_match": [],
+          "forbid": []
+        },
+        {
+          "id": "j5_cases",
+          "kind": "constant",
+          "dimension": "semantic",
+          "critical": true,
+          "match_any": [
+            "1",
+            "2",
+            "3",
+            "0x1",
+            "0x2",
+            "0x3"
+          ],
+          "residual_on_miss": "SWITCH_CASE_MISSING",
+          "min_multiplicity": 2,
+          "depends_on": [],
+          "slice": "any",
+          "must_match": [],
+          "forbid": []
+        },
+        {
+          "id": "crc_acc",
+          "kind": "operation",
+          "dimension": "semantic",
+          "critical": true,
+          "match_any": [
+            "^",
+            "xor"
+          ],
+          "residual_on_miss": "SEMANTIC_STATE_UPDATE_MISSING",
+          "catastrophic_cap": 0.35,
+          "min_multiplicity": 1,
+          "depends_on": [],
+          "slice": "any",
+          "must_match": [],
+          "forbid": []
+        },
+        {
+          "id": "ret",
+          "kind": "return",
+          "dimension": "semantic",
+          "critical": true,
+          "must_match": [
+            "return"
+          ],
+          "return_ops": [
+            "^"
+          ],
+          "match_any": [
+            "^",
+            "xor",
+            "0x45d9f3b",
+            "45d9f3b"
+          ],
+          "residual_on_miss": "SEMANTIC_RETURN_WRONG",
+          "catastrophic_cap": 0.35,
+          "depends_on": [
+            "crc_acc"
+          ],
+          "slice": "return",
+          "forbid": []
+        },
+        {
+          "id": "no_goto",
+          "kind": "control_region",
+          "dimension": "clarity",
+          "forbid": [
+            "goto "
+          ],
+          "residual_on_forbid": "GOTO_RESIDUAL",
+          "depends_on": [],
+          "slice": "any",
+          "must_match": [],
+          "match_any": []
+        }
+      ]
+    },
+    {
+      "id": "main",
+      "source_name": "main",
+      "facts": [
+        {
+          "id": "call",
+          "kind": "call_site",
+          "dimension": "calls",
+          "critical": true,
+          "must_match": [],
+          "match_any": [
+            "decode_packet",
+            "FUN_",
+            "fun_"
+          ],
+          "forbid": [],
+          "depends_on": [],
+          "slice": "call",
+          "residual_on_miss": "CALL_TARGET_WRONG",
+          "catastrophic_cap": 0.4
+        },
+        {
+          "id": "ret",
+          "kind": "return",
+          "dimension": "semantic",
+          "critical": true,
+          "must_match": [
+            "return"
+          ],
+          "match_any": [],
+          "forbid": [],
+          "depends_on": [],
+          "slice": "return",
+          "residual_on_miss": "SEMANTIC_RETURN_WRONG",
+          "catastrophic_cap": 0.35
+        },
+        {
+          "id": "nogoto",
+          "kind": "control_region",
+          "dimension": "clarity",
+          "critical": false,
+          "must_match": [],
+          "match_any": [],
+          "forbid": [
+            "goto "
+          ],
+          "depends_on": [],
+          "slice": "any"
+        }
+      ]
+    }
+  ]
+}

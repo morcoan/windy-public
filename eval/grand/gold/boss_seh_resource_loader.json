@@ -1,0 +1,384 @@
+{
+  "program_id": "boss_seh_resource_loader",
+  "pack_tags": [
+    "H",
+    "F",
+    "D"
+  ],
+  "kind": "boss",
+  "source": "eval/grand/src/boss_seh_resource_loader",
+  "functions": [
+    {
+      "id": "filter_av",
+      "source_name": "filter_av",
+      "facts": [
+        {
+          "id": "j8_disc",
+          "kind": "exception_region",
+          "dimension": "control",
+          "critical": true,
+          "match_any": [
+            "0xc0000005",
+            "c0000005",
+            "-1073741819"
+          ],
+          "residual_on_miss": "EXCEPTION_FILTER_WRONG",
+          "catastrophic_cap": 0.35,
+          "depends_on": [],
+          "slice": "any",
+          "must_match": [],
+          "forbid": []
+        },
+        {
+          "id": "ret",
+          "kind": "return",
+          "dimension": "semantic",
+          "critical": true,
+          "must_match": [
+            "return"
+          ],
+          "residual_on_miss": "SEMANTIC_RETURN_WRONG",
+          "catastrophic_cap": 0.35,
+          "slice": "return",
+          "depends_on": [],
+          "match_any": [],
+          "forbid": []
+        }
+      ]
+    },
+    {
+      "id": "res_init",
+      "source_name": "res_init",
+      "facts": [
+        {
+          "id": "live",
+          "kind": "store",
+          "dimension": "memory",
+          "critical": true,
+          "must_match": [],
+          "match_any": [
+            "live",
+            "id",
+            "=",
+            ".",
+            "->"
+          ],
+          "forbid": [],
+          "depends_on": [],
+          "slice": "store",
+          "residual_on_miss": "MISSING_STORE",
+          "catastrophic_cap": 0.35
+        },
+        {
+          "id": "mem",
+          "kind": "memory_object",
+          "dimension": "memory",
+          "critical": false,
+          "must_match": [],
+          "match_any": [
+            ".",
+            "->",
+            "param"
+          ],
+          "forbid": [],
+          "depends_on": [],
+          "slice": "any"
+        },
+        {
+          "id": "nogoto",
+          "kind": "control_region",
+          "dimension": "clarity",
+          "critical": false,
+          "must_match": [],
+          "match_any": [],
+          "forbid": [
+            "goto "
+          ],
+          "depends_on": [],
+          "slice": "any"
+        }
+      ]
+    },
+    {
+      "id": "res_destroy",
+      "source_name": "res_destroy",
+      "facts": [
+        {
+          "id": "live0",
+          "kind": "store",
+          "dimension": "memory",
+          "critical": true,
+          "must_match": [],
+          "match_any": [
+            "live",
+            "0",
+            "=",
+            "."
+          ],
+          "forbid": [],
+          "depends_on": [],
+          "slice": "store",
+          "residual_on_miss": "LIFETIME_CLEANUP_MISSING",
+          "catastrophic_cap": 0.4
+        },
+        {
+          "id": "if",
+          "kind": "control_region",
+          "dimension": "control",
+          "critical": false,
+          "must_match": [
+            "if"
+          ],
+          "match_any": [],
+          "forbid": [],
+          "depends_on": [],
+          "slice": "predicate"
+        },
+        {
+          "id": "nogoto",
+          "kind": "control_region",
+          "dimension": "clarity",
+          "critical": false,
+          "must_match": [],
+          "match_any": [],
+          "forbid": [
+            "goto "
+          ],
+          "depends_on": [],
+          "slice": "any"
+        }
+      ]
+    },
+    {
+      "id": "parse_tree",
+      "source_name": "parse_tree",
+      "facts": [
+        {
+          "id": "j9_init",
+          "kind": "call_site",
+          "dimension": "calls",
+          "critical": true,
+          "match_any": [
+            "res_init",
+            "FUN_",
+            "fun_"
+          ],
+          "residual_on_miss": "CALL_TARGET_WRONG",
+          "catastrophic_cap": 0.4,
+          "slice": "call",
+          "min_multiplicity": 2,
+          "depends_on": [],
+          "must_match": [],
+          "forbid": []
+        },
+        {
+          "id": "j9_destroy",
+          "kind": "lifetime_region",
+          "dimension": "memory",
+          "critical": true,
+          "match_any": [
+            "res_destroy",
+            "destroy",
+            "live"
+          ],
+          "residual_on_miss": "LIFETIME_CLEANUP_MISSING",
+          "catastrophic_cap": 0.4,
+          "min_multiplicity": 2,
+          "depends_on": [],
+          "slice": "any",
+          "must_match": [],
+          "forbid": []
+        },
+        {
+          "id": "j10_order",
+          "kind": "lifetime_region",
+          "dimension": "memory",
+          "critical": true,
+          "match_any": [
+            "res_destroy",
+            "destroy"
+          ],
+          "ordered_match": [
+            "res_destroy(&b)",
+            "res_destroy(&a)"
+          ],
+          "min_multiplicity": 2,
+          "residual_on_miss": "LIFETIME_CLEANUP_MISSING",
+          "catastrophic_cap": 0.4,
+          "depends_on": [],
+          "slice": "any",
+          "must_match": [],
+          "forbid": []
+        },
+        {
+          "id": "loop",
+          "kind": "loop",
+          "dimension": "control",
+          "critical": true,
+          "match_any": [
+            "while",
+            "for"
+          ],
+          "residual_on_miss": "LOOP_RECURRENCE_WRONG",
+          "slice": "predicate",
+          "depends_on": [],
+          "must_match": [],
+          "forbid": []
+        },
+        {
+          "id": "ret",
+          "kind": "return",
+          "dimension": "semantic",
+          "critical": true,
+          "must_match": [
+            "return"
+          ],
+          "residual_on_miss": "SEMANTIC_RETURN_WRONG",
+          "catastrophic_cap": 0.35,
+          "slice": "return",
+          "depends_on": [],
+          "match_any": [],
+          "forbid": []
+        }
+      ]
+    },
+    {
+      "id": "seh_load",
+      "source_name": "seh_load",
+      "facts": [
+        {
+          "id": "try",
+          "kind": "exception_region",
+          "dimension": "control",
+          "critical": true,
+          "must_match": [],
+          "match_any": [
+            "try",
+            "except",
+            "__try",
+            "filter",
+            "parse_tree",
+            "FUN_"
+          ],
+          "forbid": [],
+          "depends_on": [],
+          "slice": "any",
+          "residual_on_miss": "EXCEPTION_PATH_MISSING",
+          "catastrophic_cap": 0.35
+        },
+        {
+          "id": "call_parse",
+          "kind": "call_site",
+          "dimension": "calls",
+          "critical": true,
+          "must_match": [],
+          "match_any": [
+            "parse_tree",
+            "FUN_",
+            "fun_"
+          ],
+          "forbid": [],
+          "depends_on": [],
+          "slice": "call",
+          "residual_on_miss": "CALL_TARGET_WRONG",
+          "catastrophic_cap": 0.4
+        },
+        {
+          "id": "seh_status",
+          "kind": "constant",
+          "dimension": "semantic",
+          "critical": false,
+          "must_match": [],
+          "match_any": [
+            "-3",
+            "0xfffffffd",
+            "3"
+          ],
+          "forbid": [],
+          "depends_on": [],
+          "slice": "any",
+          "residual_on_miss": "EXCEPTION_PATH_MISSING"
+        },
+        {
+          "id": "ret",
+          "kind": "return",
+          "dimension": "semantic",
+          "critical": true,
+          "must_match": [
+            "return"
+          ],
+          "match_any": [],
+          "forbid": [],
+          "depends_on": [],
+          "slice": "return",
+          "residual_on_miss": "SEMANTIC_RETURN_WRONG",
+          "catastrophic_cap": 0.35
+        },
+        {
+          "id": "nogoto",
+          "kind": "control_region",
+          "dimension": "clarity",
+          "critical": false,
+          "must_match": [],
+          "match_any": [],
+          "forbid": [
+            "goto "
+          ],
+          "depends_on": [],
+          "slice": "any"
+        }
+      ]
+    },
+    {
+      "id": "main",
+      "source_name": "main",
+      "facts": [
+        {
+          "id": "call",
+          "kind": "call_site",
+          "dimension": "calls",
+          "critical": true,
+          "must_match": [],
+          "match_any": [
+            "seh_load",
+            "FUN_",
+            "fun_"
+          ],
+          "forbid": [],
+          "depends_on": [],
+          "slice": "call",
+          "residual_on_miss": "CALL_TARGET_WRONG",
+          "catastrophic_cap": 0.4
+        },
+        {
+          "id": "ret",
+          "kind": "return",
+          "dimension": "semantic",
+          "critical": true,
+          "must_match": [
+            "return"
+          ],
+          "match_any": [],
+          "forbid": [],
+          "depends_on": [],
+          "slice": "return",
+          "residual_on_miss": "SEMANTIC_RETURN_WRONG",
+          "catastrophic_cap": 0.35
+        },
+        {
+          "id": "nogoto",
+          "kind": "control_region",
+          "dimension": "clarity",
+          "critical": false,
+          "must_match": [],
+          "match_any": [],
+          "forbid": [
+            "goto "
+          ],
+          "depends_on": [],
+          "slice": "any"
+        }
+      ]
+    }
+  ]
+}

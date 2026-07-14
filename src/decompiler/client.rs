@@ -6,6 +6,8 @@
 //! the UI and multiple MCP calls don't repeatedly hit the model for the same
 //! unchanged function.
 
+#![allow(dead_code)] // opt-in archive client retained for historical reproduction
+
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;

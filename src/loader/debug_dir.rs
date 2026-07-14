@@ -1,4 +1,3 @@
-
 //! PE debug directory reader plus a byte-scan fallback that can recover a
 //! CodeView PDB70 record even when the debug directory has been stripped.
 
@@ -51,7 +50,8 @@ fn find_codeview_in_debug_directory(image: &[u8]) -> Option<CodeViewRecord> {
     let count = debug_bytes.len() / IMAGE_DEBUG_DIRECTORY_SIZE;
 
     for i in 0..count {
-        let entry = &debug_bytes[i * IMAGE_DEBUG_DIRECTORY_SIZE..(i + 1) * IMAGE_DEBUG_DIRECTORY_SIZE];
+        let entry =
+            &debug_bytes[i * IMAGE_DEBUG_DIRECTORY_SIZE..(i + 1) * IMAGE_DEBUG_DIRECTORY_SIZE];
         let ty = read_u32_le(&entry[12..16]);
         if ty != IMAGE_DEBUG_TYPE_CODEVIEW {
             continue;
@@ -84,7 +84,7 @@ fn debug_directory_location(image: &[u8]) -> Option<(usize, u32)> {
 
     // NumberOfRvaAndSizes is at the end of the Windows-specific fields.
     let (num_dirs_offset, data_dirs_offset): (usize, usize) = match magic {
-        0x10b => (92, 96),  // PE32
+        0x10b => (92, 96),   // PE32
         0x20b => (108, 112), // PE32+
         _ => return None,
     };

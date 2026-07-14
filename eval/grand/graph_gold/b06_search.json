@@ -1,0 +1,37 @@
+{
+  "program_id": "b06_search",
+  "source": "eval/grand/src/b06_search.c",
+  "functions": [
+    {
+      "id": "kernel",
+      "source_name": "kernel",
+      "regions": [
+        "expr_return",
+        "if",
+        "loop"
+      ],
+      "effects": [
+        {
+          "kind": "return",
+          "class": "name",
+          "ops": [],
+          "critical": true
+        },
+        {
+          "kind": "return",
+          "class": null,
+          "ops": [
+            "-",
+            "==",
+            "<"
+          ],
+          "critical": false
+        },
+        {
+          "kind": "loop",
+          "critical": false
+        }
+      ]
+    }
+  ]
+}

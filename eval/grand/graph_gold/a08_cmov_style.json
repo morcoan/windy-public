@@ -1,0 +1,21 @@
+{
+  "program_id": "a08_cmov_style",
+  "source": "eval/grand/src/a08_cmov_style.c",
+  "functions": [
+    {
+      "id": "f",
+      "source_name": "f",
+      "regions": [
+        "expr_return"
+      ],
+      "effects": [
+        {
+          "kind": "return",
+          "class": "compare",
+          "ops": [],
+          "critical": true
+        }
+      ]
+    }
+  ]
+}
