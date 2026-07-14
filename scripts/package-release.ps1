@@ -89,7 +89,9 @@ try {
         if ($LASTEXITCODE -ne 0) { throw "Authenticode signing failed" }
     }
 
-    & (Join-Path $root "scripts\smoke-release.ps1") -ExePath $stagedExe
+    & (Join-Path $root "scripts\smoke-release.ps1") `
+        -ExePath $stagedExe `
+        -FixturePath (Join-Path $root "tests\fixtures\sample.exe")
     if ($LASTEXITCODE -ne 0) { throw "packaged executable smoke test failed" }
 
     Compress-Archive -Path (Join-Path $stage "*") -DestinationPath $zip -CompressionLevel Optimal
