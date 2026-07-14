@@ -1,0 +1,1194 @@
+[
+  {
+    "name": "MessageBoxW",
+    "dll": "user32",
+    "params": [
+      [
+        "hWnd",
+        "HWND"
+      ],
+      [
+        "lpText",
+        "LPCWSTR"
+      ],
+      [
+        "lpCaption",
+        "LPCWSTR"
+      ],
+      [
+        "uType",
+        "UINT"
+      ]
+    ],
+    "ret": "int",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "MessageBoxA",
+    "dll": "user32",
+    "params": [
+      [
+        "hWnd",
+        "HWND"
+      ],
+      [
+        "lpText",
+        "LPCSTR"
+      ],
+      [
+        "lpCaption",
+        "LPCSTR"
+      ],
+      [
+        "uType",
+        "UINT"
+      ]
+    ],
+    "ret": "int",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "FindWindowW",
+    "dll": "user32",
+    "params": [
+      [
+        "lpClassName",
+        "LPCWSTR"
+      ],
+      [
+        "lpWindowName",
+        "LPCWSTR"
+      ]
+    ],
+    "ret": "HWND",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "FindWindowA",
+    "dll": "user32",
+    "params": [
+      [
+        "lpClassName",
+        "LPCSTR"
+      ],
+      [
+        "lpWindowName",
+        "LPCSTR"
+      ]
+    ],
+    "ret": "HWND",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "FindWindowExW",
+    "dll": "user32",
+    "params": [
+      [
+        "hWndParent",
+        "HWND"
+      ],
+      [
+        "hWndChildAfter",
+        "HWND"
+      ],
+      [
+        "lpszClass",
+        "LPCWSTR"
+      ],
+      [
+        "lpszWindow",
+        "LPCWSTR"
+      ]
+    ],
+    "ret": "HWND",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "GetWindowTextW",
+    "dll": "user32",
+    "params": [
+      [
+        "hWnd",
+        "HWND"
+      ],
+      [
+        "lpString",
+        "LPWSTR"
+      ],
+      [
+        "nMaxCount",
+        "int"
+      ]
+    ],
+    "ret": "int",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "SetWindowTextW",
+    "dll": "user32",
+    "params": [
+      [
+        "hWnd",
+        "HWND"
+      ],
+      [
+        "lpString",
+        "LPCWSTR"
+      ]
+    ],
+    "ret": "BOOL",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "GetWindowTextLengthW",
+    "dll": "user32",
+    "params": [
+      [
+        "hWnd",
+        "HWND"
+      ]
+    ],
+    "ret": "int",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "ShowWindow",
+    "dll": "user32",
+    "params": [
+      [
+        "hWnd",
+        "HWND"
+      ],
+      [
+        "nCmdShow",
+        "int"
+      ]
+    ],
+    "ret": "BOOL",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "UpdateWindow",
+    "dll": "user32",
+    "params": [
+      [
+        "hWnd",
+        "HWND"
+      ]
+    ],
+    "ret": "BOOL",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "DestroyWindow",
+    "dll": "user32",
+    "params": [
+      [
+        "hWnd",
+        "HWND"
+      ]
+    ],
+    "ret": "BOOL",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "CreateWindowExW",
+    "dll": "user32",
+    "params": [
+      [
+        "dwExStyle",
+        "DWORD"
+      ],
+      [
+        "lpClassName",
+        "LPCWSTR"
+      ],
+      [
+        "lpWindowName",
+        "LPCWSTR"
+      ],
+      [
+        "dwStyle",
+        "DWORD"
+      ],
+      [
+        "X",
+        "int"
+      ],
+      [
+        "Y",
+        "int"
+      ],
+      [
+        "nWidth",
+        "int"
+      ],
+      [
+        "nHeight",
+        "int"
+      ],
+      [
+        "hWndParent",
+        "HWND"
+      ],
+      [
+        "hMenu",
+        "HMENU"
+      ],
+      [
+        "hInstance",
+        "HINSTANCE"
+      ],
+      [
+        "lpParam",
+        "LPVOID"
+      ]
+    ],
+    "ret": "HWND",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "DefWindowProcW",
+    "dll": "user32",
+    "params": [
+      [
+        "hWnd",
+        "HWND"
+      ],
+      [
+        "Msg",
+        "UINT"
+      ],
+      [
+        "wParam",
+        "WPARAM"
+      ],
+      [
+        "lParam",
+        "LPARAM"
+      ]
+    ],
+    "ret": "LRESULT",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "RegisterClassW",
+    "dll": "user32",
+    "params": [
+      [
+        "lpWndClass",
+        "LPVOID"
+      ]
+    ],
+    "ret": "ATOM",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "RegisterClassExW",
+    "dll": "user32",
+    "params": [
+      [
+        "lpwcx",
+        "LPVOID"
+      ]
+    ],
+    "ret": "ATOM",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "GetMessageW",
+    "dll": "user32",
+    "params": [
+      [
+        "lpMsg",
+        "LPMSG"
+      ],
+      [
+        "hWnd",
+        "HWND"
+      ],
+      [
+        "wMsgFilterMin",
+        "UINT"
+      ],
+      [
+        "wMsgFilterMax",
+        "UINT"
+      ]
+    ],
+    "ret": "BOOL",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "PeekMessageW",
+    "dll": "user32",
+    "params": [
+      [
+        "lpMsg",
+        "LPMSG"
+      ],
+      [
+        "hWnd",
+        "HWND"
+      ],
+      [
+        "wMsgFilterMin",
+        "UINT"
+      ],
+      [
+        "wMsgFilterMax",
+        "UINT"
+      ],
+      [
+        "wRemoveMsg",
+        "UINT"
+      ]
+    ],
+    "ret": "BOOL",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "TranslateMessage",
+    "dll": "user32",
+    "params": [
+      [
+        "lpMsg",
+        "LPMSG"
+      ]
+    ],
+    "ret": "BOOL",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "DispatchMessageW",
+    "dll": "user32",
+    "params": [
+      [
+        "lpMsg",
+        "LPMSG"
+      ]
+    ],
+    "ret": "LRESULT",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "PostMessageW",
+    "dll": "user32",
+    "params": [
+      [
+        "hWnd",
+        "HWND"
+      ],
+      [
+        "Msg",
+        "UINT"
+      ],
+      [
+        "wParam",
+        "WPARAM"
+      ],
+      [
+        "lParam",
+        "LPARAM"
+      ]
+    ],
+    "ret": "BOOL",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "SendMessageW",
+    "dll": "user32",
+    "params": [
+      [
+        "hWnd",
+        "HWND"
+      ],
+      [
+        "Msg",
+        "UINT"
+      ],
+      [
+        "wParam",
+        "WPARAM"
+      ],
+      [
+        "lParam",
+        "LPARAM"
+      ]
+    ],
+    "ret": "LRESULT",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "PostQuitMessage",
+    "dll": "user32",
+    "params": [
+      [
+        "nExitCode",
+        "int"
+      ]
+    ],
+    "ret": "void",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "GetDlgItem",
+    "dll": "user32",
+    "params": [
+      [
+        "hDlg",
+        "HWND"
+      ],
+      [
+        "nIDDlgItem",
+        "int"
+      ]
+    ],
+    "ret": "HWND",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "SetDlgItemTextW",
+    "dll": "user32",
+    "params": [
+      [
+        "hDlg",
+        "HWND"
+      ],
+      [
+        "nIDDlgItem",
+        "int"
+      ],
+      [
+        "lpString",
+        "LPCWSTR"
+      ]
+    ],
+    "ret": "BOOL",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "GetDlgItemTextW",
+    "dll": "user32",
+    "params": [
+      [
+        "hDlg",
+        "HWND"
+      ],
+      [
+        "nIDDlgItem",
+        "int"
+      ],
+      [
+        "lpString",
+        "LPWSTR"
+      ],
+      [
+        "cchMax",
+        "int"
+      ]
+    ],
+    "ret": "UINT",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "EndDialog",
+    "dll": "user32",
+    "params": [
+      [
+        "hDlg",
+        "HWND"
+      ],
+      [
+        "nResult",
+        "INT_PTR"
+      ]
+    ],
+    "ret": "BOOL",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "DialogBoxParamW",
+    "dll": "user32",
+    "params": [
+      [
+        "hInstance",
+        "HINSTANCE"
+      ],
+      [
+        "lpTemplateName",
+        "LPCWSTR"
+      ],
+      [
+        "hWndParent",
+        "HWND"
+      ],
+      [
+        "lpDialogFunc",
+        "LPVOID"
+      ],
+      [
+        "dwInitParam",
+        "LPARAM"
+      ]
+    ],
+    "ret": "INT_PTR",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "GetDC",
+    "dll": "user32",
+    "params": [
+      [
+        "hWnd",
+        "HWND"
+      ]
+    ],
+    "ret": "HDC",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "ReleaseDC",
+    "dll": "user32",
+    "params": [
+      [
+        "hWnd",
+        "HWND"
+      ],
+      [
+        "hDC",
+        "HDC"
+      ]
+    ],
+    "ret": "int",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "BeginPaint",
+    "dll": "user32",
+    "params": [
+      [
+        "hWnd",
+        "HWND"
+      ],
+      [
+        "lpPaint",
+        "LPPAINTSTRUCT"
+      ]
+    ],
+    "ret": "HDC",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "EndPaint",
+    "dll": "user32",
+    "params": [
+      [
+        "hWnd",
+        "HWND"
+      ],
+      [
+        "lpPaint",
+        "LPPAINTSTRUCT"
+      ]
+    ],
+    "ret": "BOOL",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "InvalidateRect",
+    "dll": "user32",
+    "params": [
+      [
+        "hWnd",
+        "HWND"
+      ],
+      [
+        "lpRect",
+        "LPCRECT"
+      ],
+      [
+        "bErase",
+        "BOOL"
+      ]
+    ],
+    "ret": "BOOL",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "GetClientRect",
+    "dll": "user32",
+    "params": [
+      [
+        "hWnd",
+        "HWND"
+      ],
+      [
+        "lpRect",
+        "LPRECT"
+      ]
+    ],
+    "ret": "BOOL",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "GetWindowRect",
+    "dll": "user32",
+    "params": [
+      [
+        "hWnd",
+        "HWND"
+      ],
+      [
+        "lpRect",
+        "LPRECT"
+      ]
+    ],
+    "ret": "BOOL",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "SetWindowPos",
+    "dll": "user32",
+    "params": [
+      [
+        "hWnd",
+        "HWND"
+      ],
+      [
+        "hWndInsertAfter",
+        "HWND"
+      ],
+      [
+        "X",
+        "int"
+      ],
+      [
+        "Y",
+        "int"
+      ],
+      [
+        "cx",
+        "int"
+      ],
+      [
+        "cy",
+        "int"
+      ],
+      [
+        "uFlags",
+        "UINT"
+      ]
+    ],
+    "ret": "BOOL",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "MoveWindow",
+    "dll": "user32",
+    "params": [
+      [
+        "hWnd",
+        "HWND"
+      ],
+      [
+        "X",
+        "int"
+      ],
+      [
+        "Y",
+        "int"
+      ],
+      [
+        "nWidth",
+        "int"
+      ],
+      [
+        "nHeight",
+        "int"
+      ],
+      [
+        "bRepaint",
+        "BOOL"
+      ]
+    ],
+    "ret": "BOOL",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "GetForegroundWindow",
+    "dll": "user32",
+    "params": [],
+    "ret": "HWND",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "SetForegroundWindow",
+    "dll": "user32",
+    "params": [
+      [
+        "hWnd",
+        "HWND"
+      ]
+    ],
+    "ret": "BOOL",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "GetActiveWindow",
+    "dll": "user32",
+    "params": [],
+    "ret": "HWND",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "SetActiveWindow",
+    "dll": "user32",
+    "params": [
+      [
+        "hWnd",
+        "HWND"
+      ]
+    ],
+    "ret": "HWND",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "EnableWindow",
+    "dll": "user32",
+    "params": [
+      [
+        "hWnd",
+        "HWND"
+      ],
+      [
+        "bEnable",
+        "BOOL"
+      ]
+    ],
+    "ret": "BOOL",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "IsWindow",
+    "dll": "user32",
+    "params": [
+      [
+        "hWnd",
+        "HWND"
+      ]
+    ],
+    "ret": "BOOL",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "IsWindowVisible",
+    "dll": "user32",
+    "params": [
+      [
+        "hWnd",
+        "HWND"
+      ]
+    ],
+    "ret": "BOOL",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "IsWindowEnabled",
+    "dll": "user32",
+    "params": [
+      [
+        "hWnd",
+        "HWND"
+      ]
+    ],
+    "ret": "BOOL",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "GetParent",
+    "dll": "user32",
+    "params": [
+      [
+        "hWnd",
+        "HWND"
+      ]
+    ],
+    "ret": "HWND",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "SetParent",
+    "dll": "user32",
+    "params": [
+      [
+        "hWndChild",
+        "HWND"
+      ],
+      [
+        "hWndNewParent",
+        "HWND"
+      ]
+    ],
+    "ret": "HWND",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "LoadCursorW",
+    "dll": "user32",
+    "params": [
+      [
+        "hInstance",
+        "HINSTANCE"
+      ],
+      [
+        "lpCursorName",
+        "LPCWSTR"
+      ]
+    ],
+    "ret": "HCURSOR",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "LoadIconW",
+    "dll": "user32",
+    "params": [
+      [
+        "hInstance",
+        "HINSTANCE"
+      ],
+      [
+        "lpIconName",
+        "LPCWSTR"
+      ]
+    ],
+    "ret": "HICON",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "LoadImageW",
+    "dll": "user32",
+    "params": [
+      [
+        "hInst",
+        "HINSTANCE"
+      ],
+      [
+        "name",
+        "LPCWSTR"
+      ],
+      [
+        "type",
+        "UINT"
+      ],
+      [
+        "cx",
+        "int"
+      ],
+      [
+        "cy",
+        "int"
+      ],
+      [
+        "fuLoad",
+        "UINT"
+      ]
+    ],
+    "ret": "HANDLE",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "RegisterWindowMessageW",
+    "dll": "user32",
+    "params": [
+      [
+        "lpString",
+        "LPCWSTR"
+      ]
+    ],
+    "ret": "UINT",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "SetTimer",
+    "dll": "user32",
+    "params": [
+      [
+        "hWnd",
+        "HWND"
+      ],
+      [
+        "nIDEvent",
+        "UINT_PTR"
+      ],
+      [
+        "uElapse",
+        "UINT"
+      ],
+      [
+        "lpTimerFunc",
+        "LPVOID"
+      ]
+    ],
+    "ret": "UINT_PTR",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "KillTimer",
+    "dll": "user32",
+    "params": [
+      [
+        "hWnd",
+        "HWND"
+      ],
+      [
+        "uIDEvent",
+        "UINT_PTR"
+      ]
+    ],
+    "ret": "BOOL",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "GetSystemMetrics",
+    "dll": "user32",
+    "params": [
+      [
+        "nIndex",
+        "int"
+      ]
+    ],
+    "ret": "int",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "SystemParametersInfoW",
+    "dll": "user32",
+    "params": [
+      [
+        "uiAction",
+        "UINT"
+      ],
+      [
+        "uiParam",
+        "UINT"
+      ],
+      [
+        "pvParam",
+        "LPVOID"
+      ],
+      [
+        "fWinIni",
+        "UINT"
+      ]
+    ],
+    "ret": "BOOL",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "GetKeyState",
+    "dll": "user32",
+    "params": [
+      [
+        "nVirtKey",
+        "int"
+      ]
+    ],
+    "ret": "SHORT",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "GetAsyncKeyState",
+    "dll": "user32",
+    "params": [
+      [
+        "vKey",
+        "int"
+      ]
+    ],
+    "ret": "SHORT",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "OpenClipboard",
+    "dll": "user32",
+    "params": [
+      [
+        "hWndNewOwner",
+        "HWND"
+      ]
+    ],
+    "ret": "BOOL",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "CloseClipboard",
+    "dll": "user32",
+    "params": [],
+    "ret": "BOOL",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "GetClipboardData",
+    "dll": "user32",
+    "params": [
+      [
+        "uFormat",
+        "UINT"
+      ]
+    ],
+    "ret": "HANDLE",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "SetClipboardData",
+    "dll": "user32",
+    "params": [
+      [
+        "uFormat",
+        "UINT"
+      ],
+      [
+        "hMem",
+        "HANDLE"
+      ]
+    ],
+    "ret": "HANDLE",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "EmptyClipboard",
+    "dll": "user32",
+    "params": [],
+    "ret": "BOOL",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "DrawTextW",
+    "dll": "user32",
+    "params": [
+      [
+        "hdc",
+        "HDC"
+      ],
+      [
+        "lpchText",
+        "LPCWSTR"
+      ],
+      [
+        "cchText",
+        "int"
+      ],
+      [
+        "lprc",
+        "LPRECT"
+      ],
+      [
+        "format",
+        "UINT"
+      ]
+    ],
+    "ret": "int",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "GetClassNameW",
+    "dll": "user32",
+    "params": [
+      [
+        "hWnd",
+        "HWND"
+      ],
+      [
+        "lpClassName",
+        "LPWSTR"
+      ],
+      [
+        "nMaxCount",
+        "int"
+      ]
+    ],
+    "ret": "int",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "EnumWindows",
+    "dll": "user32",
+    "params": [
+      [
+        "lpEnumFunc",
+        "LPVOID"
+      ],
+      [
+        "lParam",
+        "LPARAM"
+      ]
+    ],
+    "ret": "BOOL",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "CallWindowProcW",
+    "dll": "user32",
+    "params": [
+      [
+        "lpPrevWndFunc",
+        "LPVOID"
+      ],
+      [
+        "hWnd",
+        "HWND"
+      ],
+      [
+        "Msg",
+        "UINT"
+      ],
+      [
+        "wParam",
+        "WPARAM"
+      ],
+      [
+        "lParam",
+        "LPARAM"
+      ]
+    ],
+    "ret": "LRESULT",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "SetWindowLongPtrW",
+    "dll": "user32",
+    "params": [
+      [
+        "hWnd",
+        "HWND"
+      ],
+      [
+        "nIndex",
+        "int"
+      ],
+      [
+        "dwNewLong",
+        "LONG_PTR"
+      ]
+    ],
+    "ret": "LONG_PTR",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "GetWindowLongPtrW",
+    "dll": "user32",
+    "params": [
+      [
+        "hWnd",
+        "HWND"
+      ],
+      [
+        "nIndex",
+        "int"
+      ]
+    ],
+    "ret": "LONG_PTR",
+    "calling_conv": "stdcall"
+  }
+]

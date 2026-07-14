@@ -1,0 +1,1573 @@
+[
+  {
+    "name": "RegOpenKeyExW",
+    "dll": "advapi32",
+    "params": [
+      [
+        "hKey",
+        "HKEY"
+      ],
+      [
+        "lpSubKey",
+        "LPCWSTR"
+      ],
+      [
+        "ulOptions",
+        "DWORD"
+      ],
+      [
+        "samDesired",
+        "REGSAM"
+      ],
+      [
+        "phkResult",
+        "PHKEY"
+      ]
+    ],
+    "ret": "LSTATUS",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "RegOpenKeyExA",
+    "dll": "advapi32",
+    "params": [
+      [
+        "hKey",
+        "HKEY"
+      ],
+      [
+        "lpSubKey",
+        "LPCSTR"
+      ],
+      [
+        "ulOptions",
+        "DWORD"
+      ],
+      [
+        "samDesired",
+        "REGSAM"
+      ],
+      [
+        "phkResult",
+        "PHKEY"
+      ]
+    ],
+    "ret": "LSTATUS",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "RegCreateKeyExW",
+    "dll": "advapi32",
+    "params": [
+      [
+        "hKey",
+        "HKEY"
+      ],
+      [
+        "lpSubKey",
+        "LPCWSTR"
+      ],
+      [
+        "Reserved",
+        "DWORD"
+      ],
+      [
+        "lpClass",
+        "LPWSTR"
+      ],
+      [
+        "dwOptions",
+        "DWORD"
+      ],
+      [
+        "samDesired",
+        "REGSAM"
+      ],
+      [
+        "lpSecurityAttributes",
+        "LPVOID"
+      ],
+      [
+        "phkResult",
+        "PHKEY"
+      ],
+      [
+        "lpdwDisposition",
+        "LPDWORD"
+      ]
+    ],
+    "ret": "LSTATUS",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "RegCloseKey",
+    "dll": "advapi32",
+    "params": [
+      [
+        "hKey",
+        "HKEY"
+      ]
+    ],
+    "ret": "LSTATUS",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "RegQueryValueExW",
+    "dll": "advapi32",
+    "params": [
+      [
+        "hKey",
+        "HKEY"
+      ],
+      [
+        "lpValueName",
+        "LPCWSTR"
+      ],
+      [
+        "lpReserved",
+        "LPDWORD"
+      ],
+      [
+        "lpType",
+        "LPDWORD"
+      ],
+      [
+        "lpData",
+        "LPBYTE"
+      ],
+      [
+        "lpcbData",
+        "LPDWORD"
+      ]
+    ],
+    "ret": "LSTATUS",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "RegQueryValueExA",
+    "dll": "advapi32",
+    "params": [
+      [
+        "hKey",
+        "HKEY"
+      ],
+      [
+        "lpValueName",
+        "LPCSTR"
+      ],
+      [
+        "lpReserved",
+        "LPDWORD"
+      ],
+      [
+        "lpType",
+        "LPDWORD"
+      ],
+      [
+        "lpData",
+        "LPBYTE"
+      ],
+      [
+        "lpcbData",
+        "LPDWORD"
+      ]
+    ],
+    "ret": "LSTATUS",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "RegSetValueExW",
+    "dll": "advapi32",
+    "params": [
+      [
+        "hKey",
+        "HKEY"
+      ],
+      [
+        "lpValueName",
+        "LPCWSTR"
+      ],
+      [
+        "Reserved",
+        "DWORD"
+      ],
+      [
+        "dwType",
+        "DWORD"
+      ],
+      [
+        "lpData",
+        "BYTE"
+      ],
+      [
+        "cbData",
+        "DWORD"
+      ]
+    ],
+    "ret": "LSTATUS",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "RegSetValueExA",
+    "dll": "advapi32",
+    "params": [
+      [
+        "hKey",
+        "HKEY"
+      ],
+      [
+        "lpValueName",
+        "LPCSTR"
+      ],
+      [
+        "Reserved",
+        "DWORD"
+      ],
+      [
+        "dwType",
+        "DWORD"
+      ],
+      [
+        "lpData",
+        "BYTE"
+      ],
+      [
+        "cbData",
+        "DWORD"
+      ]
+    ],
+    "ret": "LSTATUS",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "RegDeleteKeyW",
+    "dll": "advapi32",
+    "params": [
+      [
+        "hKey",
+        "HKEY"
+      ],
+      [
+        "lpSubKey",
+        "LPCWSTR"
+      ]
+    ],
+    "ret": "LSTATUS",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "RegDeleteValueW",
+    "dll": "advapi32",
+    "params": [
+      [
+        "hKey",
+        "HKEY"
+      ],
+      [
+        "lpValueName",
+        "LPCWSTR"
+      ]
+    ],
+    "ret": "LSTATUS",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "RegEnumKeyExW",
+    "dll": "advapi32",
+    "params": [
+      [
+        "hKey",
+        "HKEY"
+      ],
+      [
+        "dwIndex",
+        "DWORD"
+      ],
+      [
+        "lpName",
+        "LPWSTR"
+      ],
+      [
+        "lpcchName",
+        "LPDWORD"
+      ],
+      [
+        "lpReserved",
+        "LPDWORD"
+      ],
+      [
+        "lpClass",
+        "LPWSTR"
+      ],
+      [
+        "lpcchClass",
+        "LPDWORD"
+      ],
+      [
+        "lpftLastWriteTime",
+        "PFILETIME"
+      ]
+    ],
+    "ret": "LSTATUS",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "RegEnumValueW",
+    "dll": "advapi32",
+    "params": [
+      [
+        "hKey",
+        "HKEY"
+      ],
+      [
+        "dwIndex",
+        "DWORD"
+      ],
+      [
+        "lpValueName",
+        "LPWSTR"
+      ],
+      [
+        "lpcchValueName",
+        "LPDWORD"
+      ],
+      [
+        "lpReserved",
+        "LPDWORD"
+      ],
+      [
+        "lpType",
+        "LPDWORD"
+      ],
+      [
+        "lpData",
+        "LPBYTE"
+      ],
+      [
+        "lpcbData",
+        "LPDWORD"
+      ]
+    ],
+    "ret": "LSTATUS",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "OpenProcessToken",
+    "dll": "advapi32",
+    "params": [
+      [
+        "ProcessHandle",
+        "HANDLE"
+      ],
+      [
+        "DesiredAccess",
+        "DWORD"
+      ],
+      [
+        "TokenHandle",
+        "PHANDLE"
+      ]
+    ],
+    "ret": "BOOL",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "OpenThreadToken",
+    "dll": "advapi32",
+    "params": [
+      [
+        "ThreadHandle",
+        "HANDLE"
+      ],
+      [
+        "DesiredAccess",
+        "DWORD"
+      ],
+      [
+        "OpenAsSelf",
+        "BOOL"
+      ],
+      [
+        "TokenHandle",
+        "PHANDLE"
+      ]
+    ],
+    "ret": "BOOL",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "GetTokenInformation",
+    "dll": "advapi32",
+    "params": [
+      [
+        "TokenHandle",
+        "HANDLE"
+      ],
+      [
+        "TokenInformationClass",
+        "TOKEN_INFORMATION_CLASS"
+      ],
+      [
+        "TokenInformation",
+        "LPVOID"
+      ],
+      [
+        "TokenInformationLength",
+        "DWORD"
+      ],
+      [
+        "ReturnLength",
+        "PDWORD"
+      ]
+    ],
+    "ret": "BOOL",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "AdjustTokenPrivileges",
+    "dll": "advapi32",
+    "params": [
+      [
+        "TokenHandle",
+        "HANDLE"
+      ],
+      [
+        "DisableAllPrivileges",
+        "BOOL"
+      ],
+      [
+        "NewState",
+        "PTOKEN_PRIVILEGES"
+      ],
+      [
+        "BufferLength",
+        "DWORD"
+      ],
+      [
+        "PreviousState",
+        "PTOKEN_PRIVILEGES"
+      ],
+      [
+        "ReturnLength",
+        "PDWORD"
+      ]
+    ],
+    "ret": "BOOL",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "LookupPrivilegeValueW",
+    "dll": "advapi32",
+    "params": [
+      [
+        "lpSystemName",
+        "LPCWSTR"
+      ],
+      [
+        "lpName",
+        "LPCWSTR"
+      ],
+      [
+        "lpLuid",
+        "PLUID"
+      ]
+    ],
+    "ret": "BOOL",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "LookupAccountNameW",
+    "dll": "advapi32",
+    "params": [
+      [
+        "lpSystemName",
+        "LPCWSTR"
+      ],
+      [
+        "lpAccountName",
+        "LPCWSTR"
+      ],
+      [
+        "Sid",
+        "PSID"
+      ],
+      [
+        "cbSid",
+        "LPDWORD"
+      ],
+      [
+        "ReferencedDomainName",
+        "LPWSTR"
+      ],
+      [
+        "cchReferencedDomainName",
+        "LPDWORD"
+      ],
+      [
+        "peUse",
+        "PSID_NAME_USE"
+      ]
+    ],
+    "ret": "BOOL",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "LookupAccountSidW",
+    "dll": "advapi32",
+    "params": [
+      [
+        "lpSystemName",
+        "LPCWSTR"
+      ],
+      [
+        "Sid",
+        "PSID"
+      ],
+      [
+        "Name",
+        "LPWSTR"
+      ],
+      [
+        "cchName",
+        "LPDWORD"
+      ],
+      [
+        "ReferencedDomainName",
+        "LPWSTR"
+      ],
+      [
+        "cchReferencedDomainName",
+        "LPDWORD"
+      ],
+      [
+        "peUse",
+        "PSID_NAME_USE"
+      ]
+    ],
+    "ret": "BOOL",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "ConvertSidToStringSidW",
+    "dll": "advapi32",
+    "params": [
+      [
+        "Sid",
+        "PSID"
+      ],
+      [
+        "StringSid",
+        "LPWSTR"
+      ]
+    ],
+    "ret": "BOOL",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "ConvertStringSidToSidW",
+    "dll": "advapi32",
+    "params": [
+      [
+        "StringSid",
+        "LPCWSTR"
+      ],
+      [
+        "Sid",
+        "PSID"
+      ]
+    ],
+    "ret": "BOOL",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "AllocateAndInitializeSid",
+    "dll": "advapi32",
+    "params": [
+      [
+        "pIdentifierAuthority",
+        "PSID_IDENTIFIER_AUTHORITY"
+      ],
+      [
+        "nSubAuthorityCount",
+        "BYTE"
+      ],
+      [
+        "nSubAuthority0",
+        "DWORD"
+      ],
+      [
+        "nSubAuthority1",
+        "DWORD"
+      ],
+      [
+        "nSubAuthority2",
+        "DWORD"
+      ],
+      [
+        "nSubAuthority3",
+        "DWORD"
+      ],
+      [
+        "nSubAuthority4",
+        "DWORD"
+      ],
+      [
+        "nSubAuthority5",
+        "DWORD"
+      ],
+      [
+        "nSubAuthority6",
+        "DWORD"
+      ],
+      [
+        "nSubAuthority7",
+        "DWORD"
+      ],
+      [
+        "pSid",
+        "PSID"
+      ]
+    ],
+    "ret": "BOOL",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "FreeSid",
+    "dll": "advapi32",
+    "params": [
+      [
+        "pSid",
+        "PSID"
+      ]
+    ],
+    "ret": "PVOID",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "CopySid",
+    "dll": "advapi32",
+    "params": [
+      [
+        "nDestinationSidLength",
+        "DWORD"
+      ],
+      [
+        "pDestinationSid",
+        "PSID"
+      ],
+      [
+        "pSourceSid",
+        "PSID"
+      ]
+    ],
+    "ret": "BOOL",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "EqualSid",
+    "dll": "advapi32",
+    "params": [
+      [
+        "pSid1",
+        "PSID"
+      ],
+      [
+        "pSid2",
+        "PSID"
+      ]
+    ],
+    "ret": "BOOL",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "IsValidSid",
+    "dll": "advapi32",
+    "params": [
+      [
+        "pSid",
+        "PSID"
+      ]
+    ],
+    "ret": "BOOL",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "GetLengthSid",
+    "dll": "advapi32",
+    "params": [
+      [
+        "pSid",
+        "PSID"
+      ]
+    ],
+    "ret": "DWORD",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "InitializeSecurityDescriptor",
+    "dll": "advapi32",
+    "params": [
+      [
+        "pSecurityDescriptor",
+        "PSECURITY_DESCRIPTOR"
+      ],
+      [
+        "dwRevision",
+        "DWORD"
+      ]
+    ],
+    "ret": "BOOL",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "SetSecurityDescriptorDacl",
+    "dll": "advapi32",
+    "params": [
+      [
+        "pSecurityDescriptor",
+        "PSECURITY_DESCRIPTOR"
+      ],
+      [
+        "bDaclPresent",
+        "BOOL"
+      ],
+      [
+        "pDacl",
+        "PACL"
+      ],
+      [
+        "bDaclDefaulted",
+        "BOOL"
+      ]
+    ],
+    "ret": "BOOL",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "GetSecurityDescriptorDacl",
+    "dll": "advapi32",
+    "params": [
+      [
+        "pSecurityDescriptor",
+        "PSECURITY_DESCRIPTOR"
+      ],
+      [
+        "lpbDaclPresent",
+        "LPBOOL"
+      ],
+      [
+        "pDacl",
+        "PACL"
+      ],
+      [
+        "lpbDaclDefaulted",
+        "LPBOOL"
+      ]
+    ],
+    "ret": "BOOL",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "SetFileSecurityW",
+    "dll": "advapi32",
+    "params": [
+      [
+        "lpFileName",
+        "LPCWSTR"
+      ],
+      [
+        "SecurityInformation",
+        "SECURITY_INFORMATION"
+      ],
+      [
+        "pSecurityDescriptor",
+        "PSECURITY_DESCRIPTOR"
+      ]
+    ],
+    "ret": "BOOL",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "GetFileSecurityW",
+    "dll": "advapi32",
+    "params": [
+      [
+        "lpFileName",
+        "LPCWSTR"
+      ],
+      [
+        "RequestedInformation",
+        "SECURITY_INFORMATION"
+      ],
+      [
+        "pSecurityDescriptor",
+        "PSECURITY_DESCRIPTOR"
+      ],
+      [
+        "nLength",
+        "DWORD"
+      ],
+      [
+        "lpnLengthNeeded",
+        "LPDWORD"
+      ]
+    ],
+    "ret": "BOOL",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "CryptAcquireContextW",
+    "dll": "advapi32",
+    "params": [
+      [
+        "phProv",
+        "HCRYPTPROV"
+      ],
+      [
+        "szContainer",
+        "LPCWSTR"
+      ],
+      [
+        "szProvider",
+        "LPCWSTR"
+      ],
+      [
+        "dwProvType",
+        "DWORD"
+      ],
+      [
+        "dwFlags",
+        "DWORD"
+      ]
+    ],
+    "ret": "BOOL",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "CryptReleaseContext",
+    "dll": "advapi32",
+    "params": [
+      [
+        "hProv",
+        "HCRYPTPROV"
+      ],
+      [
+        "dwFlags",
+        "DWORD"
+      ]
+    ],
+    "ret": "BOOL",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "CryptGenKey",
+    "dll": "advapi32",
+    "params": [
+      [
+        "hProv",
+        "HCRYPTPROV"
+      ],
+      [
+        "Algid",
+        "ALG_ID"
+      ],
+      [
+        "dwFlags",
+        "DWORD"
+      ],
+      [
+        "phKey",
+        "HCRYPTKEY"
+      ]
+    ],
+    "ret": "BOOL",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "CryptDestroyKey",
+    "dll": "advapi32",
+    "params": [
+      [
+        "hKey",
+        "HCRYPTKEY"
+      ]
+    ],
+    "ret": "BOOL",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "CryptEncrypt",
+    "dll": "advapi32",
+    "params": [
+      [
+        "hKey",
+        "HCRYPTKEY"
+      ],
+      [
+        "hHash",
+        "HCRYPTHASH"
+      ],
+      [
+        "Final",
+        "BOOL"
+      ],
+      [
+        "dwFlags",
+        "DWORD"
+      ],
+      [
+        "pbData",
+        "BYTE"
+      ],
+      [
+        "pdwDataLen",
+        "DWORD"
+      ],
+      [
+        "dwBufLen",
+        "DWORD"
+      ]
+    ],
+    "ret": "BOOL",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "CryptDecrypt",
+    "dll": "advapi32",
+    "params": [
+      [
+        "hKey",
+        "HCRYPTKEY"
+      ],
+      [
+        "hHash",
+        "HCRYPTHASH"
+      ],
+      [
+        "Final",
+        "BOOL"
+      ],
+      [
+        "dwFlags",
+        "DWORD"
+      ],
+      [
+        "pbData",
+        "BYTE"
+      ],
+      [
+        "pdwDataLen",
+        "DWORD"
+      ]
+    ],
+    "ret": "BOOL",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "CryptCreateHash",
+    "dll": "advapi32",
+    "params": [
+      [
+        "hProv",
+        "HCRYPTPROV"
+      ],
+      [
+        "Algid",
+        "ALG_ID"
+      ],
+      [
+        "hKey",
+        "HCRYPTKEY"
+      ],
+      [
+        "dwFlags",
+        "DWORD"
+      ],
+      [
+        "phHash",
+        "HCRYPTHASH"
+      ]
+    ],
+    "ret": "BOOL",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "CryptHashData",
+    "dll": "advapi32",
+    "params": [
+      [
+        "hHash",
+        "HCRYPTHASH"
+      ],
+      [
+        "pbData",
+        "BYTE"
+      ],
+      [
+        "dwDataLen",
+        "DWORD"
+      ],
+      [
+        "dwFlags",
+        "DWORD"
+      ]
+    ],
+    "ret": "BOOL",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "CryptGetHashParam",
+    "dll": "advapi32",
+    "params": [
+      [
+        "hHash",
+        "HCRYPTHASH"
+      ],
+      [
+        "dwParam",
+        "DWORD"
+      ],
+      [
+        "pbData",
+        "BYTE"
+      ],
+      [
+        "pdwDataLen",
+        "DWORD"
+      ],
+      [
+        "dwFlags",
+        "DWORD"
+      ]
+    ],
+    "ret": "BOOL",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "CryptDestroyHash",
+    "dll": "advapi32",
+    "params": [
+      [
+        "hHash",
+        "HCRYPTHASH"
+      ]
+    ],
+    "ret": "BOOL",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "CryptImportKey",
+    "dll": "advapi32",
+    "params": [
+      [
+        "hProv",
+        "HCRYPTPROV"
+      ],
+      [
+        "pbData",
+        "BYTE"
+      ],
+      [
+        "dwDataLen",
+        "DWORD"
+      ],
+      [
+        "hPubKey",
+        "HCRYPTKEY"
+      ],
+      [
+        "dwFlags",
+        "DWORD"
+      ],
+      [
+        "phKey",
+        "HCRYPTKEY"
+      ]
+    ],
+    "ret": "BOOL",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "CryptExportKey",
+    "dll": "advapi32",
+    "params": [
+      [
+        "hKey",
+        "HCRYPTKEY"
+      ],
+      [
+        "hExpKey",
+        "HCRYPTKEY"
+      ],
+      [
+        "dwBlobType",
+        "DWORD"
+      ],
+      [
+        "dwFlags",
+        "DWORD"
+      ],
+      [
+        "pbData",
+        "BYTE"
+      ],
+      [
+        "pdwDataLen",
+        "DWORD"
+      ]
+    ],
+    "ret": "BOOL",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "StartServiceW",
+    "dll": "advapi32",
+    "params": [
+      [
+        "hService",
+        "SC_HANDLE"
+      ],
+      [
+        "dwNumServiceArgs",
+        "DWORD"
+      ],
+      [
+        "lpServiceArgVectors",
+        "LPCWSTR"
+      ]
+    ],
+    "ret": "BOOL",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "OpenSCManagerW",
+    "dll": "advapi32",
+    "params": [
+      [
+        "lpMachineName",
+        "LPCWSTR"
+      ],
+      [
+        "lpDatabaseName",
+        "LPCWSTR"
+      ],
+      [
+        "dwDesiredAccess",
+        "DWORD"
+      ]
+    ],
+    "ret": "SC_HANDLE",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "OpenServiceW",
+    "dll": "advapi32",
+    "params": [
+      [
+        "hSCManager",
+        "SC_HANDLE"
+      ],
+      [
+        "lpServiceName",
+        "LPCWSTR"
+      ],
+      [
+        "dwDesiredAccess",
+        "DWORD"
+      ]
+    ],
+    "ret": "SC_HANDLE",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "CreateServiceW",
+    "dll": "advapi32",
+    "params": [
+      [
+        "hSCManager",
+        "SC_HANDLE"
+      ],
+      [
+        "lpServiceName",
+        "LPCWSTR"
+      ],
+      [
+        "lpDisplayName",
+        "LPCWSTR"
+      ],
+      [
+        "dwDesiredAccess",
+        "DWORD"
+      ],
+      [
+        "dwServiceType",
+        "DWORD"
+      ],
+      [
+        "dwStartType",
+        "DWORD"
+      ],
+      [
+        "dwErrorControl",
+        "DWORD"
+      ],
+      [
+        "lpBinaryPathName",
+        "LPCWSTR"
+      ],
+      [
+        "lpLoadOrderGroup",
+        "LPCWSTR"
+      ],
+      [
+        "lpdwTagId",
+        "LPDWORD"
+      ],
+      [
+        "lpDependencies",
+        "LPCWSTR"
+      ],
+      [
+        "lpServiceStartName",
+        "LPCWSTR"
+      ],
+      [
+        "lpPassword",
+        "LPCWSTR"
+      ]
+    ],
+    "ret": "SC_HANDLE",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "DeleteService",
+    "dll": "advapi32",
+    "params": [
+      [
+        "hService",
+        "SC_HANDLE"
+      ]
+    ],
+    "ret": "BOOL",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "CloseServiceHandle",
+    "dll": "advapi32",
+    "params": [
+      [
+        "hSCObject",
+        "SC_HANDLE"
+      ]
+    ],
+    "ret": "BOOL",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "ControlService",
+    "dll": "advapi32",
+    "params": [
+      [
+        "hService",
+        "SC_HANDLE"
+      ],
+      [
+        "dwControl",
+        "DWORD"
+      ],
+      [
+        "lpServiceStatus",
+        "LPSERVICE_STATUS"
+      ]
+    ],
+    "ret": "BOOL",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "QueryServiceStatus",
+    "dll": "advapi32",
+    "params": [
+      [
+        "hService",
+        "SC_HANDLE"
+      ],
+      [
+        "lpServiceStatus",
+        "LPSERVICE_STATUS"
+      ]
+    ],
+    "ret": "BOOL",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "StartServiceCtrlDispatcherW",
+    "dll": "advapi32",
+    "params": [
+      [
+        "lpServiceStartTable",
+        "LPSERVICE_TABLE_ENTRYW"
+      ]
+    ],
+    "ret": "BOOL",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "RegisterServiceCtrlHandlerW",
+    "dll": "advapi32",
+    "params": [
+      [
+        "lpServiceName",
+        "LPCWSTR"
+      ],
+      [
+        "lpHandlerProc",
+        "LPVOID"
+      ]
+    ],
+    "ret": "SERVICE_STATUS_HANDLE",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "SetServiceStatus",
+    "dll": "advapi32",
+    "params": [
+      [
+        "hServiceStatus",
+        "SERVICE_STATUS_HANDLE"
+      ],
+      [
+        "lpServiceStatus",
+        "LPSERVICE_STATUS"
+      ]
+    ],
+    "ret": "BOOL",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "LogonUserW",
+    "dll": "advapi32",
+    "params": [
+      [
+        "lpszUsername",
+        "LPCWSTR"
+      ],
+      [
+        "lpszDomain",
+        "LPCWSTR"
+      ],
+      [
+        "lpszPassword",
+        "LPCWSTR"
+      ],
+      [
+        "dwLogonType",
+        "DWORD"
+      ],
+      [
+        "dwLogonProvider",
+        "DWORD"
+      ],
+      [
+        "phToken",
+        "PHANDLE"
+      ]
+    ],
+    "ret": "BOOL",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "ImpersonateLoggedOnUser",
+    "dll": "advapi32",
+    "params": [
+      [
+        "hToken",
+        "HANDLE"
+      ]
+    ],
+    "ret": "BOOL",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "RevertToSelf",
+    "dll": "advapi32",
+    "params": [],
+    "ret": "BOOL",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "DuplicateTokenEx",
+    "dll": "advapi32",
+    "params": [
+      [
+        "hExistingToken",
+        "HANDLE"
+      ],
+      [
+        "dwDesiredAccess",
+        "DWORD"
+      ],
+      [
+        "lpTokenAttributes",
+        "LPVOID"
+      ],
+      [
+        "ImpersonationLevel",
+        "SECURITY_IMPERSONATION_LEVEL"
+      ],
+      [
+        "TokenType",
+        "TOKEN_TYPE"
+      ],
+      [
+        "phNewToken",
+        "PHANDLE"
+      ]
+    ],
+    "ret": "BOOL",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "CredReadW",
+    "dll": "advapi32",
+    "params": [
+      [
+        "TargetName",
+        "LPCWSTR"
+      ],
+      [
+        "Type",
+        "DWORD"
+      ],
+      [
+        "Flags",
+        "DWORD"
+      ],
+      [
+        "Credential",
+        "PCREDENTIALW"
+      ]
+    ],
+    "ret": "BOOL",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "CredWriteW",
+    "dll": "advapi32",
+    "params": [
+      [
+        "Credential",
+        "PCREDENTIALW"
+      ],
+      [
+        "Flags",
+        "DWORD"
+      ]
+    ],
+    "ret": "BOOL",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "CredFree",
+    "dll": "advapi32",
+    "params": [
+      [
+        "Buffer",
+        "PVOID"
+      ]
+    ],
+    "ret": "void",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "CredDeleteW",
+    "dll": "advapi32",
+    "params": [
+      [
+        "TargetName",
+        "LPCWSTR"
+      ],
+      [
+        "Type",
+        "DWORD"
+      ],
+      [
+        "Flags",
+        "DWORD"
+      ]
+    ],
+    "ret": "BOOL",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "GetUserNameW",
+    "dll": "advapi32",
+    "params": [
+      [
+        "lpBuffer",
+        "LPWSTR"
+      ],
+      [
+        "pcbBuffer",
+        "LPDWORD"
+      ]
+    ],
+    "ret": "BOOL",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "AccessCheck",
+    "dll": "advapi32",
+    "params": [
+      [
+        "pSecurityDescriptor",
+        "PSECURITY_DESCRIPTOR"
+      ],
+      [
+        "ClientToken",
+        "HANDLE"
+      ],
+      [
+        "DesiredAccess",
+        "DWORD"
+      ],
+      [
+        "GenericMapping",
+        "PGENERIC_MAPPING"
+      ],
+      [
+        "PrivilegeSet",
+        "PPRIVILEGE_SET"
+      ],
+      [
+        "PrivilegeSetLength",
+        "LPDWORD"
+      ],
+      [
+        "GrantedAccess",
+        "LPDWORD"
+      ],
+      [
+        "AccessStatus",
+        "LPBOOL"
+      ]
+    ],
+    "ret": "BOOL",
+    "calling_conv": "stdcall"
+  },
+  {
+    "name": "MapGenericMask",
+    "dll": "advapi32",
+    "params": [
+      [
+        "AccessMask",
+        "PDWORD"
+      ],
+      [
+        "GenericMapping",
+        "PGENERIC_MAPPING"
+      ]
+    ],
+    "ret": "void",
+    "calling_conv": "stdcall"
+  }
+]
