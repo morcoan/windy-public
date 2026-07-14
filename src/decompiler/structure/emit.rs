@@ -1195,10 +1195,9 @@ fn try_simplify_dual_flag_lt(line: &str) -> Option<String> {
         (false, r)
     } else if let Some(r) = rest.strip_prefix("!=") {
         (true, r)
-    } else if let Some(r) = rest.strip_prefix("==") {
-        (false, r)
     } else {
-        return None;
+        let r = rest.strip_prefix("==")?;
+        (false, r)
     };
     let _ = neq; // both forms represent the same LT test under MSVC flag soup
     // Second arm: ((LHS-RHS)<0x0) or similar
@@ -1725,10 +1724,9 @@ fn try_rewrite_signed_of_eq(line: &str) -> Option<String> {
     let rest = &compact[pos + needle.len()..];
     let (end_rel, zero_len) = if let Some(i) = rest.find(",0x0") {
         (i, 4)
-    } else if let Some(i) = rest.find(",0") {
-        (i, 2)
     } else {
-        return None;
+        let i = rest.find(",0")?;
+        (i, 2)
     };
     let end = pos + needle.len() + end_rel + zero_len;
     let mut new_c = String::new();
@@ -5255,10 +5253,9 @@ fn parse_if_not_break(line: &str) -> Option<String> {
     // Unwrap !(...)
     let cond = if let Some(inner) = inside.strip_prefix("!(").and_then(|s| s.strip_suffix(')')) {
         inner.trim().to_string()
-    } else if let Some(inner) = inside.strip_prefix('!') {
-        inner.trim().to_string()
     } else {
-        return None;
+        let inner = inside.strip_prefix('!')?;
+        inner.trim().to_string()
     };
     if cond.is_empty() {
         return None;

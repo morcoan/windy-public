@@ -2335,10 +2335,9 @@ fn resolve_arg_string_value(
     }
     let va = if let Some(hex) = source.strip_prefix("constant:") {
         parse_hex_u64(hex)?
-    } else if let Some(at) = source.rfind('@') {
-        parse_hex_u64(&source[at + 1..])?
     } else {
-        return None;
+        let at = source.rfind('@')?;
+        parse_hex_u64(&source[at + 1..])?
     };
     if va == 0 || !project.address_space.is_data_va(va) {
         return None;
