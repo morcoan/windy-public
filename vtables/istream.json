@@ -1,0 +1,91 @@
+[
+  {
+    "interface": "IStream",
+    "methods": [
+      {
+        "offset": 0,
+        "name": "QueryInterface",
+        "params": [["riid", "void*"], ["ppv", "void**"]],
+        "ret": "int32"
+      },
+      {
+        "offset": 8,
+        "name": "AddRef",
+        "params": [],
+        "ret": "uint32"
+      },
+      {
+        "offset": 16,
+        "name": "Release",
+        "params": [],
+        "ret": "uint32"
+      },
+      {
+        "offset": 24,
+        "name": "Read",
+        "params": [["pv", "void*"], ["cb", "uint32"], ["pcbRead", "uint32*"]],
+        "ret": "int32"
+      },
+      {
+        "offset": 32,
+        "name": "Write",
+        "params": [["pv", "void*"], ["cb", "uint32"], ["pcbWritten", "uint32*"]],
+        "ret": "int32"
+      },
+      {
+        "offset": 40,
+        "name": "Seek",
+        "params": [["dlibMove", "int64"], ["dwOrigin", "uint32"], ["plibNewPosition", "uint64*"]],
+        "ret": "int32"
+      },
+      {
+        "offset": 48,
+        "name": "SetSize",
+        "params": [["libNewSize", "uint64"]],
+        "ret": "int32"
+      },
+      {
+        "offset": 56,
+        "name": "CopyTo",
+        "params": [["pstm", "void*"], ["cb", "uint64"], ["pcbRead", "uint64*"], ["pcbWritten", "uint64*"]],
+        "ret": "int32"
+      },
+      {
+        "offset": 64,
+        "name": "Commit",
+        "params": [["grfCommitFlags", "uint32"]],
+        "ret": "int32"
+      },
+      {
+        "offset": 72,
+        "name": "Revert",
+        "params": [],
+        "ret": "int32"
+      },
+      {
+        "offset": 80,
+        "name": "LockRegion",
+        "params": [["libOffset", "uint64"], ["cb", "uint64"], ["dwLockType", "uint32"]],
+        "ret": "int32"
+      },
+      {
+        "offset": 88,
+        "name": "UnlockRegion",
+        "params": [["libOffset", "uint64"], ["cb", "uint64"], ["dwLockType", "uint32"]],
+        "ret": "int32"
+      },
+      {
+        "offset": 96,
+        "name": "Stat",
+        "params": [["pstatstg", "void*"], ["grfStatFlag", "uint32"]],
+        "ret": "int32"
+      },
+      {
+        "offset": 104,
+        "name": "Clone",
+        "params": [["ppstm", "void**"]],
+        "ret": "int32"
+      }
+    ]
+  }
+]

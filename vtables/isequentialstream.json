@@ -1,0 +1,37 @@
+[
+  {
+    "interface": "ISequentialStream",
+    "methods": [
+      {
+        "offset": 0,
+        "name": "QueryInterface",
+        "params": [["riid", "void*"], ["ppv", "void**"]],
+        "ret": "int32"
+      },
+      {
+        "offset": 8,
+        "name": "AddRef",
+        "params": [],
+        "ret": "uint32"
+      },
+      {
+        "offset": 16,
+        "name": "Release",
+        "params": [],
+        "ret": "uint32"
+      },
+      {
+        "offset": 24,
+        "name": "Read",
+        "params": [["pv", "void*"], ["cb", "uint32"], ["pcbRead", "uint32*"]],
+        "ret": "int32"
+      },
+      {
+        "offset": 32,
+        "name": "Write",
+        "params": [["pv", "void*"], ["cb", "uint32"], ["pcbWritten", "uint32*"]],
+        "ret": "int32"
+      }
+    ]
+  }
+]

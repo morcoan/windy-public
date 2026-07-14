@@ -1,0 +1,15 @@
+# Linker configuration for the Windy build.
+#
+# The vendored SLEIGH P-code decoder (rsleigh) lifts x86 instructions with deep
+# recursion, so the test harness and the binary need a larger than default
+# stack on Windows/MSVC. Without this, `cargo test` overflows the stack inside
+# `rsleigh_api::Decoder::decode` for even trivial instructions.
+
+[target.x86_64-pc-windows-msvc]
+rustflags = [
+    "-C", "target-feature=+crt-static",
+    "-C", "link-args=/STACK:134217728",
+]
+
+[target.i686-pc-windows-msvc]
+rustflags = ["-C", "link-args=/STACK:134217728"]
