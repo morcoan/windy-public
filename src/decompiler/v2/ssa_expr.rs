@@ -63,21 +63,51 @@ fn expr_of_op(op: &SsaOp, env: &HashMap<SsaVar, Expr>) -> Option<Expr> {
             }
             lookup_vn(*input, &op.uses, env)
         }
-        SsaOpKind::Pcode(PcodeOp::IntAdd { left, right, .. }) => Some(Expr::BinOp {
-            op: "+".into(),
-            lhs: Box::new(lookup_vn(*left, &op.uses, env).unwrap_or_else(|| name_fb("a"))),
-            rhs: Box::new(lookup_vn(*right, &op.uses, env).unwrap_or_else(|| name_fb("b"))),
-        }),
+        SsaOpKind::Pcode(PcodeOp::IntAdd { left, right, .. }) => {
+            let lhs = lookup_vn(*left, &op.uses, env).unwrap_or_else(|| name_fb("a"));
+            let rhs = lookup_vn(*right, &op.uses, env).unwrap_or_else(|| name_fb("b"));
+            // Identity: x + 0 / 0 + x (common after flag/addr arithmetic).
+            if is_int_zero(&rhs) {
+                Some(lhs)
+            } else if is_int_zero(&lhs) {
+                Some(rhs)
+            } else if expr_struct_eq(&lhs, &rhs) {
+                // LEA `[reg+reg]` / `x+x` is strength-reduced `x*2`.
+                Some(Expr::BinOp {
+                    op: "*".into(),
+                    lhs: Box::new(lhs),
+                    rhs: Box::new(Expr::UInt { value: 2, bits: 32 }),
+                })
+            } else {
+                Some(Expr::BinOp {
+                    op: "+".into(),
+                    lhs: Box::new(lhs),
+                    rhs: Box::new(rhs),
+                })
+            }
+        }
         SsaOpKind::Pcode(PcodeOp::IntSub { left, right, .. }) => Some(Expr::BinOp {
             op: "-".into(),
             lhs: Box::new(lookup_vn(*left, &op.uses, env).unwrap_or_else(|| name_fb("a"))),
             rhs: Box::new(lookup_vn(*right, &op.uses, env).unwrap_or_else(|| name_fb("b"))),
         }),
-        SsaOpKind::Pcode(PcodeOp::IntMult { left, right, .. }) => Some(Expr::BinOp {
-            op: "*".into(),
-            lhs: Box::new(lookup_vn(*left, &op.uses, env).unwrap_or_else(|| name_fb("a"))),
-            rhs: Box::new(lookup_vn(*right, &op.uses, env).unwrap_or_else(|| name_fb("b"))),
-        }),
+        SsaOpKind::Pcode(PcodeOp::IntMult { left, right, .. }) => {
+            let lhs = lookup_vn(*left, &op.uses, env).unwrap_or_else(|| name_fb("a"));
+            let rhs = lookup_vn(*right, &op.uses, env).unwrap_or_else(|| name_fb("b"));
+            // LEA scale identity: `x * 1` must not outrank a full `a+b+c+d`
+            // return expression under best_return scoring.
+            if is_int_one(&rhs) {
+                Some(lhs)
+            } else if is_int_one(&lhs) {
+                Some(rhs)
+            } else {
+                Some(Expr::BinOp {
+                    op: "*".into(),
+                    lhs: Box::new(lhs),
+                    rhs: Box::new(rhs),
+                })
+            }
+        }
         SsaOpKind::Pcode(PcodeOp::IntSDiv { left, right, .. })
         | SsaOpKind::Pcode(PcodeOp::IntDiv { left, right, .. }) => Some(Expr::BinOp {
             op: "/".into(),
@@ -176,9 +206,35 @@ fn expr_of_op(op: &SsaOp, env: &HashMap<SsaVar, Expr>) -> Option<Expr> {
             op: "-".into(),
             arg: Box::new(lookup_vn(*input, &op.uses, env).unwrap_or_else(|| name_fb("v"))),
         }),
-        SsaOpKind::Pcode(PcodeOp::Load { ptr, .. }) => Some(Expr::Load {
-            addr: Box::new(lookup_vn(*ptr, &op.uses, env).unwrap_or_else(|| name_fb("p"))),
-        }),
+        // Low-half / truncation of a richer value (IDIV quotient is often
+        // Subpiece(IntSDiv(...), lsb=0)). Treat as the input expression.
+        SsaOpKind::Pcode(PcodeOp::Subpiece { input, lsb: 0, .. }) => {
+            lookup_vn(*input, &op.uses, env)
+        }
+        // Track values written to *non-home* stack slots so a later Load of the
+        // same SSA version recovers the stored expression (MSVC return-slot /
+        // local pattern). Param-home echoes stay unmapped so they do not steal
+        // best-return selection from real arithmetic on optimized kernels.
+        SsaOpKind::Pcode(PcodeOp::Store { val, .. }) => {
+            if crate::decompiler::normalize::is_param_home_store(op) {
+                None
+            } else {
+                lookup_vn(*val, &op.uses, env)
+            }
+        }
+        SsaOpKind::Pcode(PcodeOp::Load { ptr, .. }) => {
+            // Store-to-load forwarding for stack slots that carry a mapped value.
+            for u in &op.uses {
+                if matches!(u.location, Location::StackSlot { .. })
+                    && let Some(e) = env.get(u)
+                {
+                    return Some(e.clone());
+                }
+            }
+            Some(Expr::Load {
+                addr: Box::new(lookup_vn(*ptr, &op.uses, env).unwrap_or_else(|| name_fb("p"))),
+            })
+        }
         SsaOpKind::Pcode(PcodeOp::IntZext { input, .. })
         | SsaOpKind::Pcode(PcodeOp::IntSext { input, .. }) => lookup_vn(*input, &op.uses, env),
         _ => None,
@@ -218,6 +274,45 @@ fn name_fb(s: &str) -> Expr {
     Expr::Name { name: s.into() }
 }
 
+fn is_int_zero(e: &Expr) -> bool {
+    matches!(e, Expr::Int { value: 0, .. } | Expr::UInt { value: 0, .. })
+}
+
+fn is_int_one(e: &Expr) -> bool {
+    matches!(e, Expr::Int { value: 1, .. } | Expr::UInt { value: 1, .. })
+}
+
+fn expr_struct_eq(a: &Expr, b: &Expr) -> bool {
+    // Cheap structural equality for strength-reduction recovery (x+x → x*2).
+    format!("{a:?}") == format!("{b:?}")
+}
+
+fn is_frame_reg_name(e: &Expr) -> bool {
+    matches!(
+        e,
+        Expr::Name { name } if name == "rsp" || name == "rbp" || name == "esp" || name == "ebp"
+    )
+}
+
+/// Whether an SSA use is the renamed form of `vn` (register container / unique
+/// offset / stack). Binary ops feed `uses` in `visit_reads` order (left then
+/// right); matching by location prevents both operands from collapsing to the
+/// first env hit.
+fn vn_matches_use(vn: rsleigh_api::Varnode, u: &SsaVar) -> bool {
+    match &u.location {
+        Location::Register { base_offset } if vn.space == AddressSpaceId::Register => {
+            let base = crate::decompiler::ssa::lower::register_container_base(vn.offset);
+            *base_offset == base || *base_offset == vn.offset
+        }
+        Location::Unique { offset, size, .. } if vn.space == AddressSpaceId::Unique => {
+            *offset == vn.offset && (*size == 0 || *size == vn.size)
+        }
+        Location::StackSlot { .. } => false,
+        Location::RawRam => vn.space == AddressSpaceId::Ram,
+        _ => false,
+    }
+}
+
 fn lookup_vn(
     vn: rsleigh_api::Varnode,
     uses: &[SsaVar],
@@ -226,17 +321,36 @@ fn lookup_vn(
     if vn.space == AddressSpaceId::Const {
         return Some(const_expr(vn.offset, vn.size));
     }
-    // Prefer env hits on matching uses.
+    // Prefer env hits on uses that actually correspond to this varnode.
     for u in uses {
+        if !vn_matches_use(vn, u) {
+            continue;
+        }
         if let Some(e) = env.get(u) {
             return Some(e.clone());
         }
+        if let Location::Register { base_offset } = u.location {
+            return Some(Expr::Name {
+                name: reg_name(base_offset),
+            });
+        }
+        if let Location::StackSlot { disp, .. } = u.location {
+            return Some(Expr::Name {
+                name: stack_name(disp),
+            });
+        }
+        if let Location::Unique { .. } = u.location {
+            // Defined later / not yet in env — no stable surface name.
+            return None;
+        }
     }
-    for u in uses {
-        if let Location::Register { base_offset } = u.location
-            && vn.space == AddressSpaceId::Register
-            && (vn.offset == base_offset || vn.offset / 8 * 8 == base_offset)
-        {
+    // Unary / single-use fallback (const already handled; remaining use is the value).
+    if uses.len() == 1 {
+        let u = &uses[0];
+        if let Some(e) = env.get(u) {
+            return Some(e.clone());
+        }
+        if let Location::Register { base_offset } = u.location {
             return Some(Expr::Name {
                 name: reg_name(base_offset),
             });
@@ -249,7 +363,9 @@ fn lookup_vn(
     }
     if vn.space == AddressSpaceId::Register {
         return Some(Expr::Name {
-            name: reg_name(vn.offset),
+            name: reg_name(crate::decompiler::ssa::lower::register_container_base(
+                vn.offset,
+            )),
         });
     }
     None
@@ -280,6 +396,11 @@ fn score_expr(e: &Expr) -> i32 {
             if (op == "^" || op == "-") && format!("{lhs:?}") == format!("{rhs:?}") {
                 return 0;
             }
+            // Bare frame-pointer arithmetic (rsp/rbp ± K) is address formation,
+            // not a source-level return. Stack *loads* of formals still score.
+            if is_frame_reg_name(lhs) || is_frame_reg_name(rhs) {
+                return 1;
+            }
             let base = match op.as_str() {
                 "^" => 14, // CRC-style
                 "*" | "/" | "%" => 12,
@@ -290,9 +411,8 @@ fn score_expr(e: &Expr) -> i32 {
             base + score_expr(lhs).min(3) + score_expr(rhs).min(3)
         }
         Expr::Load { addr } => {
-            // Prefer arg/local loads over rsp epilogue soup.
-            let s = format!("{addr:?}");
-            if s.contains("rsp") { 2 } else { 8 }
+            // Prefer arg/local loads over raw rsp epilogue soup.
+            if is_frame_reg_name(addr) { 2 } else { 8 }
         }
         Expr::UnaryOp { arg, .. } => 5 + score_expr(arg).min(3),
         Expr::Select { .. } => 14,
@@ -955,6 +1075,152 @@ mod tests {
         assert!(
             !text.contains("&0x1)==0x0") && !text.contains("&0x1)==0"),
             "must not ship SHL flag soup as the return:\n{}",
+            art.text
+        );
+    }
+
+    #[test]
+    fn lookup_vn_distinguishes_binary_operands() {
+        // Two distinct SSA uses must not collapse to the first env hit.
+        let left = SsaVar {
+            location: Location::Unique {
+                instruction_va: 0x1000,
+                offset: 0xaaa,
+                size: 8,
+            },
+            version: 1,
+        };
+        let right = SsaVar {
+            location: Location::Unique {
+                instruction_va: 0x1000,
+                offset: 0xbbb,
+                size: 8,
+            },
+            version: 1,
+        };
+        let mut env = HashMap::new();
+        env.insert(
+            left.clone(),
+            Expr::Name {
+                name: "dividend".into(),
+            },
+        );
+        env.insert(
+            right.clone(),
+            Expr::Name {
+                name: "divisor".into(),
+            },
+        );
+        let uses = vec![left.clone(), right.clone()];
+        let left_vn = Varnode {
+            space: AddressSpaceId::Unique,
+            offset: 0xaaa,
+            size: 8,
+        };
+        let right_vn = Varnode {
+            space: AddressSpaceId::Unique,
+            offset: 0xbbb,
+            size: 8,
+        };
+        match lookup_vn(left_vn, &uses, &env) {
+            Some(Expr::Name { name }) => assert_eq!(name, "dividend"),
+            other => panic!("left: {other:?}"),
+        }
+        match lookup_vn(right_vn, &uses, &env) {
+            Some(Expr::Name { name }) => assert_eq!(name, "divisor"),
+            other => panic!("right: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a04_idiv_pure_v2_surfaces_divide_operator() {
+        use crate::project::Project;
+        let pe = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("eval/grand/bin/P0/a04_div_rem.exe");
+        if !pe.is_file() {
+            return;
+        }
+        let dir = std::env::temp_dir().join("windy-ratchet-a04-idiv");
+        let _ = std::fs::create_dir_all(&dir);
+        let project =
+            Project::open_with_data_dir_and_entry_hints(&pe, &dir, &[0x1400_01000, 0x1400_01040])
+                .expect("open");
+        let art = project
+            .function_decompile_artifact(
+                0x1400_01000,
+                crate::decompiler::v2::DecompileOptions::pure_no_fallback(),
+            )
+            .expect("artifact");
+        assert!(art.fallback_reason.is_none(), "{art:?}");
+        assert!(
+            art.text.contains('/'),
+            "expected `/` in idiv pure-v2 return path, got:\n{}",
+            art.text
+        );
+        // Must not ship only the return-slot load with a lost quotient.
+        let compact = art.text.replace(' ', "");
+        assert!(
+            !(compact.contains("return*(local_0)") && !compact.contains('/')),
+            "return-slot soup without divide:\n{}",
+            art.text
+        );
+    }
+
+    #[test]
+    fn e01_four_args_p1_pure_v2_keeps_add_chain() {
+        use crate::project::Project;
+        let pe = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("eval/grand/bin/P1/e01_four_args.exe");
+        if !pe.is_file() {
+            return;
+        }
+        let dir = std::env::temp_dir().join("windy-ratchet-e01-four");
+        let _ = std::fs::create_dir_all(&dir);
+        let project =
+            Project::open_with_data_dir_and_entry_hints(&pe, &dir, &[0x1400_01000]).unwrap();
+        let art = project
+            .function_decompile_artifact(
+                0x1400_01000,
+                crate::decompiler::v2::DecompileOptions::pure_no_fallback(),
+            )
+            .expect("artifact");
+        assert!(art.fallback_reason.is_none(), "{art:?}");
+        assert!(
+            art.text.contains('+'),
+            "four-arg sum must keep `+` (not LEA scale x*1 alone):\n{}",
+            art.text
+        );
+        assert!(
+            !art.text.replace(' ', "").contains("*0x1")
+                && !art.text.replace(' ', "").contains("*1;"),
+            "must not ship bare LEA scale as return:\n{}",
+            art.text
+        );
+    }
+
+    #[test]
+    fn a04_irem_pure_v2_surfaces_remainder_operator() {
+        use crate::project::Project;
+        let pe = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("eval/grand/bin/P0/a04_div_rem.exe");
+        if !pe.is_file() {
+            return;
+        }
+        let dir = std::env::temp_dir().join("windy-ratchet-a04-irem");
+        let _ = std::fs::create_dir_all(&dir);
+        let project =
+            Project::open_with_data_dir_and_entry_hints(&pe, &dir, &[0x1400_01000, 0x1400_01040])
+                .expect("open");
+        let art = project
+            .function_decompile_artifact(
+                0x1400_01040,
+                crate::decompiler::v2::DecompileOptions::pure_no_fallback(),
+            )
+            .expect("artifact");
+        assert!(art.fallback_reason.is_none(), "{art:?}");
+        assert!(
+            art.text.contains('%'),
+            "expected `%` in irem pure-v2 return path, got:\n{}",
             art.text
         );
     }
