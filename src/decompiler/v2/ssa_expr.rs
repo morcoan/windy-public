@@ -1584,6 +1584,34 @@ mod tests {
         );
     }
 
+    /// P0 classify is a multi-if ladder; leaf freeload must not erase `if`.
+    #[test]
+    fn c03_classify_p0_pure_v2_surfaces_if() {
+        use crate::project::Project;
+        let pe = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("eval/grand/bin/P0/c03_dispatch.exe");
+        if !pe.is_file() {
+            return;
+        }
+        let dir = std::env::temp_dir().join("windy-ratchet-c03-if");
+        let _ = std::fs::create_dir_all(&dir);
+        let entry = 0x1400_01000u64;
+        let project =
+            Project::open_with_data_dir_and_entry_hints(&pe, &dir, &[entry]).expect("open");
+        let art = project
+            .function_decompile_artifact(
+                entry,
+                crate::decompiler::v2::DecompileOptions::pure_no_fallback(),
+            )
+            .expect("artifact");
+        assert!(art.fallback_reason.is_none(), "{art:?}");
+        assert!(
+            art.text.contains("if"),
+            "classify multi-if must surface if, got:\n{}",
+            art.text
+        );
+    }
+
     /// P1 walk_cstr is `while (s[n] != 0) n++` with `je` exit. Invert while
     /// cond so soft-gold `!=` appears (not only `==` / PF soup).
     #[test]

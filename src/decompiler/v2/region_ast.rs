@@ -44,14 +44,25 @@ pub fn extract_region_ast(
     }
 
     // Leaf pure kernels: prefer branchless `return <expr>` (gold accepts this).
-    // Do **not** collapse when a While/DoWhile region exists — walk_cstr /
-    // count loops need structure + inverted `je` exit cond for soft `!=`/`>`.
-    // Plain multi-if leaves (sat_add, imin) keep the freeload shortcut.
+    // Do **not** collapse when:
+    // - a While/DoWhile exists (walk_cstr / count loops need structure), or
+    // - two or more If regions exist (classify multi-if); single-if leaves
+    //   (sat_add, imin) keep freeload.
     let leaf = is_leaf_kernel(ssa);
     let has_loop_region = dual
         .regions
         .values()
         .any(|r| matches!(r, Region::While { .. } | Region::DoWhile { .. }));
+    let if_region_count = dual
+        .regions
+        .values()
+        .filter(|r| {
+            matches!(
+                r,
+                Region::If { .. } | Region::IfElse { .. } | Region::IfThenFallthrough { .. }
+            )
+        })
+        .count();
     let return_block_count = ssa
         .blocks
         .iter()
@@ -67,7 +78,7 @@ pub fn extract_region_ast(
         .flatten();
     let mut body = Vec::new();
     let mut effects = Vec::new();
-    if leaf && return_block_count == 1 && !has_loop_region {
+    if leaf && return_block_count == 1 && !has_loop_region && if_region_count < 2 {
         if let Some(e) = best_ret.clone() {
             body.push(Stmt::Return { expr: Some(e) });
             effects.push("return".into());
