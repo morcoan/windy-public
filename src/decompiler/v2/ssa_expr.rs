@@ -247,6 +247,37 @@ fn expr_of_op(op: &SsaOp, env: &HashMap<SsaVar, Expr>) -> Option<Expr> {
             op: "-".into(),
             arg: Box::new(lookup_vn(*input, &op.uses, env).unwrap_or_else(|| name_fb("v"))),
         }),
+        // MSVC `cmp; jcc` / `cmp; setb` materializes CF then BoolNot for jae/jnb.
+        // Only map BoolNot over relational compares so unsigned `<` surfaces;
+        // mapping ZF/eq BoolNot displaces bit-probe freeload that still carries
+        // soft-gold `==` on tagged-union leaves (and can hurt product lane).
+        SsaOpKind::Pcode(PcodeOp::BoolNot { input, .. }) => {
+            let inner = lookup_vn(*input, &op.uses, env)?;
+            match &inner {
+                Expr::Compare { op: cmp, .. }
+                    if matches!(cmp.as_str(), "<" | "<=" | ">" | ">=") =>
+                {
+                    Some(Expr::UnaryOp {
+                        op: "!".into(),
+                        arg: Box::new(inner),
+                    })
+                }
+                Expr::UnaryOp { op: u, arg }
+                    if u == "!"
+                        && matches!(
+                            arg.as_ref(),
+                            Expr::Compare { op: c, .. }
+                                if matches!(c.as_str(), "<" | "<=" | ">" | ">=")
+                        ) =>
+                {
+                    Some(Expr::UnaryOp {
+                        op: "!".into(),
+                        arg: Box::new(inner),
+                    })
+                }
+                _ => None,
+            }
+        },
         // Low-half / truncation of a richer value (IDIV quotient is often
         // Subpiece(IntSDiv(...), lsb=0)). Treat as the input expression.
         SsaOpKind::Pcode(PcodeOp::Subpiece { input, lsb: 0, .. }) => {
@@ -1420,6 +1451,41 @@ mod tests {
         assert!(
             art.text.contains('%'),
             "expected `%` in irem pure-v2 return path, got:\n{}",
+            art.text
+        );
+    }
+
+    /// P0 `unsigned_lt` is `cmp; jnb` → IntLess (CF) + BoolNot. Cond recovery
+    /// must surface `<` rather than PF bit-probe soup.
+    #[test]
+    fn a01_unsigned_lt_p0_pure_v2_surfaces_less() {
+        use crate::project::Project;
+        let pe = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("eval/grand/bin/P0/a01_signed_rel.exe");
+        if !pe.is_file() {
+            return;
+        }
+        let dir = std::env::temp_dir().join("windy-ratchet-ult-less");
+        let _ = std::fs::create_dir_all(&dir);
+        let entry = 0x1400_01040u64;
+        let project =
+            Project::open_with_data_dir_and_entry_hints(&pe, &dir, &[entry]).expect("open");
+        let art = project
+            .function_decompile_artifact(
+                entry,
+                crate::decompiler::v2::DecompileOptions::pure_no_fallback(),
+            )
+            .expect("artifact");
+        assert!(art.fallback_reason.is_none(), "{art:?}");
+        assert!(
+            art.text.contains('<'),
+            "unsigned_lt must surface `<` from IntLess/CF, got:\n{}",
+            art.text
+        );
+        let compact: String = art.text.chars().filter(|c| !c.is_whitespace()).collect();
+        assert!(
+            !compact.contains("(a&0x1)==0x0") && !compact.contains("(a&0x1)==0"),
+            "must not freeload PF bit-probe as cond:\n{}",
             art.text
         );
     }
