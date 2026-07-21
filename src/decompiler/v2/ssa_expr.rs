@@ -2174,6 +2174,40 @@ mod tests {
         );
     }
 
+    /// Product must ship V2 classify tail (not fall back on changed_call_count).
+    #[test]
+    fn c03_dispatch_p1_product_ships_classify_not_legacy_fallback() {
+        use crate::project::Project;
+        let pe = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("eval/grand/bin/P1/c03_dispatch.exe");
+        if !pe.is_file() {
+            return;
+        }
+        let dir = std::env::temp_dir().join("windy-ratchet-c03-disp-p1-prod");
+        let _ = std::fs::create_dir_all(&dir);
+        let entry = 0x1400_01020u64;
+        let project =
+            Project::open_with_data_dir_and_entry_hints(&pe, &dir, &[entry]).expect("open");
+        let art = project
+            .function_decompile_artifact(
+                entry,
+                crate::decompiler::v2::DecompileOptions::production(),
+            )
+            .expect("artifact");
+        assert!(
+            art.fallback_reason.as_deref() != Some("changed_call_count")
+                && art.fallback_reason.as_deref() != Some("dropped_call_count"),
+            "product must not fall back on recovered tail call count: {art:?}"
+        );
+        assert!(
+            art.text.contains("classify"),
+            "product dispatch must keep classify call, eng={:?} fb={:?} got:\n{}",
+            art.engine,
+            art.fallback_reason,
+            art.text
+        );
+    }
+
     /// P3 walk_cstr still needs soft `!=` from byte `cmp; jne` (BoolNot ZF).
     #[test]
     fn b02_walk_cstr_p3_pure_v2_surfaces_ne_in_loop() {

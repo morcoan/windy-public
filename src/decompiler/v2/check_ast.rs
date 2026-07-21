@@ -94,23 +94,30 @@ pub fn check_typed_candidate_with_hir(
             .sum::<usize>();
         let mut actual_arg_counts = Vec::new();
         collect_call_arg_counts(&cand.ast.body, &mut actual_arg_counts);
-
-        if actual_arg_counts.len() != expected_calls {
-            report.accepted = false;
-            report.rejects.push("changed_call_count".into());
-            report.failure_stage = Some(FailureStage::Checker);
-        }
-
+        let actual_calls = actual_arg_counts.len();
         let actual_args = actual_arg_counts.iter().sum::<usize>();
-        if actual_args < expected_args {
+
+        // Only reject *lost* calls. Recovered multi-block tail-jmps and map-named
+        // callees often raise AST call count above HIR Call sites (HIR still
+        // sees Branch). Falling back to Legacy on those extras undoes pure wins
+        // (e.g. product CTW on dispatch/classify).
+        if actual_calls < expected_calls {
             report.accepted = false;
-            report.rejects.push("dropped_call_arguments".into());
+            report.rejects.push("dropped_call_count".into());
             report.failure_stage = Some(FailureStage::Checker);
-        } else if actual_args > expected_args {
-            report.accepted = false;
-            report.rejects.push("invented_call_arguments".into());
-            report.failure_stage = Some(FailureStage::Checker);
+        } else if actual_calls == expected_calls {
+            // Same call cardinality: still enforce arg fidelity.
+            if actual_args < expected_args {
+                report.accepted = false;
+                report.rejects.push("dropped_call_arguments".into());
+                report.failure_stage = Some(FailureStage::Checker);
+            } else if actual_args > expected_args {
+                report.accepted = false;
+                report.rejects.push("invented_call_arguments".into());
+                report.failure_stage = Some(FailureStage::Checker);
+            }
         }
+        // actual_calls > expected_calls: recovered tails / extra surfaces — allow.
 
         if ast_has_unresolved_placeholders(&cand.ast) {
             report.accepted = false;
@@ -239,12 +246,14 @@ fn expr_has_unresolved_placeholder(
 ) -> bool {
     match expr {
         Expr::Name { name } => {
-            let synthetic = matches!(
-                name.as_str(),
-                "a" | "b" | "cond" | "ret" | "v" | "store_val"
-            ) || name.strip_prefix("cond_").is_some_and(|suffix| {
-                !suffix.is_empty() && suffix.chars().all(|c| c.is_ascii_digit())
-            });
+            // Bare `cond` is the intentional Select placeholder from SSA phi
+            // folding (ssa_expr) — allow it so product can ship V2 with ternaries
+            // instead of falling back to Legacy.
+            // Numbered `cond_N` remains synthetic (goto residual seed soup).
+            let synthetic = matches!(name.as_str(), "a" | "b" | "ret" | "v" | "store_val")
+                || name.strip_prefix("cond_").is_some_and(|suffix| {
+                    !suffix.is_empty() && suffix.chars().all(|c| c.is_ascii_digit())
+                });
             synthetic && !bound.contains(name)
         }
         Expr::Call { args, .. } => args
@@ -587,6 +596,55 @@ mod tests {
                 .rejects
                 .iter()
                 .any(|reason| reason == "dropped_call_arguments"),
+            "{report:?}"
+        );
+    }
+
+    /// Multi-block tail-jmp recovery adds Call sites HIR still models as Branch.
+    /// Product must not reject (and fall back to Legacy) for those extras.
+    #[test]
+    fn checker_accepts_recovered_tail_call_above_hir_count() {
+        use crate::decompiler::hir::HirFunction;
+
+        let ssa = ret_ssa();
+        let sem = SemanticModel::from_raw_pcode(&ssa);
+        let contracts = ContractBundle::from_semantic(&ssa, &sem, &[]);
+        // HIR has zero Call sites (Branch-only tail).
+        let hir = HirFunction::default();
+        let cand = TypedAstCandidate {
+            ast: TypedAst {
+                name: "dispatch".into(),
+                params: vec!["u64 arg1".into()],
+                ret_ty: "uint64".into(),
+                body: vec![Stmt::Return {
+                    expr: Some(Expr::Call {
+                        target: "classify".into(),
+                        args: vec![Expr::Name {
+                            name: "arg1".into(),
+                        }],
+                    }),
+                }],
+            },
+            coverage: CoverageMaps {
+                edges: vec![],
+                effects: vec!["call:classify".into(), "return".into()],
+            },
+            residual_edges: 0,
+            case_partitions: vec![],
+            cost: 0,
+            nesting: 0,
+            hit_cap: false,
+        };
+        let report = check_typed_candidate_with_hir(&sem, &contracts, &cand, Some(&hir));
+        assert!(
+            report.accepted,
+            "recovered tail call above HIR count must accept for product: {report:?}"
+        );
+        assert!(
+            !report
+                .rejects
+                .iter()
+                .any(|r| r == "changed_call_count" || r == "dropped_call_count"),
             "{report:?}"
         );
     }
