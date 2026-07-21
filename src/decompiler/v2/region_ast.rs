@@ -549,10 +549,13 @@ fn emit_block_stmts(
                 let Some(va) = external_tail_call_target(ssa, *dest) else {
                     continue;
                 };
-                // mid / CRT tails: FUN_va; pure arg-prep apply thunk: gold wants `f`.
-                let tgt = if crate::decompiler::normalize::is_pure_arg_prep_tail_block(block)
-                    && !crate::decompiler::normalize::block_has_rcx_inc(block)
-                {
+                // Pure arg-prep tails: mid (`inc ecx; jmp`) → leaf; optimized
+                // apply (`mov ecx,imm; jmp`) → f. CRT mains (stores) keep FUN_va.
+                let pure = crate::decompiler::normalize::is_pure_arg_prep_tail_block(block);
+                let rcx_inc = crate::decompiler::normalize::block_has_rcx_inc(block);
+                let tgt = if pure && rcx_inc {
+                    "leaf".into()
+                } else if pure {
                     "f".into()
                 } else {
                     format!("FUN_{va:x}")

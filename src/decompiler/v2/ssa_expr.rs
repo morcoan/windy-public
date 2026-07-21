@@ -1490,8 +1490,8 @@ mod tests {
             art.text
         );
         assert!(
-            art.text.contains("FUN_") && art.text.contains("return"),
-            "mid must surface return call, got:\n{}",
+            art.text.contains("leaf") && art.text.contains("return"),
+            "mid must surface return leaf(...), got:\n{}",
             art.text
         );
         let compact: String = art.text.chars().filter(|c| !c.is_whitespace()).collect();
@@ -1515,6 +1515,44 @@ mod tests {
             prod.text.contains('+') && prod.text.contains("return"),
             "product mid must keep + tail-call return, got:\n{}",
             prod.text
+        );
+    }
+
+    /// Grand gold names mid's callee `leaf` (not FUN_va).
+    #[test]
+    fn e04_mid_p1_pure_v2_names_tail_callee_leaf() {
+        use crate::project::Project;
+        let pe = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("eval/grand/bin/P1/e04_tailish.exe");
+        if !pe.is_file() {
+            return;
+        }
+        let dir = std::env::temp_dir().join("windy-ratchet-e04-mid-leaf");
+        let _ = std::fs::create_dir_all(&dir);
+        let project =
+            Project::open_with_data_dir_and_entry_hints(&pe, &dir, &[0x1400_01024]).expect("open");
+        let art = project
+            .function_decompile_artifact(
+                0x1400_01024,
+                crate::decompiler::v2::DecompileOptions::pure_no_fallback(),
+            )
+            .expect("artifact");
+        assert!(art.fallback_reason.is_none(), "{art:?}");
+        let compact: String = art.text.chars().filter(|c| !c.is_whitespace()).collect();
+        assert!(
+            compact.contains("returnleaf(") || compact.contains("leaf("),
+            "mid must name callee leaf, got:\n{}",
+            art.text
+        );
+        let prod = project
+            .function_decompile_artifact(
+                0x1400_01024,
+                crate::decompiler::v2::DecompileOptions::production(),
+            )
+            .expect("product");
+        assert!(
+            prod.fallback_reason.is_none(),
+            "product must accept mid leaf name: {prod:?}"
         );
     }
 
