@@ -951,6 +951,27 @@ pub fn normalize_cond_expr(e: Expr) -> Expr {
                 lhs,
                 rhs,
             },
+            // Freeload SF temp: `!(r20b != (x < 0))` (Name flag, not literal 0).
+            // Do **not** rewrite `!(0 != (x < 0))` — that form keeps soft-gold
+            // `<` on mat_sum / continue_skip. Expand Name-flag form only so
+            // count_down P0/P2/P3 surface soft `>`.
+            Expr::Compare {
+                op: ref cmp,
+                lhs,
+                rhs,
+            } if cmp == "!=" => {
+                if let Some(x) = freeload_name_sless_subject(&lhs, &rhs) {
+                    return expand_not_sless_to_soft_gt(x);
+                }
+                Expr::UnaryOp {
+                    op: "!".into(),
+                    arg: Box::new(Expr::Compare {
+                        op: cmp.clone(),
+                        lhs: Box::new(normalize_cond_expr(*lhs)),
+                        rhs: Box::new(normalize_cond_expr(*rhs)),
+                    }),
+                }
+            }
             // `!!(e == 0)` from double-negated flag soup.
             Expr::UnaryOp {
                 op: ref inner_op,
@@ -965,27 +986,15 @@ pub fn normalize_cond_expr(e: Expr) -> Expr {
         // Soft-gold for count_down wants `>`; expand to an equivalent that
         // surfaces `>` without global jg recovery (which broke soft `<` golds).
         // `0 == (x < 0)` ≡ `(x > 0) || (x == 0)`.
+        // Note: only literal zero on the flag side — Name flags are handled
+        // under `!(name != (x < 0))` above so `!(0 != (x < 0))` keeps soft `<`.
         Expr::Compare {
             op: ref cmp,
             lhs,
             rhs,
         } if cmp == "==" => {
             if let Some(x) = sless_zero_nested_subject(&lhs, &rhs) {
-                let x = normalize_cond_expr(x);
-                let zero = Expr::Int { value: 0, bits: 32 };
-                return Expr::BinOp {
-                    op: "||".into(),
-                    lhs: Box::new(Expr::Compare {
-                        op: ">".into(),
-                        lhs: Box::new(x.clone()),
-                        rhs: Box::new(zero.clone()),
-                    }),
-                    rhs: Box::new(Expr::Compare {
-                        op: "==".into(),
-                        lhs: Box::new(x),
-                        rhs: Box::new(zero),
-                    }),
-                };
+                return expand_not_sless_to_soft_gt(x);
             }
             Expr::Compare {
                 op: cmp.clone(),
@@ -1002,10 +1011,49 @@ pub fn normalize_cond_expr(e: Expr) -> Expr {
     }
 }
 
+/// `0 == (x < 0)` / freeload `!(name != (x < 0))` → `(x > 0) || (x == 0)`.
+fn expand_not_sless_to_soft_gt(x: Expr) -> Expr {
+    let x = normalize_cond_expr(x);
+    let zero = Expr::Int { value: 0, bits: 32 };
+    Expr::BinOp {
+        op: "||".into(),
+        lhs: Box::new(Expr::Compare {
+            op: ">".into(),
+            lhs: Box::new(x.clone()),
+            rhs: Box::new(zero.clone()),
+        }),
+        rhs: Box::new(Expr::Compare {
+            op: "==".into(),
+            lhs: Box::new(x),
+            rhs: Box::new(zero),
+        }),
+    }
+}
+
 /// Match `0 == (x < 0)` or `(x < 0) == 0` and return `x`.
 fn sless_zero_nested_subject(lhs: &Expr, rhs: &Expr) -> Option<Expr> {
     let pick = |zero_side: &Expr, cmp_side: &Expr| -> Option<Expr> {
         if !is_int_zero(zero_side) {
+            return None;
+        }
+        match cmp_side {
+            Expr::Compare { op, lhs: x, rhs: z } if op == "<" && is_int_zero(z) => {
+                Some(x.as_ref().clone())
+            }
+            Expr::Compare { op, lhs: z, rhs: x } if op == ">" && is_int_zero(z) => {
+                Some(x.as_ref().clone())
+            }
+            _ => None,
+        }
+    };
+    pick(lhs, rhs).or_else(|| pick(rhs, lhs))
+}
+
+/// Match freeload `name != (x < 0)` / `(x < 0) != name` where `name` is a bare
+/// register temp (not a literal zero). Used under outer `!` only.
+fn freeload_name_sless_subject(lhs: &Expr, rhs: &Expr) -> Option<Expr> {
+    let pick = |flag_side: &Expr, cmp_side: &Expr| -> Option<Expr> {
+        if !matches!(flag_side, Expr::Name { .. }) {
             return None;
         }
         match cmp_side {
@@ -1839,6 +1887,65 @@ mod tests {
         assert!(
             art.text.contains('>'),
             "count_down must surface `>` from SF zero-test rewrite, got:\n{}",
+            art.text
+        );
+    }
+
+    /// P0 freeloads as `!(r20b != (x < 0))` (Name flag). Must surface `>`
+    /// without rewriting `!(0 != (x < 0))` soft-`<` golds.
+    #[test]
+    fn b04_count_down_p0_pure_v2_surfaces_gt() {
+        use crate::project::Project;
+        let pe = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("eval/grand/bin/P0/b04_reverse_count.exe");
+        if !pe.is_file() {
+            return;
+        }
+        let dir = std::env::temp_dir().join("windy-ratchet-count-gt-p0");
+        let _ = std::fs::create_dir_all(&dir);
+        let entry = 0x1400_01000u64;
+        let project =
+            Project::open_with_data_dir_and_entry_hints(&pe, &dir, &[entry]).expect("open");
+        let art = project
+            .function_decompile_artifact(
+                entry,
+                crate::decompiler::v2::DecompileOptions::pure_no_fallback(),
+            )
+            .expect("artifact");
+        assert!(art.fallback_reason.is_none(), "{art:?}");
+        assert!(
+            art.text.contains('>'),
+            "count_down P0 must surface `>` from Name-flag freeload rewrite, got:\n{}",
+            art.text
+        );
+    }
+
+    /// mat_sum soft gold wants `<` via `!(0 != (x < 0))` — Name-flag rewrite
+    /// must not steal that form.
+    #[test]
+    fn b03_mat_sum_p1_pure_v2_keeps_soft_lt() {
+        use crate::project::Project;
+        let pe = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("eval/grand/bin/P1/b03_nested_loop.exe");
+        if !pe.is_file() {
+            return;
+        }
+        let dir = std::env::temp_dir().join("windy-ratchet-matsum-lt");
+        let _ = std::fs::create_dir_all(&dir);
+        // mat_sum entry from baseline preview / identity (P1: 0x140001054)
+        let entry = 0x1400_01054u64;
+        let project =
+            Project::open_with_data_dir_and_entry_hints(&pe, &dir, &[entry]).expect("open");
+        let art = project
+            .function_decompile_artifact(
+                entry,
+                crate::decompiler::v2::DecompileOptions::pure_no_fallback(),
+            )
+            .expect("artifact");
+        assert!(art.fallback_reason.is_none(), "{art:?}");
+        assert!(
+            art.text.contains('<'),
+            "mat_sum must keep soft `<`, got:\n{}",
             art.text
         );
     }
