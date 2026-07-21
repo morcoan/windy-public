@@ -144,6 +144,34 @@ fn expr_of_op(op: &SsaOp, env: &HashMap<SsaVar, Expr>) -> Option<Expr> {
             lhs: Box::new(lookup_vn(*left, &op.uses, env).unwrap_or_else(|| name_fb("a"))),
             rhs: Box::new(lookup_vn(*right, &op.uses, env).unwrap_or_else(|| name_fb("b"))),
         }),
+        // MSVC strength-reduces `x * (1<<n)` to SHL. Recover the multiply form for
+        // constant counts so source-gold operators (`*`) match; keep `<<` when the
+        // shift amount is not a small constant (variable shifts, non-canonical).
+        SsaOpKind::Pcode(PcodeOp::IntLsl { left, right, .. }) => {
+            let lhs = lookup_vn(*left, &op.uses, env).unwrap_or_else(|| name_fb("a"));
+            if right.space == AddressSpaceId::Const && (1..32).contains(&right.offset) {
+                Some(Expr::BinOp {
+                    op: "*".into(),
+                    lhs: Box::new(lhs),
+                    rhs: Box::new(Expr::UInt {
+                        value: 1u64 << right.offset,
+                        bits: 32,
+                    }),
+                })
+            } else {
+                Some(Expr::BinOp {
+                    op: "<<".into(),
+                    lhs: Box::new(lhs),
+                    rhs: Box::new(lookup_vn(*right, &op.uses, env).unwrap_or_else(|| name_fb("b"))),
+                })
+            }
+        }
+        SsaOpKind::Pcode(PcodeOp::IntLsr { left, right, .. })
+        | SsaOpKind::Pcode(PcodeOp::IntAsr { left, right, .. }) => Some(Expr::BinOp {
+            op: ">>".into(),
+            lhs: Box::new(lookup_vn(*left, &op.uses, env).unwrap_or_else(|| name_fb("a"))),
+            rhs: Box::new(lookup_vn(*right, &op.uses, env).unwrap_or_else(|| name_fb("b"))),
+        }),
         SsaOpKind::Pcode(PcodeOp::IntNeg { input, .. }) => Some(Expr::UnaryOp {
             op: "-".into(),
             arg: Box::new(lookup_vn(*input, &op.uses, env).unwrap_or_else(|| name_fb("v"))),
@@ -764,5 +792,170 @@ mod tests {
         let env = build_expr_map(&ssa);
         let expr = return_expr_of_exit(&ssa, 2, &env).expect("merged return");
         assert!(matches!(expr, Expr::Select { .. }), "{expr:?}");
+    }
+
+    #[test]
+    fn const_left_shift_recovers_as_multiply() {
+        // MSVC lowers `return x * 2` to SHL with flag side-effects. The recovered
+        // expression must be the multiply, not ZF/SF soup from the same insn.
+        let rax = SsaVar {
+            location: Location::Register { base_offset: 0 },
+            version: 1,
+        };
+        let arg = SsaVar {
+            location: Location::Register { base_offset: 8 },
+            version: 0,
+        };
+        let rax0 = SsaVar {
+            location: Location::Register { base_offset: 0 },
+            version: 0,
+        };
+        let block = SsaBlock {
+            id: 0,
+            entry_va: 0x140001000,
+            ops: vec![
+                SsaOp {
+                    va: 0x140001000,
+                    kind: SsaOpKind::Pcode(PcodeOp::Copy {
+                        out: Varnode {
+                            space: AddressSpaceId::Register,
+                            offset: 0,
+                            size: 4,
+                        },
+                        input: Varnode {
+                            space: AddressSpaceId::Register,
+                            offset: 8,
+                            size: 4,
+                        },
+                    }),
+                    def: Some(rax0.clone()),
+                    uses: vec![arg],
+                },
+                SsaOp {
+                    va: 0x140001004,
+                    kind: SsaOpKind::Pcode(PcodeOp::IntLsl {
+                        out: Varnode {
+                            space: AddressSpaceId::Register,
+                            offset: 0,
+                            size: 4,
+                        },
+                        left: Varnode {
+                            space: AddressSpaceId::Register,
+                            offset: 0,
+                            size: 4,
+                        },
+                        right: Varnode::constant(1, 4),
+                    }),
+                    def: Some(rax.clone()),
+                    uses: vec![rax0],
+                },
+                // Flag-calc noise that previously outscored the missing shift expr.
+                SsaOp {
+                    va: 0x140001004,
+                    kind: SsaOpKind::Pcode(PcodeOp::IntEq {
+                        out: Varnode {
+                            space: AddressSpaceId::Register,
+                            offset: 518,
+                            size: 1,
+                        },
+                        left: Varnode {
+                            space: AddressSpaceId::Register,
+                            offset: 0,
+                            size: 4,
+                        },
+                        right: Varnode::constant(0, 4),
+                    }),
+                    def: Some(SsaVar {
+                        location: Location::Register { base_offset: 518 },
+                        version: 0,
+                    }),
+                    uses: vec![rax.clone()],
+                },
+                SsaOp {
+                    va: 0x140001004,
+                    kind: SsaOpKind::Pcode(PcodeOp::IntAnd {
+                        out: Varnode {
+                            space: AddressSpaceId::Unique,
+                            offset: 1,
+                            size: 1,
+                        },
+                        left: Varnode {
+                            space: AddressSpaceId::Register,
+                            offset: 0,
+                            size: 4,
+                        },
+                        right: Varnode::constant(1, 4),
+                    }),
+                    def: Some(SsaVar {
+                        location: Location::Unique {
+                            instruction_va: 0x140001004,
+                            offset: 1,
+                            size: 1,
+                        },
+                        version: 0,
+                    }),
+                    uses: vec![rax.clone()],
+                },
+                return_block(0, 0x140001006, rax.clone()).ops.remove(0),
+            ],
+            successor_ids: vec![],
+            predecessor_ids: vec![],
+        };
+        let ssa = SsaFunction {
+            entry_va: 0x140001000,
+            bitness: 64,
+            blocks: vec![block],
+            image_base: 0,
+        };
+        let env = build_expr_map(&ssa);
+        let expr = best_return_of_function(&ssa, &env).expect("return expr");
+        match expr {
+            Expr::BinOp { op, rhs, .. } => {
+                assert_eq!(op, "*");
+                assert!(
+                    matches!(
+                        *rhs,
+                        Expr::UInt { value: 2, .. } | Expr::Int { value: 2, .. }
+                    ),
+                    "expected * 2, got {rhs:?}"
+                );
+            }
+            other => panic!("expected multiply, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn e04_leaf_pure_v2_recovers_multiply_by_two() {
+        use crate::project::Project;
+        let pe = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("eval/grand/bin/P0/e04_tailish.exe");
+        if !pe.is_file() {
+            return;
+        }
+        let dir = std::env::temp_dir().join("windy-ratchet-e04-leaf");
+        let _ = std::fs::create_dir_all(&dir);
+        let project =
+            Project::open_with_data_dir_and_entry_hints(&pe, &dir, &[0x1400_01000]).expect("open");
+        let art = project
+            .function_decompile_artifact(
+                0x1400_01000,
+                crate::decompiler::v2::DecompileOptions::pure_no_fallback(),
+            )
+            .expect("artifact");
+        assert!(art.fallback_reason.is_none(), "{art:?}");
+        let text = art.text.replace(' ', "");
+        assert!(
+            text.contains("*0x2")
+                || text.contains("*2")
+                || text.contains("<<0x1")
+                || text.contains("<<1"),
+            "expected x*2 / x<<1 return, got:\n{}",
+            art.text
+        );
+        assert!(
+            !text.contains("&0x1)==0x0") && !text.contains("&0x1)==0"),
+            "must not ship SHL flag soup as the return:\n{}",
+            art.text
+        );
     }
 }
