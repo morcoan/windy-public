@@ -1518,6 +1518,43 @@ mod tests {
         );
     }
 
+    /// P3 optimized apply is `mov ecx,imm; jmp add1` — recover as `return f(...)`.
+    #[test]
+    fn e02_apply_p3_pure_v2_recovers_tail_jmp_as_f() {
+        use crate::project::Project;
+        let pe = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("eval/grand/bin/P3/e02_fn_ptr.exe");
+        if !pe.is_file() {
+            return;
+        }
+        let dir = std::env::temp_dir().join("windy-ratchet-e02-p3");
+        let _ = std::fs::create_dir_all(&dir);
+        let project =
+            Project::open_with_data_dir_and_entry_hints(&pe, &dir, &[0x1400_01010]).expect("open");
+        let art = project
+            .function_decompile_artifact(
+                0x1400_01010,
+                crate::decompiler::v2::DecompileOptions::pure_no_fallback(),
+            )
+            .expect("artifact");
+        assert!(art.fallback_reason.is_none(), "{art:?}");
+        assert!(
+            art.text.contains("f(") || art.text.contains("return f"),
+            "apply P3 must recover tail jmp as f(...), got:\n{}",
+            art.text
+        );
+        let prod = project
+            .function_decompile_artifact(
+                0x1400_01010,
+                crate::decompiler::v2::DecompileOptions::production(),
+            )
+            .expect("product");
+        assert!(
+            prod.fallback_reason.is_none(),
+            "product must accept apply P3: {prod:?}"
+        );
+    }
+
     /// Indirect first-arg callbacks are gold-named `f`, not `icall_VA`.
     #[test]
     fn e05_run_p0_pure_v2_names_callback_f() {

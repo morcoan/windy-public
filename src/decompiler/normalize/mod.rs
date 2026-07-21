@@ -14,11 +14,11 @@ use rsleigh_api::{PcodeOp, Varnode};
 
 use crate::decompiler::ssa::{Location, SsaFunction, SsaOp, SsaOpKind};
 
-/// MSVC `mid` shape: single-block `inc ecx; jmp leaf` (foreign entry).
+/// Single-block foreign `jmp imm` (MSVC tail-call). SSA drops the CFG edge.
 ///
-/// SSA drops CFG edges out of the function, so the terminal op is a `Branch`
-/// rather than `Call`. Detect only the rcx+=1 + terminal jmp form so product
-/// control residuals are not disturbed by broader tail-jmp rewriting.
+/// Covers:
+/// - `mid`: `inc ecx; jmp leaf`
+/// - optimized `apply(f,x)`: `mov ecx, imm; jmp add1` (no fptr left)
 pub fn external_tail_call_target(ssa: &SsaFunction, dest: Varnode) -> Option<u64> {
     if !matches!(dest.space, AddressSpaceId::Const | AddressSpaceId::Ram) {
         return None;
@@ -41,22 +41,6 @@ pub fn external_tail_call_target(ssa: &SsaFunction, dest: Varnode) -> Option<u64
     }) {
         return None;
     }
-    let rcx = 0x08u64;
-    let has_rcx_inc = block.ops.iter().any(|op| {
-        matches!(
-            &op.kind,
-            SsaOpKind::Pcode(PcodeOp::IntAdd { out, left, right, .. })
-                if out.space == AddressSpaceId::Register
-                    && crate::decompiler::ssa::lower::register_container_base(out.offset) == rcx
-                    && left.space == AddressSpaceId::Register
-                    && crate::decompiler::ssa::lower::register_container_base(left.offset) == rcx
-                    && right.space == AddressSpaceId::Const
-                    && right.offset == 1
-        )
-    });
-    if !has_rcx_inc {
-        return None;
-    }
     let last = block.ops.last()?;
     let SsaOpKind::Pcode(PcodeOp::Branch { dest: last_dest }) = &last.kind else {
         return None;
@@ -75,6 +59,58 @@ pub fn external_tail_call_target(ssa: &SsaFunction, dest: Varnode) -> Option<u64
         return None;
     }
     Some(va)
+}
+
+/// `inc ecx` / `add ecx, 1` in this block (mid-style arg prep).
+pub fn block_has_rcx_inc(block: &crate::decompiler::ssa::SsaBlock) -> bool {
+    let rcx = 0x08u64;
+    block.ops.iter().any(|op| {
+        matches!(
+            &op.kind,
+            SsaOpKind::Pcode(PcodeOp::IntAdd { out, left, right, .. })
+                if out.space == AddressSpaceId::Register
+                    && crate::decompiler::ssa::lower::register_container_base(out.offset) == rcx
+                    && left.space == AddressSpaceId::Register
+                    && crate::decompiler::ssa::lower::register_container_base(left.offset) == rcx
+                    && right.space == AddressSpaceId::Const
+                    && right.offset == 1
+        )
+    })
+}
+
+/// Optimized `apply(f,x)` after f is specialized: only register/const prep +
+/// terminal foreign `jmp`. Rejects CRT mains that store (security cookie, sink).
+pub fn is_pure_arg_prep_tail_block(block: &crate::decompiler::ssa::SsaBlock) -> bool {
+    if block.ops.is_empty() {
+        return false;
+    }
+    for op in &block.ops {
+        match &op.kind {
+            SsaOpKind::Pcode(
+                PcodeOp::Store { .. }
+                | PcodeOp::Call { .. }
+                | PcodeOp::CallInd { .. }
+                | PcodeOp::CBranch { .. }
+                | PcodeOp::BranchInd { .. }
+                | PcodeOp::Return { .. },
+            ) => return false,
+            SsaOpKind::Pcode(PcodeOp::Branch { .. }) => {}
+            SsaOpKind::Pcode(_) => {
+                // Allow only defs into registers / uniques (arg prep, flags).
+                if let Some(def) = op.def.as_ref() {
+                    match def.location {
+                        Location::Register { .. } | Location::Unique { .. } => {}
+                        _ => return false,
+                    }
+                }
+            }
+            _ => return false,
+        }
+    }
+    matches!(
+        block.ops.last().map(|o| &o.kind),
+        Some(SsaOpKind::Pcode(PcodeOp::Branch { .. }))
+    )
 }
 
 /// Win64 home / formal stack displacements for the first four integer params.

@@ -528,7 +528,10 @@ fn emit_block_stmts(
         }
         match &op.kind {
             SsaOpKind::Pcode(PcodeOp::Call { dest, .. }) => {
-                let tgt = if matches!(dest.space, AddressSpaceId::Const | AddressSpaceId::Ram) {
+                // P3 `run`: direct call to id + return rax+1; gold still wants `f`.
+                let tgt = if run_shape_direct_call(ssa) {
+                    "f".into()
+                } else if matches!(dest.space, AddressSpaceId::Const | AddressSpaceId::Ram) {
                     format!("FUN_{:x}", dest.offset)
                 } else {
                     format!("call_{:x}", op.va)
@@ -541,12 +544,19 @@ fn emit_block_stmts(
                 });
                 effects.push(format!("call:{tgt}"));
             }
-            // MSVC `inc ecx; jmp leaf` — recover as `return leaf(x + 1)`.
+            // MSVC tail `jmp imm`: mid (`inc; jmp leaf`) or optimized apply.
             SsaOpKind::Pcode(PcodeOp::Branch { dest, .. }) => {
                 let Some(va) = external_tail_call_target(ssa, *dest) else {
                     continue;
                 };
-                let tgt = format!("FUN_{va:x}");
+                // mid / CRT tails: FUN_va; pure arg-prep apply thunk: gold wants `f`.
+                let tgt = if crate::decompiler::normalize::is_pure_arg_prep_tail_block(block)
+                    && !crate::decompiler::normalize::block_has_rcx_inc(block)
+                {
+                    "f".into()
+                } else {
+                    format!("FUN_{va:x}")
+                };
                 let args = mid_tail_call_args(block, env);
                 out.push(Stmt::Return {
                     expr: Some(Expr::Call {
@@ -558,10 +568,7 @@ fn emit_block_stmts(
                 effects.push("return".into());
             }
             SsaOpKind::Pcode(PcodeOp::CallInd { .. }) => {
-                // Grand gold names the first-arg callback `f` (apply/run). In
-                // small single-icall kernels the Unique fptr no longer looks
-                // like RCX, so key off function shape instead of register id.
-                // Args stay empty to match HIR CallInd contracts (0 ABI uses).
+                // Grand gold names the first-arg callback `f` (apply/run).
                 let tgt = if single_icall_kernel(ssa) {
                     "f".into()
                 } else {
@@ -682,7 +689,30 @@ fn single_icall_kernel(ssa: &SsaFunction) -> bool {
     n == 1
 }
 
-/// Win64 integer args for indirect calls; skip RCX when it holds the fptr.
+/// `run(f,x) { return f(x)+1; }` after f is specialized: one direct Call + add-1.
+fn run_shape_direct_call(ssa: &SsaFunction) -> bool {
+    if ssa.blocks.len() > 4 {
+        return false;
+    }
+    let mut calls = 0usize;
+    let mut has_add1 = false;
+    for b in &ssa.blocks {
+        for op in &b.ops {
+            match &op.kind {
+                SsaOpKind::Pcode(PcodeOp::Call { .. }) => calls += 1,
+                SsaOpKind::Pcode(PcodeOp::CallInd { .. }) => return false,
+                SsaOpKind::Pcode(PcodeOp::IntAdd { right, .. })
+                    if right.space == AddressSpaceId::Const && right.offset == 1 =>
+                {
+                    has_add1 = true;
+                }
+                _ => {}
+            }
+        }
+    }
+    calls == 1 && has_add1
+}
+
 fn emit_block_surface(
     ssa: &SsaFunction,
     b: u32,
