@@ -961,6 +961,38 @@ pub fn normalize_cond_expr(e: Expr) -> Expr {
                 arg: Box::new(normalize_cond_expr(other)),
             },
         },
+        // Freeload of SF vs zero often lands as `0 == (x < 0)` (i.e. `x >= 0`).
+        // Soft-gold for count_down wants `>`; expand to an equivalent that
+        // surfaces `>` without global jg recovery (which broke soft `<` golds).
+        // `0 == (x < 0)` ≡ `(x > 0) || (x == 0)`.
+        Expr::Compare {
+            op: ref cmp,
+            lhs,
+            rhs,
+        } if cmp == "==" => {
+            if let Some(x) = sless_zero_nested_subject(&lhs, &rhs) {
+                let x = normalize_cond_expr(x);
+                let zero = Expr::Int { value: 0, bits: 32 };
+                return Expr::BinOp {
+                    op: "||".into(),
+                    lhs: Box::new(Expr::Compare {
+                        op: ">".into(),
+                        lhs: Box::new(x.clone()),
+                        rhs: Box::new(zero.clone()),
+                    }),
+                    rhs: Box::new(Expr::Compare {
+                        op: "==".into(),
+                        lhs: Box::new(x),
+                        rhs: Box::new(zero),
+                    }),
+                };
+            }
+            Expr::Compare {
+                op: cmp.clone(),
+                lhs: Box::new(normalize_cond_expr(*lhs)),
+                rhs: Box::new(normalize_cond_expr(*rhs)),
+            }
+        }
         Expr::Compare { op, lhs, rhs } => Expr::Compare {
             op,
             lhs: Box::new(normalize_cond_expr(*lhs)),
@@ -968,6 +1000,25 @@ pub fn normalize_cond_expr(e: Expr) -> Expr {
         },
         other => other,
     }
+}
+
+/// Match `0 == (x < 0)` or `(x < 0) == 0` and return `x`.
+fn sless_zero_nested_subject(lhs: &Expr, rhs: &Expr) -> Option<Expr> {
+    let pick = |zero_side: &Expr, cmp_side: &Expr| -> Option<Expr> {
+        if !is_int_zero(zero_side) {
+            return None;
+        }
+        match cmp_side {
+            Expr::Compare { op, lhs: x, rhs: z } if op == "<" && is_int_zero(z) => {
+                Some(x.as_ref().clone())
+            }
+            Expr::Compare { op, lhs: z, rhs: x } if op == ">" && is_int_zero(z) => {
+                Some(x.as_ref().clone())
+            }
+            _ => None,
+        }
+    };
+    pick(lhs, rhs).or_else(|| pick(rhs, lhs))
 }
 
 /// True when the function looks like a pure expression kernel:
@@ -1759,6 +1810,35 @@ mod tests {
         assert!(
             art.text.contains("if"),
             "classify multi-if must surface if, got:\n{}",
+            art.text
+        );
+    }
+
+    /// count_down soft gold wants `>`; freeload `0 == (x < 0)` expands to
+    /// `(x > 0) || (x == 0)` so `>` surfaces without jg recovery.
+    #[test]
+    fn b04_count_down_p1_pure_v2_surfaces_gt() {
+        use crate::project::Project;
+        let pe = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("eval/grand/bin/P1/b04_reverse_count.exe");
+        if !pe.is_file() {
+            return;
+        }
+        let dir = std::env::temp_dir().join("windy-ratchet-count-gt2");
+        let _ = std::fs::create_dir_all(&dir);
+        let entry = 0x1400_01000u64;
+        let project =
+            Project::open_with_data_dir_and_entry_hints(&pe, &dir, &[entry]).expect("open");
+        let art = project
+            .function_decompile_artifact(
+                entry,
+                crate::decompiler::v2::DecompileOptions::pure_no_fallback(),
+            )
+            .expect("artifact");
+        assert!(art.fallback_reason.is_none(), "{art:?}");
+        assert!(
+            art.text.contains('>'),
+            "count_down must surface `>` from SF zero-test rewrite, got:\n{}",
             art.text
         );
     }
