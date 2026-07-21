@@ -1465,6 +1465,14 @@ pub fn lift_win64_calls(ssa: &SsaFunction, lowering: &mut SsaLowering) -> Vec<Ca
             let dest = match &ssa_op.kind {
                 SsaOpKind::Pcode(PcodeOp::Call { dest })
                 | SsaOpKind::Pcode(PcodeOp::CallInd { dest }) => *dest,
+                SsaOpKind::Pcode(PcodeOp::Branch { dest }) => {
+                    if crate::decompiler::normalize::external_tail_call_target(ssa, *dest).is_some()
+                    {
+                        *dest
+                    } else {
+                        continue;
+                    }
+                }
                 _ => continue,
             };
             let operation_index =
@@ -1571,7 +1579,13 @@ fn lift_same_block_win64_arguments(
     // Indirect targets do not yet carry an authoritative call contract in the
     // SSA sidecar.  Preserve their target evidence, but avoid turning a target
     // register or unrelated live register into a fabricated argument list.
-    if !matches!(&call_op.kind, SsaOpKind::Pcode(PcodeOp::Call { .. })) {
+    //
+    // Direct CALL: only GPRs listed in the call's ABI uses.
+    // Tail BRANCH (MSVC `jmp leaf`): claim RCX only when locally defined before
+    // the branch — matches `mid(x){return leaf(x+1);}` without inventing args.
+    let is_direct_call = matches!(&call_op.kind, SsaOpKind::Pcode(PcodeOp::Call { .. }));
+    let is_tail_branch = matches!(&call_op.kind, SsaOpKind::Pcode(PcodeOp::Branch { .. }));
+    if !is_direct_call && !is_tail_branch {
         return Vec::new();
     }
 
@@ -1579,10 +1593,15 @@ fn lift_same_block_win64_arguments(
         .iter()
         .enumerate()
         .filter_map(|(position, (base, _register))| {
-            let required_by_contract = call_op.uses.iter().any(|use_var| {
-                matches!(use_var.location, Location::Register { base_offset } if base_offset == *base)
-            });
-            if !required_by_contract {
+            if is_direct_call {
+                let required_by_contract = call_op.uses.iter().any(|use_var| {
+                    matches!(use_var.location, Location::Register { base_offset } if base_offset == *base)
+                });
+                if !required_by_contract {
+                    return None;
+                }
+            } else if *base != 0x08 {
+                // Tail-jmp: only first integer arg (RCX).
                 return None;
             }
             let var = same_block_reaching_register(block, call_index, *base)?;

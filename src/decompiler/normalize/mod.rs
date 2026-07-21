@@ -10,9 +10,72 @@
 //! classification) while preserving the path-indexed terminal family under I⁺.
 
 use pcode_ir::AddressSpaceId;
-use rsleigh_api::PcodeOp;
+use rsleigh_api::{PcodeOp, Varnode};
 
-use crate::decompiler::ssa::{Location, SsaOp, SsaOpKind};
+use crate::decompiler::ssa::{Location, SsaFunction, SsaOp, SsaOpKind};
+
+/// MSVC `mid` shape: single-block `inc ecx; jmp leaf` (foreign entry).
+///
+/// SSA drops CFG edges out of the function, so the terminal op is a `Branch`
+/// rather than `Call`. Detect only the rcx+=1 + terminal jmp form so product
+/// control residuals are not disturbed by broader tail-jmp rewriting.
+pub fn external_tail_call_target(ssa: &SsaFunction, dest: Varnode) -> Option<u64> {
+    if !matches!(dest.space, AddressSpaceId::Const | AddressSpaceId::Ram) {
+        return None;
+    }
+    let va = dest.offset;
+    if va < 0x1000 || ssa.blocks.len() != 1 {
+        return None;
+    }
+    let block = &ssa.blocks[0];
+    if block.ops.iter().any(|op| {
+        matches!(
+            &op.kind,
+            SsaOpKind::Pcode(
+                PcodeOp::CBranch { .. }
+                    | PcodeOp::BranchInd { .. }
+                    | PcodeOp::Call { .. }
+                    | PcodeOp::CallInd { .. }
+            )
+        )
+    }) {
+        return None;
+    }
+    let rcx = 0x08u64;
+    let has_rcx_inc = block.ops.iter().any(|op| {
+        matches!(
+            &op.kind,
+            SsaOpKind::Pcode(PcodeOp::IntAdd { out, left, right, .. })
+                if out.space == AddressSpaceId::Register
+                    && crate::decompiler::ssa::lower::register_container_base(out.offset) == rcx
+                    && left.space == AddressSpaceId::Register
+                    && crate::decompiler::ssa::lower::register_container_base(left.offset) == rcx
+                    && right.space == AddressSpaceId::Const
+                    && right.offset == 1
+        )
+    });
+    if !has_rcx_inc {
+        return None;
+    }
+    let last = block.ops.last()?;
+    let SsaOpKind::Pcode(PcodeOp::Branch { dest: last_dest }) = &last.kind else {
+        return None;
+    };
+    if last_dest.offset != va {
+        return None;
+    }
+    if ssa.blocks.iter().any(|b| b.entry_va == va) {
+        return None;
+    }
+    if ssa
+        .blocks
+        .iter()
+        .any(|b| b.ops.iter().any(|op| op.va == va))
+    {
+        return None;
+    }
+    Some(va)
+}
 
 /// Win64 home / formal stack displacements for the first four integer params.
 pub fn is_win64_home_disp(disp: i64) -> bool {

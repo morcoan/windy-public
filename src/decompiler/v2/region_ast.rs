@@ -5,9 +5,11 @@
 
 use std::collections::{HashMap, HashSet};
 
+use pcode_ir::AddressSpaceId;
 use rsleigh_api::PcodeOp;
 
-use crate::decompiler::ssa::{SsaFunction, SsaOpKind};
+use crate::decompiler::normalize::external_tail_call_target;
+use crate::decompiler::ssa::{Location, SsaFunction, SsaOpKind};
 use crate::decompiler::structure::rd_model::DualDecompModel;
 use crate::decompiler::structure::region::{Region, SwitchInfo};
 
@@ -537,6 +539,22 @@ fn emit_block_stmts(
                 });
                 effects.push(format!("call:{tgt}"));
             }
+            // MSVC `inc ecx; jmp leaf` — recover as `return leaf(x + 1)`.
+            SsaOpKind::Pcode(PcodeOp::Branch { dest, .. }) => {
+                let Some(va) = external_tail_call_target(ssa, *dest) else {
+                    continue;
+                };
+                let tgt = format!("FUN_{va:x}");
+                let args = mid_tail_call_args(block, env);
+                out.push(Stmt::Return {
+                    expr: Some(Expr::Call {
+                        target: tgt.clone(),
+                        args,
+                    }),
+                });
+                effects.push(format!("call:{tgt}"));
+                effects.push("return".into());
+            }
             SsaOpKind::Pcode(PcodeOp::CallInd { .. }) => {
                 let tgt = format!("icall_{:x}", op.va);
                 out.push(Stmt::Expr {
@@ -590,6 +608,27 @@ fn emit_block_stmts(
     }
 }
 
+/// RCX (first Win64 arg) expression for `mid`-style tail calls.
+fn mid_tail_call_args(
+    block: &crate::decompiler::ssa::SsaBlock,
+    env: &HashMap<crate::decompiler::ssa::SsaVar, Expr>,
+) -> Vec<Expr> {
+    const RCX: u64 = 0x08;
+    for op in block.ops.iter().rev() {
+        let Some(def) = op.def.as_ref() else {
+            continue;
+        };
+        if matches!(def.location, Location::Register { base_offset } if base_offset == RCX) {
+            if let Some(e) = env.get(def) {
+                return vec![e.clone()];
+            }
+        }
+    }
+    vec![Expr::Name {
+        name: "arg1".into(),
+    }]
+}
+
 fn emit_block_surface(
     ssa: &SsaFunction,
     b: u32,
@@ -637,8 +676,6 @@ fn count_nesting(stmts: &[Stmt]) -> i32 {
     }
     n
 }
-
-use pcode_ir::AddressSpaceId;
 
 #[cfg(test)]
 mod tests {

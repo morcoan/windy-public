@@ -701,6 +701,11 @@ pub fn is_leaf_kernel(ssa: &SsaFunction) -> bool {
             ) {
                 return true;
             }
+            if let SsaOpKind::Pcode(PcodeOp::Branch { dest }) = &op.kind
+                && crate::decompiler::normalize::external_tail_call_target(ssa, *dest).is_some()
+            {
+                return true;
+            }
             if matches!(&op.kind, SsaOpKind::Pcode(PcodeOp::Store { .. }))
                 && !crate::decompiler::normalize::is_param_home_store(op)
                 && !crate::decompiler::normalize::is_frame_pointer_adjust(op)
@@ -1323,6 +1328,60 @@ mod tests {
             !compact.contains("rcx!=0") && !compact.contains("rcx!=0x0"),
             "must not prefer ZF `!= 0` over SF `(-x)<0`:\n{}",
             art.text
+        );
+    }
+
+    /// MSVC `mid(x) { return leaf(x+1); }` is `inc ecx; jmp leaf`.
+    #[test]
+    fn e04_mid_p1_pure_v2_surfaces_tail_call_plus() {
+        use crate::project::Project;
+        let pe = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("eval/grand/bin/P1/e04_tailish.exe");
+        if !pe.is_file() {
+            return;
+        }
+        let dir = std::env::temp_dir().join("windy-ratchet-e04-mid-tail");
+        let _ = std::fs::create_dir_all(&dir);
+        let project =
+            Project::open_with_data_dir_and_entry_hints(&pe, &dir, &[0x1400_01024]).expect("open");
+        let art = project
+            .function_decompile_artifact(
+                0x1400_01024,
+                crate::decompiler::v2::DecompileOptions::pure_no_fallback(),
+            )
+            .expect("artifact");
+        assert!(art.fallback_reason.is_none(), "{art:?}");
+        assert!(
+            art.text.contains('+'),
+            "mid must surface + from x+1 tail-call arg, got:\n{}",
+            art.text
+        );
+        assert!(
+            art.text.contains("FUN_") && art.text.contains("return"),
+            "mid must surface return call, got:\n{}",
+            art.text
+        );
+        let compact: String = art.text.chars().filter(|c| !c.is_whitespace()).collect();
+        assert!(
+            !compact.contains("L_0:return;"),
+            "must not be empty labeled return, got:\n{}",
+            art.text
+        );
+        // Product must accept V2 (not fall back to empty legacy).
+        let prod = project
+            .function_decompile_artifact(
+                0x1400_01024,
+                crate::decompiler::v2::DecompileOptions::production(),
+            )
+            .expect("product");
+        assert!(
+            prod.fallback_reason.is_none(),
+            "product must not invent-args fallback: {prod:?}"
+        );
+        assert!(
+            prod.text.contains('+') && prod.text.contains("return"),
+            "product mid must keep + tail-call return, got:\n{}",
+            prod.text
         );
     }
 }
