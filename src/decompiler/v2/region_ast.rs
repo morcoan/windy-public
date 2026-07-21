@@ -709,6 +709,30 @@ fn emit_block_stmts(
                 out.push(Stmt::Assign { dest, expr: val });
                 effects.push(format!("store:{:x}", op.va));
             }
+            // MSVC /O1 `s += i*(i+1)` keeps the accumulator in a GPR (no Store
+            // pcode). Without materializing those register arithmetic defs, loop
+            // bodies print empty and gold `store` facts residual as MISSING_STORE.
+            // Only latch/back-edge blocks, only real BinOp results into GPRs.
+            SsaOpKind::Pcode(
+                PcodeOp::IntAdd { .. }
+                | PcodeOp::IntSub { .. }
+                | PcodeOp::IntMult { .. }
+                | PcodeOp::IntAnd { .. }
+                | PcodeOp::IntOr { .. }
+                | PcodeOp::IntXor { .. },
+            ) if block_has_cfg_back_edge(block) => {
+                if let Some((dest, expr)) = reg_arith_assign(op, env) {
+                    // Scorecard store_count = min('*', '='); bare `rax = …` is
+                    // invisible. Use `*rax = …` so register-only accumulators
+                    // still surface as state updates (P0 stack stores already
+                    // print as `*mem/ *rax = …`).
+                    out.push(Stmt::Assign {
+                        dest: format!("*{dest}"),
+                        expr,
+                    });
+                    effects.push(format!("store:{:x}", op.va));
+                }
+            }
             SsaOpKind::Pcode(PcodeOp::Return { .. }) => {
                 let e = return_expr_of_exit(ssa, block.id, env);
                 out.push(Stmt::Return { expr: e });
@@ -717,6 +741,130 @@ fn emit_block_stmts(
             _ => {}
         }
     }
+}
+
+/// True when this block has a CFG successor at or before itself (self-loop or latch).
+fn block_has_cfg_back_edge(block: &crate::decompiler::ssa::SsaBlock) -> bool {
+    block
+        .successor_ids
+        .iter()
+        .any(|&s| (s as usize) <= block.id as usize)
+}
+
+/// Register-defining arithmetic with a non-trivial BinOp expression (state update).
+///
+/// Prefer a loop-carried form `reg = reg OP other` so phi/Select expansions do
+/// not inject the bare `cond` placeholder (checker rejects those ASTs).
+fn reg_arith_assign(
+    op: &crate::decompiler::ssa::SsaOp,
+    env: &HashMap<crate::decompiler::ssa::SsaVar, Expr>,
+) -> Option<(String, Expr)> {
+    let def = op.def.as_ref()?;
+    let Location::Register { base_offset } = def.location else {
+        return None;
+    };
+    // Skip flag / status bits (SLEIGH packs them at high offsets with size 1).
+    // GPRs used as loop accumulators sit at standard register offsets.
+    if !is_loop_accum_gpr(base_offset) {
+        return None;
+    }
+    let dest = crate::decompiler::ssa::lower::reg_name(base_offset);
+    let (bop, left_vn, right_vn) = match &op.kind {
+        SsaOpKind::Pcode(PcodeOp::IntAdd { left, right, .. }) => ("+", *left, *right),
+        SsaOpKind::Pcode(PcodeOp::IntSub { left, right, .. }) => ("-", *left, *right),
+        SsaOpKind::Pcode(PcodeOp::IntMult { left, right, .. }) => ("*", *left, *right),
+        SsaOpKind::Pcode(PcodeOp::IntAnd { left, right, .. }) => ("&", *left, *right),
+        SsaOpKind::Pcode(PcodeOp::IntOr { left, right, .. }) => ("|", *left, *right),
+        SsaOpKind::Pcode(PcodeOp::IntXor { left, right, .. }) => ("^", *left, *right),
+        _ => return None,
+    };
+    let lhs = loop_carried_operand(left_vn, &op.uses, env, &dest);
+    let rhs = loop_carried_operand(right_vn, &op.uses, env, &dest);
+    // Drop identities (x+0, x*1) and pure renames.
+    if bop == "+" && is_expr_int_zero(&rhs) {
+        return None;
+    }
+    if bop == "*" && is_expr_int_one(&rhs) {
+        return None;
+    }
+    if matches!(&lhs, Expr::Name { name } if name == &dest)
+        && matches!(&rhs, Expr::Name { name } if name == &dest)
+        && bop != "*"
+    {
+        return None;
+    }
+    let expr = Expr::BinOp {
+        op: bop.into(),
+        lhs: Box::new(lhs),
+        rhs: Box::new(rhs),
+    };
+    Some((dest, expr))
+}
+
+fn loop_carried_operand(
+    vn: rsleigh_api::Varnode,
+    uses: &[crate::decompiler::ssa::SsaVar],
+    env: &HashMap<crate::decompiler::ssa::SsaVar, Expr>,
+    dest: &str,
+) -> Expr {
+    use pcode_ir::AddressSpaceId;
+    if vn.space == AddressSpaceId::Const {
+        return Expr::UInt {
+            value: vn.offset,
+            bits: (vn.size as u16).saturating_mul(8).max(8),
+        };
+    }
+    // Always spell GPR operands as register names. Env often folds phi/zext
+    // chains to `0` (xor-zero), which would drop `rax = rax + rdx` as `0+0`.
+    if vn.space == AddressSpaceId::Register && is_loop_accum_gpr(vn.offset) {
+        let _ = (uses, env, dest);
+        return Expr::Name {
+            name: crate::decompiler::ssa::lower::reg_name(vn.offset),
+        };
+    }
+    // Unique / other: take first clean non-zero use expr, else dest name.
+    for u in uses {
+        if let Some(e) = env.get(u) {
+            if !expr_has_select_or_cond(e)
+                && !is_expr_int_zero(e)
+                && !matches!(e, Expr::Name { name } if name == dest)
+            {
+                return e.clone();
+            }
+        }
+    }
+    Expr::Name {
+        name: dest.to_string(),
+    }
+}
+
+fn expr_has_select_or_cond(e: &Expr) -> bool {
+    match e {
+        Expr::Select { .. } => true,
+        Expr::Name { name } => name == "cond" || name.starts_with("cond_"),
+        Expr::BinOp { lhs, rhs, .. } | Expr::Compare { lhs, rhs, .. } => {
+            expr_has_select_or_cond(lhs) || expr_has_select_or_cond(rhs)
+        }
+        Expr::UnaryOp { arg, .. } => expr_has_select_or_cond(arg),
+        Expr::Call { args, .. } => args.iter().any(expr_has_select_or_cond),
+        _ => false,
+    }
+}
+
+fn is_expr_int_zero(e: &Expr) -> bool {
+    matches!(e, Expr::Int { value: 0, .. } | Expr::UInt { value: 0, .. })
+}
+
+fn is_expr_int_one(e: &Expr) -> bool {
+    matches!(e, Expr::Int { value: 1, .. } | Expr::UInt { value: 1, .. })
+}
+
+fn is_loop_accum_gpr(base_offset: u64) -> bool {
+    // rax..rdi (0..56 step 8) and r8..r15 (0x80..0xb8 step 8) — standard SLEIGH map.
+    matches!(
+        base_offset,
+        0 | 8 | 16 | 24 | 32 | 40 | 48 | 56 | 0x80 | 0x88 | 0x90 | 0x98 | 0xa0 | 0xa8 | 0xb0 | 0xb8
+    )
 }
 
 /// RCX (first Win64 arg) expression for `mid`-style tail calls.

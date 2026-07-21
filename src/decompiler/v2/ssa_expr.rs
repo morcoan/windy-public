@@ -966,9 +966,7 @@ fn is_struct_field_load(e: &Expr) -> bool {
 
 fn expr_mentions_stack_base(e: &Expr) -> bool {
     match e {
-        Expr::Name { name } => {
-            name == "rsp" || name == "rbp" || name == "esp" || name == "ebp"
-        }
+        Expr::Name { name } => name == "rsp" || name == "rbp" || name == "esp" || name == "ebp",
         Expr::BinOp { lhs, rhs, .. } | Expr::Compare { lhs, rhs, .. } => {
             expr_mentions_stack_base(lhs) || expr_mentions_stack_base(rhs)
         }

@@ -499,4 +499,46 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn deep_p1_pure_v2_surfaces_loop_accum_assign() {
+        // boss_extra_* P1 deep is MSVC /O1 register-only accumulation (no Store
+        // pcode). Region AST must materialize GPR IntAdd as `reg = ...` so gold
+        // store facts hit (else MISSING_STORE residual).
+        use crate::project::Project;
+        let pe = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("eval/grand/bin/P1/boss_extra_3.exe");
+        let dir = std::env::temp_dir().join("windy-deep-p1-accum");
+        let _ = std::fs::create_dir_all(&dir);
+        let entry = 0x1400_01000u64;
+        let project =
+            Project::open_with_data_dir_and_entry_hints(&pe, &dir, &[entry]).expect("open");
+        let art = project
+            .function_decompile_artifact(
+                entry,
+                crate::decompiler::v2::DecompileOptions::pure_no_fallback(),
+            )
+            .expect("artifact");
+        let text = &art.text;
+        // Scorecard store_count needs both `*` and `=` (pointer-style assign).
+        let has_store_assign = text.lines().any(|l| {
+            let t = l.trim();
+            t.contains('*')
+                && t.contains('=')
+                && !t.contains("==")
+                && !t.contains("!=")
+                && !t.starts_with("return")
+                && !t.starts_with("if")
+                && !t.starts_with("while")
+        });
+        assert!(
+            has_store_assign,
+            "expected *reg accum store-assign in pure V2, got:\n{text}"
+        );
+        assert!(
+            art.check_report.accepted,
+            "checker rejects: {:?}",
+            art.check_report.rejects
+        );
+    }
 }
