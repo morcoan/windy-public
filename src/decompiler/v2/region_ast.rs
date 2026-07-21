@@ -697,13 +697,21 @@ fn emit_block_stmts(
                     .and_then(|u| env.get(u).cloned())
                     .or_else(|| op.uses.first().and_then(|u| env.get(u).cloned()))
                     .unwrap_or(Expr::Name { name: "v".into() });
-                // Drop frame/spill soup stores (rsp/rbx save patterns).
+                // Drop frame/spill soup destinations (mov [rsp+…], rbx).
+                if dest.contains("rsp") || dest.contains("rbx") || dest.contains("rbp") {
+                    continue;
+                }
+                // Values that mention rsp are usually stack-reload soup — drop
+                // them *except* for RawRam defs (true heap/out-param writes).
+                // MSVC read_header builds fields from `*(rsp+home)` packet bytes
+                // then stores through the out-param (RawRam); those must stay
+                // for store_ver gold.
                 let val_s = format!("{val:?}");
-                if dest.contains("rsp")
-                    || dest.contains("rbx")
-                    || dest.contains("rbp")
-                    || val_s.contains("rsp")
-                {
+                let raw_ram = matches!(
+                    op.def.as_ref().map(|d| &d.location),
+                    Some(crate::decompiler::ssa::Location::RawRam)
+                );
+                if val_s.contains("rsp") && !raw_ram {
                     continue;
                 }
                 out.push(Stmt::Assign { dest, expr: val });

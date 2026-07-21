@@ -541,4 +541,44 @@ mod tests {
             art.check_report.rejects
         );
     }
+
+    #[test]
+    fn read_header_p0_pure_v2_surfaces_out_param_stores() {
+        // P0 read_header writes header fields through the out-param. Values are
+        // built from packet bytes reloaded via `*(rsp+home)`, so filtering stores
+        // whose *value* mentions rsp dropped all three stores and residual
+        // MISSING_STORE (store_ver). Dest-only frame filter keeps them.
+        use crate::project::Project;
+        let pe = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("eval/grand/bin/P0/boss_telemetry_decoder.exe");
+        let dir = std::env::temp_dir().join("windy-rh-p0-stores");
+        let _ = std::fs::create_dir_all(&dir);
+        let entry = 0x1400_01000u64;
+        let project =
+            Project::open_with_data_dir_and_entry_hints(&pe, &dir, &[entry]).expect("open");
+        let art = project
+            .function_decompile_artifact(
+                entry,
+                crate::decompiler::v2::DecompileOptions::pure_no_fallback(),
+            )
+            .expect("artifact");
+        let text = &art.text;
+        let store_lines = text
+            .lines()
+            .filter(|l| {
+                let t = l.trim();
+                t.contains('*')
+                    && t.contains('=')
+                    && !t.contains("==")
+                    && !t.contains("!=")
+                    && !t.starts_with("return")
+                    && !t.starts_with("if")
+                    && !t.starts_with("while")
+            })
+            .count();
+        assert!(
+            store_lines >= 1,
+            "expected out-param stores in pure V2 read_header, got:\n{text}"
+        );
+    }
 }
