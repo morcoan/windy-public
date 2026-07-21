@@ -89,9 +89,11 @@ fn expr_of_op(op: &SsaOp, env: &HashMap<SsaVar, Expr>) -> Option<Expr> {
         SsaOpKind::Pcode(PcodeOp::IntSub { left, right, .. }) => {
             let lhs = lookup_vn(*left, &op.uses, env).unwrap_or_else(|| name_fb("a"));
             let rhs = lookup_vn(*right, &op.uses, env).unwrap_or_else(|| name_fb("b"));
-            // Identity: x - 0 (flag-forming `test`/`or` leftovers).
+            // Identity: x - 0; x - x → 0.
             if is_int_zero(&rhs) {
                 Some(lhs)
+            } else if expr_struct_eq(&lhs, &rhs) {
+                Some(Expr::Int { value: 0, bits: 32 })
             } else {
                 Some(Expr::BinOp {
                     op: "-".into(),
@@ -130,6 +132,13 @@ fn expr_of_op(op: &SsaOp, env: &HashMap<SsaVar, Expr>) -> Option<Expr> {
             rhs: Box::new(lookup_vn(*right, &op.uses, env).unwrap_or_else(|| name_fb("b"))),
         }),
         SsaOpKind::Pcode(PcodeOp::IntXor { left, right, .. }) => {
+            let lhs = lookup_vn(*left, &op.uses, env).unwrap_or_else(|| name_fb("a"));
+            let rhs = lookup_vn(*right, &op.uses, env).unwrap_or_else(|| name_fb("b"));
+            // Identity: x^x → 0 (zeroing idiom). Prefer a literal zero so freeload
+            // and soft-gold do not latch onto self-xor as a real operator.
+            if expr_struct_eq(&lhs, &rhs) {
+                return Some(Expr::Int { value: 0, bits: 32 });
+            }
             let rhs_c = if right.space == AddressSpaceId::Const {
                 Some(right.offset as u32 as u64)
             } else {
@@ -138,7 +147,7 @@ fn expr_of_op(op: &SsaOp, env: &HashMap<SsaVar, Expr>) -> Option<Expr> {
             if rhs_c == Some(0x045d_9f3b) || right.offset == 0x045d_9f3b {
                 return Some(Expr::BinOp {
                     op: "^".into(),
-                    lhs: Box::new(lookup_vn(*left, &op.uses, env).unwrap_or_else(|| name_fb("v"))),
+                    lhs: Box::new(lhs),
                     rhs: Box::new(Expr::UInt {
                         value: 0x045d_9f3b,
                         bits: 32,
@@ -147,8 +156,8 @@ fn expr_of_op(op: &SsaOp, env: &HashMap<SsaVar, Expr>) -> Option<Expr> {
             }
             Some(Expr::BinOp {
                 op: "^".into(),
-                lhs: Box::new(lookup_vn(*left, &op.uses, env).unwrap_or_else(|| name_fb("a"))),
-                rhs: Box::new(lookup_vn(*right, &op.uses, env).unwrap_or_else(|| name_fb("b"))),
+                lhs: Box::new(lhs),
+                rhs: Box::new(rhs),
             })
         }
         SsaOpKind::Pcode(PcodeOp::IntSLess { left, right, .. })
@@ -1505,6 +1514,64 @@ mod tests {
             "product mid must keep + tail-call return, got:\n{}",
             prod.text
         );
+    }
+
+    /// Zeroing idiom `xor reg, reg` must not freeload as a real `^` return.
+    #[test]
+    fn self_xor_folds_to_zero_literal() {
+        use crate::decompiler::ssa::{Location, SsaBlock, SsaFunction, SsaOp, SsaOpKind, SsaVar};
+        use rsleigh_api::{PcodeOp, Varnode};
+        let rax = SsaVar {
+            location: Location::Register { base_offset: 0 },
+            version: 1,
+        };
+        let block = SsaBlock {
+            id: 0,
+            entry_va: 0x1000,
+            ops: vec![
+                SsaOp {
+                    va: 0x1000,
+                    kind: SsaOpKind::Pcode(PcodeOp::IntXor {
+                        out: Varnode::register(0, 8),
+                        left: Varnode::register(0, 8),
+                        right: Varnode::register(0, 8),
+                    }),
+                    def: Some(rax.clone()),
+                    uses: vec![
+                        SsaVar {
+                            location: Location::Register { base_offset: 0 },
+                            version: 0,
+                        },
+                        SsaVar {
+                            location: Location::Register { base_offset: 0 },
+                            version: 0,
+                        },
+                    ],
+                },
+                SsaOp {
+                    va: 0x1001,
+                    kind: SsaOpKind::Pcode(PcodeOp::Return {
+                        dest: Varnode::constant(0, 8),
+                    }),
+                    def: None,
+                    uses: vec![rax],
+                },
+            ],
+            successor_ids: vec![],
+            predecessor_ids: vec![],
+        };
+        let ssa = SsaFunction {
+            entry_va: 0x1000,
+            bitness: 64,
+            blocks: vec![block],
+            image_base: 0,
+        };
+        let env = build_expr_map(&ssa);
+        let e = best_return_of_function(&ssa, &env).expect("ret");
+        match e {
+            Expr::Int { value: 0, .. } | Expr::UInt { value: 0, .. } => {}
+            other => panic!("expected 0 from x^x, got {other:?}"),
+        }
     }
 
     /// Switch default `return -1` often becomes `or reg, 0xffffffff`. Surface as
