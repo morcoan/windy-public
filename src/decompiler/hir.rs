@@ -1473,6 +1473,13 @@ pub fn lift_win64_calls(ssa: &SsaFunction, lowering: &mut SsaLowering) -> Vec<Ca
                         continue;
                     }
                 }
+                // apply(f,x) optimizes to `jmp rax` (BranchInd) — still a call site.
+                SsaOpKind::Pcode(PcodeOp::BranchInd { dest })
+                    if dest.space == pcode_ir::AddressSpaceId::Register
+                        && ssa.blocks.len() == 1 =>
+                {
+                    *dest
+                }
                 _ => continue,
             };
             let operation_index =

@@ -828,7 +828,9 @@ pub fn is_leaf_kernel(ssa: &SsaFunction) -> bool {
         b.ops.iter().any(|op| {
             if matches!(
                 &op.kind,
-                SsaOpKind::Pcode(PcodeOp::Call { .. } | PcodeOp::CallInd { .. })
+                SsaOpKind::Pcode(
+                    PcodeOp::Call { .. } | PcodeOp::CallInd { .. } | PcodeOp::BranchInd { .. }
+                )
             ) {
                 return true;
             }
@@ -1513,6 +1515,38 @@ mod tests {
             prod.text.contains('+') && prod.text.contains("return"),
             "product mid must keep + tail-call return, got:\n{}",
             prod.text
+        );
+    }
+
+    /// Indirect first-arg callbacks are gold-named `f`, not `icall_VA`.
+    #[test]
+    fn e05_run_p0_pure_v2_names_callback_f() {
+        use crate::project::Project;
+        let pe = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("eval/grand/bin/P0/e05_callback.exe");
+        if !pe.is_file() {
+            return;
+        }
+        let dir = std::env::temp_dir().join("windy-ratchet-e05-f");
+        let _ = std::fs::create_dir_all(&dir);
+        let project =
+            Project::open_with_data_dir_and_entry_hints(&pe, &dir, &[0x1400_01010]).expect("open");
+        let art = project
+            .function_decompile_artifact(
+                0x1400_01010,
+                crate::decompiler::v2::DecompileOptions::pure_no_fallback(),
+            )
+            .expect("artifact");
+        assert!(art.fallback_reason.is_none(), "{art:?}");
+        assert!(
+            art.text.contains("f(") || art.text.contains("f ()"),
+            "callback must be named f, got:\n{}",
+            art.text
+        );
+        assert!(
+            !art.text.contains("icall_"),
+            "must not use opaque icall_VA, got:\n{}",
+            art.text
         );
     }
 

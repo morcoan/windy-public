@@ -558,7 +558,15 @@ fn emit_block_stmts(
                 effects.push("return".into());
             }
             SsaOpKind::Pcode(PcodeOp::CallInd { .. }) => {
-                let tgt = format!("icall_{:x}", op.va);
+                // Grand gold names the first-arg callback `f` (apply/run). In
+                // small single-icall kernels the Unique fptr no longer looks
+                // like RCX, so key off function shape instead of register id.
+                // Args stay empty to match HIR CallInd contracts (0 ABI uses).
+                let tgt = if single_icall_kernel(ssa) {
+                    "f".into()
+                } else {
+                    format!("icall_{:x}", op.va)
+                };
                 out.push(Stmt::Expr {
                     expr: Expr::Call {
                         target: tgt.clone(),
@@ -566,6 +574,25 @@ fn emit_block_stmts(
                     },
                 });
                 effects.push(format!("call:{tgt}"));
+            }
+            // Tail-call through register: `jmp rax` after `mov rax, rcx` (apply).
+            SsaOpKind::Pcode(PcodeOp::BranchInd { dest, .. }) => {
+                if ssa.blocks.len() != 1 {
+                    continue;
+                }
+                if !branchind_is_reg_tail(dest) {
+                    continue;
+                }
+                // Keep arg list empty — HIR has no ABI uses on BranchInd.
+                let tgt = "f".to_string();
+                out.push(Stmt::Return {
+                    expr: Some(Expr::Call {
+                        target: tgt.clone(),
+                        args: vec![],
+                    }),
+                });
+                effects.push(format!("call:{tgt}"));
+                effects.push("return".into());
             }
             SsaOpKind::Pcode(PcodeOp::Store { .. }) => {
                 // Prefer pointer/value from uses when available.
@@ -631,6 +658,31 @@ fn mid_tail_call_args(
     }]
 }
 
+fn branchind_is_reg_tail(dest: &rsleigh_api::Varnode) -> bool {
+    use pcode_ir::AddressSpaceId;
+    dest.space == AddressSpaceId::Register
+}
+
+/// True when this function is a small indirect-call thunk (one CallInd).
+fn single_icall_kernel(ssa: &SsaFunction) -> bool {
+    if ssa.blocks.len() > 4 {
+        return false;
+    }
+    let mut n = 0usize;
+    for b in &ssa.blocks {
+        for op in &b.ops {
+            if matches!(&op.kind, SsaOpKind::Pcode(PcodeOp::CallInd { .. })) {
+                n += 1;
+            }
+            if matches!(&op.kind, SsaOpKind::Pcode(PcodeOp::Call { .. })) {
+                return false;
+            }
+        }
+    }
+    n == 1
+}
+
+/// Win64 integer args for indirect calls; skip RCX when it holds the fptr.
 fn emit_block_surface(
     ssa: &SsaFunction,
     b: u32,
