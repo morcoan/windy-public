@@ -40,6 +40,67 @@ use demangle::demangle_or_raw;
 use symbols::{SymbolKind, SymbolTable};
 use types::{DataType, DataTypeManager};
 
+/// Apply simple C-identifier function names from an adjacent MSVC `.map`.
+///
+/// Only upgrades existing `FUN_*` / missing symbols so PDB/export names win.
+/// Skips CRT/lib objects and C++ mangled (`?`/`@`) publics.
+fn apply_adjacent_msvc_map_names(pe_path: &Path, symbols: &mut SymbolTable) {
+    let map_path = pe_path.with_extension("map");
+    let Ok(text) = std::fs::read_to_string(&map_path) else {
+        return;
+    };
+    let mut applied = 0usize;
+    for line in text.lines() {
+        // 0001:00000000       classify                   0000000140001000 f   c03_dispatch.obj
+        let parts: Vec<&str> = line.split_whitespace().collect();
+        if parts.len() < 4 {
+            continue;
+        }
+        // Require type flag `f` (function).
+        let f_idx = parts.iter().position(|p| *p == "f");
+        let Some(fi) = f_idx else {
+            continue;
+        };
+        if fi < 2 || fi + 1 >= parts.len() {
+            continue;
+        }
+        let name = parts[fi - 2];
+        let va_s = parts[fi - 1];
+        let obj = parts[fi + 1];
+        // User .obj only (not LIBCMT:… / libvcruntime:…).
+        if obj.contains(':') || !obj.ends_with(".obj") {
+            continue;
+        }
+        if !name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+            || name.starts_with('?')
+            || name.starts_with('_')
+            || name.len() < 2
+        {
+            continue;
+        }
+        let Ok(va) = u64::from_str_radix(va_s, 16) else {
+            continue;
+        };
+        match symbols.name(va) {
+            None => {
+                symbols.insert(va, name, SymbolKind::Function);
+                applied += 1;
+            }
+            Some(n) if n.starts_with("FUN_") || n.starts_with("sub_") => {
+                symbols.insert(va, name, SymbolKind::Function);
+                applied += 1;
+            }
+            Some(_) => {}
+        }
+    }
+    if applied > 0 {
+        tracing::info!(
+            "MSVC map: applied {applied} function name(s) from {}",
+            map_path.display()
+        );
+    }
+}
+
 /// Whether a signature can be represented by the first four Windows x64 GPR
 /// argument slots without inventing floating-point, aggregate, vectorcall, or
 /// caller-stack semantics.
@@ -234,6 +295,10 @@ impl Project {
                 Some(_) => {}
             }
         }
+
+        // Adjacent MSVC .map publics (same stem as the PE) upgrade FUN_ names
+        // so pure-V2 call sites can emit `classify` / `crc_add` / `res_init`.
+        apply_adjacent_msvc_map_names(&pe.path, &mut symbols);
 
         // Detect import forwarder thunks and rename them to their API names.
         let thunks = thunks::find_thunk_renames(

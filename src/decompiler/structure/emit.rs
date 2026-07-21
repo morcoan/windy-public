@@ -689,23 +689,30 @@ pub(crate) fn polish_hoist_rich_xor_return(src: &str) -> String {
 /// `res_init` / `res_destroy(&b)` / `res_destroy(&a)` names so lifetime
 /// contracts and ordered cleanup anchors are observable without PDB.
 pub(crate) fn polish_resource_pair_names(src: &str) -> String {
-    // Fire when we see at least two FUN_/call sites or explicit destroy markers.
+    // Fire when we see at least two FUN_/named-res/call sites or destroy markers.
     // Optimized parse_tree bodies often have exactly two inits + two destroys.
+    // MSVC map names may already surface `res_init`/`res_destroy` instead of FUN_.
+    let named_res = src.matches("res_init").count() + src.matches("res_destroy").count();
     if src.matches("FUN_").count() < 2
         && src.matches("call(").count() < 2
+        && named_res < 2
         && src.matches("/* destroy */").count() < 2
     {
         return src.to_string();
     }
-    // Collect FUN_(slot, 1/2) init calls and FUN_(slot) destroys.
+    // Collect FUN_/res_init(slot, 1/2) init calls and FUN_/res_destroy(slot) destroys.
     let mut inits: Vec<(String, i64, String)> = Vec::new(); // slot, id, full_call
     let mut destroys: Vec<(String, String)> = Vec::new(); // slot, full_call
     for line in src.lines() {
         let t = line.trim();
-        if !(t.contains("FUN_") || t.starts_with("call(")) {
+        if !(t.contains("FUN_")
+            || t.starts_with("call(")
+            || t.contains("res_init")
+            || t.contains("res_destroy"))
+        {
             continue;
         }
-        // FUN_xxx((0x30 + fp_2), 0x1) or FUN_xxx((0x38 + fp));
+        // FUN_xxx((0x30 + fp_2), 0x1) or res_init((0x38 + fp), 0x2);
         if let Some(args) = extract_call_args(t) {
             if args.len() >= 2
                 && let Some(id) = parse_small_id(&args[1])
@@ -1875,6 +1882,22 @@ pub(crate) fn fold_eq_ladder_to_switch(src: &str) -> String {
     out
 }
 
+/// `name(...);` call statement (not control keywords).
+fn looks_like_call_stmt(t: &str) -> bool {
+    let t = t.trim().trim_end_matches(';').trim();
+    let Some(paren) = t.find('(') else {
+        return false;
+    };
+    let name = t[..paren].trim();
+    if name.is_empty() || !name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
+        return false;
+    }
+    !matches!(
+        name,
+        "if" | "while" | "for" | "switch" | "return" | "sizeof" | "typeof"
+    )
+}
+
 /// When body extraction fails, fold a thin switch surface from case labels.
 ///
 /// Call/store side-effects that used to abort the fold entirely (so dense
@@ -1935,9 +1958,12 @@ fn fold_eq_ladder_empty_fallback(src: &str, scrut: &str, case_ks: &[i64], start:
             }
             continue;
         }
-        // Park FUN_/call/store lines that previously aborted the fold.
+        // Park FUN_/named-call/store lines that previously aborted the fold.
+        // Named callees from MSVC maps (`classify()`) must not be dropped just
+        // because they lost the FUN_ prefix.
         if t.contains("FUN_")
             || t.starts_with("call(")
+            || looks_like_call_stmt(t)
             || (t.contains('*') && t.contains('=') && !t.contains("=="))
         {
             side_effect_lines.push(t.to_string());
@@ -7274,7 +7300,10 @@ L_fail:
             "handle_record must emit tag switch, got:\n{t}"
         );
         assert!(
-            t.contains("FUN_") || t.contains("call("),
+            t.contains("FUN_")
+                || t.contains("call(")
+                || t.contains("crc_add")
+                || t.contains("crc_"),
             "handle_record must keep crc call, got:\n{t}"
         );
         // Prefer full 1/2/3 partition; allow 1/2 if arm 3 folds into default.

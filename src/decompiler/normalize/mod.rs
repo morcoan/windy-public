@@ -14,20 +14,33 @@ use rsleigh_api::{PcodeOp, Varnode};
 
 use crate::decompiler::ssa::{Location, SsaFunction, SsaOp, SsaOpKind};
 
-/// Single-block foreign `jmp imm` (MSVC tail-call). SSA drops the CFG edge.
+/// Foreign `jmp imm` tail-call (MSVC). SSA drops the CFG edge for single-block
+/// wrappers; multi-block dispatch defaults use the same shape on a leaf block.
 ///
 /// Covers:
-/// - `mid`: `inc ecx; jmp leaf`
-/// - optimized `apply(f,x)`: `mov ecx, imm; jmp add1` (no fptr left)
+/// - `mid`: `inc ecx; jmp leaf` (single-block)
+/// - optimized `apply(f,x)`: `mov ecx, imm; jmp add1`
+/// - switch default: `mov ecx, arg; jmp classify` (multi-block)
 pub fn external_tail_call_target(ssa: &SsaFunction, dest: Varnode) -> Option<u64> {
+    if ssa.blocks.len() == 1 {
+        return external_tail_call_in_block(ssa, &ssa.blocks[0], dest);
+    }
+    None
+}
+
+/// Like [`external_tail_call_target`] but for a specific block (multi-block OK).
+pub fn external_tail_call_in_block(
+    ssa: &SsaFunction,
+    block: &crate::decompiler::ssa::SsaBlock,
+    dest: Varnode,
+) -> Option<u64> {
     if !matches!(dest.space, AddressSpaceId::Const | AddressSpaceId::Ram) {
         return None;
     }
     let va = dest.offset;
-    if va < 0x1000 || ssa.blocks.len() != 1 {
+    if va < 0x1000 {
         return None;
     }
-    let block = &ssa.blocks[0];
     if block.ops.iter().any(|op| {
         matches!(
             &op.kind,
@@ -48,6 +61,7 @@ pub fn external_tail_call_target(ssa: &SsaFunction, dest: Varnode) -> Option<u64
     if last_dest.offset != va {
         return None;
     }
+    // Destination must not be a block/op inside this function.
     if ssa.blocks.iter().any(|b| b.entry_va == va) {
         return None;
     }

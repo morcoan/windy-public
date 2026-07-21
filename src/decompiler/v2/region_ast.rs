@@ -8,7 +8,7 @@ use std::collections::{HashMap, HashSet};
 use pcode_ir::AddressSpaceId;
 use rsleigh_api::PcodeOp;
 
-use crate::decompiler::normalize::external_tail_call_target;
+use crate::decompiler::normalize::external_tail_call_in_block;
 use crate::decompiler::ssa::{Location, SsaFunction, SsaOpKind};
 use crate::decompiler::structure::rd_model::DualDecompModel;
 use crate::decompiler::structure::region::{Region, SwitchInfo};
@@ -22,6 +22,10 @@ use super::ssa_expr::{
 };
 
 /// Build the primary pure-V2 candidate from regions + SSA (no text polish).
+///
+/// `global_names` maps code VAs → display names (PDB / map / auto FUN_). Used
+/// for direct Call and tail-jmp targets so stripped callees surface as
+/// `classify` / `crc_add` when symbols are known.
 pub fn extract_region_ast(
     ssa: &SsaFunction,
     sem: &SemanticModel,
@@ -29,6 +33,7 @@ pub fn extract_region_ast(
     switches: &[SwitchInfo],
     name: &str,
     params: &[String],
+    global_names: &HashMap<u64, String>,
 ) -> TypedAstCandidate {
     let mut dual = DualDecompModel::build(ssa, switches);
     // Checker-backed region rewrites (structural, not text polish).
@@ -131,6 +136,7 @@ pub fn extract_region_ast(
         ssa,
         &dual.regions,
         &env,
+        global_names,
         &mut emitted,
         start,
         u32::MAX,
@@ -182,7 +188,15 @@ pub fn extract_region_ast(
                 && !crate::decompiler::normalize::is_noise_stack_reload(op)
         });
         if has_surface {
-            emit_block_surface(ssa, i, &env, &mut body, &mut effects, /*label*/ false);
+            emit_block_surface(
+                ssa,
+                i,
+                &env,
+                global_names,
+                &mut body,
+                &mut effects,
+                /*label*/ false,
+            );
         }
         emitted.insert(i);
     }
@@ -258,6 +272,7 @@ fn walk_region(
     ssa: &SsaFunction,
     regions: &HashMap<u32, Region>,
     env: &std::collections::HashMap<crate::decompiler::ssa::SsaVar, Expr>,
+    global_names: &HashMap<u64, String>,
     emitted: &mut HashSet<u32>,
     entry: u32,
     stop: u32,
@@ -287,7 +302,7 @@ fn walk_region(
                 merge,
                 invert,
             }) => {
-                emit_block_stmts(ssa, block, env, out, effects);
+                emit_block_stmts(ssa, block, env, global_names, out, effects);
                 let mut cond = cond_expr_of_block(block, env);
                 if *invert {
                     cond = Expr::UnaryOp {
@@ -302,6 +317,7 @@ fn walk_region(
                     ssa,
                     regions,
                     env,
+                    global_names,
                     emitted,
                     *then_entry,
                     *merge,
@@ -313,6 +329,7 @@ fn walk_region(
                     ssa,
                     regions,
                     env,
+                    global_names,
                     emitted,
                     *else_entry,
                     *merge,
@@ -338,7 +355,7 @@ fn walk_region(
                 invert,
                 ..
             }) => {
-                emit_block_stmts(ssa, block, env, out, effects);
+                emit_block_stmts(ssa, block, env, global_names, out, effects);
                 let mut cond = cond_expr_of_block(block, env);
                 if *invert {
                     cond = Expr::UnaryOp {
@@ -352,6 +369,7 @@ fn walk_region(
                     ssa,
                     regions,
                     env,
+                    global_names,
                     emitted,
                     *body_entry,
                     *merge,
@@ -382,11 +400,12 @@ fn walk_region(
                 }
                 let cond = normalize_cond_expr(cond);
                 let mut body = Vec::new();
-                emit_block_stmts(ssa, block, env, &mut body, effects);
+                emit_block_stmts(ssa, block, env, global_names, &mut body, effects);
                 walk_region(
                     ssa,
                     regions,
                     env,
+                    global_names,
                     emitted,
                     *body_entry,
                     b,
@@ -403,11 +422,12 @@ fn walk_region(
                 exit,
             }) => {
                 let mut body = Vec::new();
-                emit_block_stmts(ssa, block, env, &mut body, effects);
+                emit_block_stmts(ssa, block, env, global_names, &mut body, effects);
                 walk_region(
                     ssa,
                     regions,
                     env,
+                    global_names,
                     emitted,
                     *body_entry,
                     b,
@@ -420,7 +440,7 @@ fn walk_region(
                 current = Some(*exit);
             }
             Some(Region::Switch { cases, merge }) => {
-                emit_block_stmts(ssa, block, env, out, effects);
+                emit_block_stmts(ssa, block, env, global_names, out, effects);
                 let scrutinee = cond_expr_of_block(block, env);
                 let mut switch_cases = Vec::new();
                 for (val, tgt) in cases {
@@ -429,6 +449,7 @@ fn walk_region(
                         ssa,
                         regions,
                         env,
+                        global_names,
                         emitted,
                         *tgt,
                         *merge,
@@ -450,7 +471,7 @@ fn walk_region(
                 current = Some(*merge);
             }
             Some(Region::Return) => {
-                emit_block_stmts(ssa, block, env, out, effects);
+                emit_block_stmts(ssa, block, env, global_names, out, effects);
                 if !effects.iter().any(|e| e == "return")
                     && !block
                         .ops
@@ -465,7 +486,7 @@ fn walk_region(
             }
             None => {
                 // Straight-line / unstructured: no residual labels; prefer if for 2-way.
-                emit_block_stmts(ssa, block, env, out, effects);
+                emit_block_stmts(ssa, block, env, global_names, out, effects);
                 let succs: Vec<u32> = block
                     .successor_ids
                     .iter()
@@ -504,6 +525,7 @@ fn walk_region(
                                     ssa,
                                     regions,
                                     env,
+                                    global_names,
                                     emitted,
                                     taken,
                                     stop,
@@ -517,6 +539,7 @@ fn walk_region(
                                     ssa,
                                     regions,
                                     env,
+                                    global_names,
                                     emitted,
                                     fall,
                                     stop,
@@ -543,10 +566,22 @@ fn walk_region(
     }
 }
 
+fn resolve_callee_name(global_names: &HashMap<u64, String>, va: u64) -> String {
+    if let Some(n) = global_names.get(&va) {
+        let bare = n.split(':').next().unwrap_or(n);
+        if let Some(rest) = bare.strip_prefix("sub_") {
+            return format!("FUN_{rest}");
+        }
+        return bare.to_string();
+    }
+    format!("FUN_{va:x}")
+}
+
 fn emit_block_stmts(
     ssa: &SsaFunction,
     block: &crate::decompiler::ssa::SsaBlock,
     env: &std::collections::HashMap<crate::decompiler::ssa::SsaVar, Expr>,
+    global_names: &HashMap<u64, String>,
     out: &mut Vec<Stmt>,
     effects: &mut Vec<String>,
 ) {
@@ -568,7 +603,7 @@ fn emit_block_stmts(
                         "f".into()
                     }
                 } else if matches!(dest.space, AddressSpaceId::Const | AddressSpaceId::Ram) {
-                    format!("FUN_{:x}", dest.offset)
+                    resolve_callee_name(global_names, dest.offset)
                 } else {
                     format!("call_{:x}", op.va)
                 };
@@ -580,21 +615,22 @@ fn emit_block_stmts(
                 });
                 effects.push(format!("call:{tgt}"));
             }
-            // MSVC tail `jmp imm`: mid (`inc; jmp leaf`) or optimized apply.
+            // MSVC tail `jmp imm`: mid (`inc; jmp leaf`) or optimized apply;
+            // multi-block switch default (`mov ecx; jmp classify`).
             SsaOpKind::Pcode(PcodeOp::Branch { dest, .. }) => {
-                let Some(va) = external_tail_call_target(ssa, *dest) else {
+                let Some(va) = external_tail_call_in_block(ssa, block, *dest) else {
                     continue;
                 };
-                // Pure arg-prep tails: mid (`inc ecx; jmp`) → leaf; optimized
-                // apply (`mov ecx,imm; jmp`) → f. CRT mains (stores) keep FUN_va.
+                // Single-block pure arg-prep keeps leaf/f heuristics (e04 mid).
+                // Multi-block / named callees prefer symbol / FUN_ names.
                 let pure = crate::decompiler::normalize::is_pure_arg_prep_tail_block(block);
                 let rcx_inc = crate::decompiler::normalize::block_has_rcx_inc(block);
-                let tgt = if pure && rcx_inc {
+                let tgt = if ssa.blocks.len() == 1 && pure && rcx_inc {
                     "leaf".into()
-                } else if pure {
+                } else if ssa.blocks.len() == 1 && pure {
                     "f".into()
                 } else {
-                    format!("FUN_{va:x}")
+                    resolve_callee_name(global_names, va)
                 };
                 let args = mid_tail_call_args(block, env);
                 out.push(Stmt::Return {
@@ -818,6 +854,7 @@ fn emit_block_surface(
     ssa: &SsaFunction,
     b: u32,
     env: &std::collections::HashMap<crate::decompiler::ssa::SsaVar, Expr>,
+    global_names: &HashMap<u64, String>,
     out: &mut Vec<Stmt>,
     effects: &mut Vec<String>,
     label: bool,
@@ -830,7 +867,14 @@ fn emit_block_surface(
             name: format!("L_{b}"),
         });
     }
-    emit_block_stmts(ssa, &ssa.blocks[b as usize], env, out, effects);
+    emit_block_stmts(
+        ssa,
+        &ssa.blocks[b as usize],
+        env,
+        global_names,
+        out,
+        effects,
+    );
 }
 
 fn count_nesting(stmts: &[Stmt]) -> i32 {
@@ -910,7 +954,8 @@ mod tests {
         };
         let sem = SemanticModel::from_raw_pcode(&ssa);
         let contracts = ContractBundle::from_semantic(&ssa, &sem, &[]);
-        let cand = extract_region_ast(&ssa, &sem, &contracts, &[], "FUN_x", &[]);
+        let empty = HashMap::new();
+        let cand = extract_region_ast(&ssa, &sem, &contracts, &[], "FUN_x", &[], &empty);
         assert!(!cand.ast.body.is_empty());
         assert!(
             cand.coverage.effects.iter().any(|e| e == "return"),
@@ -990,7 +1035,8 @@ mod tests {
         };
         let sem = SemanticModel::from_raw_pcode(&ssa);
         let contracts = ContractBundle::from_semantic(&ssa, &sem, &[]);
-        let cand = extract_region_ast(&ssa, &sem, &contracts, &[], "query", &[]);
+        let empty = HashMap::new();
+        let cand = extract_region_ast(&ssa, &sem, &contracts, &[], "query", &[], &empty);
 
         fn return_classes(stmts: &[Stmt], out: &mut std::collections::BTreeSet<String>) {
             for stmt in stmts {

@@ -2138,8 +2138,38 @@ mod tests {
             art.text
         );
         assert!(
-            art.text.contains("FUN_") || art.text.contains("call("),
+            art.text.contains("classify")
+                || art.text.contains("FUN_")
+                || art.text.contains("call("),
             "default classify tail must remain a call site, got:\n{}",
+            art.text
+        );
+    }
+
+    /// P1 dispatch default is tail-jmp to classify; map names + multi-block tail.
+    #[test]
+    fn c03_dispatch_p1_pure_v2_surfaces_classify_call() {
+        use crate::project::Project;
+        let pe = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("eval/grand/bin/P1/c03_dispatch.exe");
+        if !pe.is_file() {
+            return;
+        }
+        let dir = std::env::temp_dir().join("windy-ratchet-c03-disp-p1");
+        let _ = std::fs::create_dir_all(&dir);
+        let entry = 0x1400_01020u64;
+        let project =
+            Project::open_with_data_dir_and_entry_hints(&pe, &dir, &[entry]).expect("open");
+        let art = project
+            .function_decompile_artifact(
+                entry,
+                crate::decompiler::v2::DecompileOptions::pure_no_fallback(),
+            )
+            .expect("artifact");
+        assert!(art.fallback_reason.is_none(), "{art:?}");
+        assert!(
+            art.text.contains("classify"),
+            "P1 dispatch default must call classify, got:\n{}",
             art.text
         );
     }

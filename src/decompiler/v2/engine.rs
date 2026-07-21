@@ -74,7 +74,15 @@ pub fn decompile_function_v2_with_raw(
     let (name, params) = signature_bits(sig, present_ssa.entry_va);
 
     // Primary pure candidate: region tree → typed AST (no emit/presentation).
-    let region_cand = extract_region_ast(raw_ssa, &sem, &contracts, switches, &name, &params);
+    let region_cand = extract_region_ast(
+        raw_ssa,
+        &sem,
+        &contracts,
+        switches,
+        &name,
+        &params,
+        &names.global_names,
+    );
 
     // Secondary alternatives from the region candidate (not the goto seed).
     // Lossless seed is last-resort only — never preferred when region AST exists.
