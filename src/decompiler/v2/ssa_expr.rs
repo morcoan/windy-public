@@ -808,10 +808,16 @@ fn is_substantial_return_expr(e: &Expr) -> bool {
 /// Condition expression of a CBranch block.
 pub fn cond_expr_of_block(block: &SsaBlock, env: &HashMap<SsaVar, Expr>) -> Expr {
     for op in block.ops.iter().rev() {
-        if let SsaOpKind::Pcode(PcodeOp::CBranch { cond, .. }) = &op.kind
-            && let Some(e) = lookup_vn(*cond, &op.uses, env)
-        {
-            return normalize_cond_expr(e);
+        if let SsaOpKind::Pcode(PcodeOp::CBranch { cond, .. }) = &op.kind {
+            if let Some(e) = lookup_vn(*cond, &op.uses, env) {
+                return normalize_cond_expr(e);
+            }
+            // MSVC `cmp byte; jne/je`: BoolNot(ZF) with ZF from 1-byte load==0.
+            // Reconstruct `!(*(p) == 0)` so normalize surfaces soft-gold `!=`
+            // without globally mapping all ZF BoolNots (classify/tu_value soft `==`).
+            if let Some(e) = try_byte_zero_test_cond(block, *cond, env) {
+                return normalize_cond_expr(e);
+            }
         }
         if let Some(e) = expr_of_op(op, env)
             && matches!(e, Expr::Compare { .. } | Expr::UnaryOp { .. })
@@ -827,6 +833,75 @@ pub fn cond_expr_of_block(block: &SsaBlock, env: &HashMap<SsaVar, Expr>) -> Expr
     }
     Expr::Name {
         name: "cond".into(),
+    }
+}
+
+fn vn_same(a: rsleigh_api::Varnode, b: rsleigh_api::Varnode) -> bool {
+    a.space == b.space && a.offset == b.offset && a.size == b.size
+}
+
+/// Reconstruct `!(byte_load == 0)` from `BoolNot(IntEq(byte, 0))` CBranch conds.
+fn try_byte_zero_test_cond(
+    block: &SsaBlock,
+    cond: rsleigh_api::Varnode,
+    env: &HashMap<SsaVar, Expr>,
+) -> Option<Expr> {
+    // Find BoolNot whose output is the CBranch cond.
+    let mut zf: Option<rsleigh_api::Varnode> = None;
+    for op in &block.ops {
+        if let SsaOpKind::Pcode(PcodeOp::BoolNot { out, input, .. }) = &op.kind
+            && vn_same(*out, cond)
+        {
+            zf = Some(*input);
+            break;
+        }
+    }
+    let zf = zf?;
+
+    // Find IntEq defining ZF: (byte_expr == 0) with 1-byte width.
+    for op in &block.ops {
+        let SsaOpKind::Pcode(PcodeOp::IntEq {
+            out, left, right, ..
+        }) = &op.kind
+        else {
+            continue;
+        };
+        if !vn_same(*out, zf) {
+            continue;
+        }
+        if left.size != 1 && right.size != 1 {
+            continue;
+        }
+        let subj_vn = if right.space == AddressSpaceId::Const && right.offset == 0 {
+            *left
+        } else if left.space == AddressSpaceId::Const && left.offset == 0 {
+            *right
+        } else {
+            continue;
+        };
+        let subj = lookup_vn(subj_vn, &op.uses, env).unwrap_or_else(|| name_fb("b"));
+        // Prefer load-derived subjects (cstr walk); skip bare names (tag freeload).
+        if !expr_is_load_derived(&subj) {
+            continue;
+        }
+        return Some(Expr::UnaryOp {
+            op: "!".into(),
+            arg: Box::new(Expr::Compare {
+                op: "==".into(),
+                lhs: Box::new(subj),
+                rhs: Box::new(Expr::Int { value: 0, bits: 8 }),
+            }),
+        });
+    }
+    None
+}
+
+fn expr_is_load_derived(e: &Expr) -> bool {
+    match e {
+        Expr::Load { .. } => true,
+        Expr::BinOp { lhs, rhs, .. } => expr_is_load_derived(lhs) || expr_is_load_derived(rhs),
+        Expr::UnaryOp { arg, .. } | Expr::Cast { arg, .. } => expr_is_load_derived(arg),
+        _ => false,
     }
 }
 
@@ -1684,6 +1759,34 @@ mod tests {
         assert!(
             art.text.contains("if"),
             "classify multi-if must surface if, got:\n{}",
+            art.text
+        );
+    }
+
+    /// P3 walk_cstr still needs soft `!=` from byte `cmp; jne` (BoolNot ZF).
+    #[test]
+    fn b02_walk_cstr_p3_pure_v2_surfaces_ne_in_loop() {
+        use crate::project::Project;
+        let pe = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("eval/grand/bin/P3/b02_walk_cstr.exe");
+        if !pe.is_file() {
+            return;
+        }
+        let dir = std::env::temp_dir().join("windy-ratchet-walk-p3-ne");
+        let _ = std::fs::create_dir_all(&dir);
+        let entry = 0x1400_01000u64;
+        let project =
+            Project::open_with_data_dir_and_entry_hints(&pe, &dir, &[entry]).expect("open");
+        let art = project
+            .function_decompile_artifact(
+                entry,
+                crate::decompiler::v2::DecompileOptions::pure_no_fallback(),
+            )
+            .expect("artifact");
+        assert!(art.fallback_reason.is_none(), "{art:?}");
+        assert!(
+            art.text.contains("!="),
+            "walk_cstr P3 must surface `!=` from byte zero-test, got:\n{}",
             art.text
         );
     }
