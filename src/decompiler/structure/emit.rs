@@ -1875,7 +1875,11 @@ pub(crate) fn fold_eq_ladder_to_switch(src: &str) -> String {
     out
 }
 
-/// When body extraction fails, only fold empty/thin ladders (no FUN_/call).
+/// When body extraction fails, fold a thin switch surface from case labels.
+///
+/// Call/store side-effects that used to abort the fold entirely (so dense
+/// dispatch ladders with a `FUN_` default stayed as nested ifs) are parked in
+/// `default:` so case labels still surface.
 fn fold_eq_ladder_empty_fallback(src: &str, scrut: &str, case_ks: &[i64], start: usize) -> String {
     let rest = &src[start..];
     // Consume a brace-balanced prefix starting at the first ladder `if`, so we
@@ -1913,23 +1917,34 @@ fn fold_eq_ladder_empty_fallback(src: &str, scrut: &str, case_ks: &[i64], start:
         end_rel += ws + rel;
     }
     let span = &rest[..end_rel];
-    if span.contains("call(") || span.contains("FUN_") {
-        return src.to_string();
-    }
-    // Try to recover case bodies from `return` constants still in the span so
-    // soft ops (e.g. `-` from `return -1`) survive the fold.
-    let mut case_lines = String::new();
-    case_lines.push_str(&format!(" switch ({scrut}) {{\n"));
+    // Recover returns + call/store side-effects still present in the span.
     let mut used_returns: Vec<String> = Vec::new();
+    let mut side_effect_lines: Vec<String> = Vec::new();
     for line in span.lines() {
         let t = line.trim();
-        if let Some(rest) = t.strip_prefix("return ") {
-            let body = rest.trim_end_matches(';').trim();
+        if t.is_empty() || t == "{" || t == "}" {
+            continue;
+        }
+        if t.starts_with("if") || t.starts_with("else") {
+            continue;
+        }
+        if let Some(rbody) = t.strip_prefix("return ") {
+            let body = rbody.trim_end_matches(';').trim();
             if !body.is_empty() {
                 used_returns.push(body.to_string());
             }
+            continue;
+        }
+        // Park FUN_/call/store lines that previously aborted the fold.
+        if t.contains("FUN_")
+            || t.starts_with("call(")
+            || (t.contains('*') && t.contains('=') && !t.contains("=="))
+        {
+            side_effect_lines.push(t.to_string());
         }
     }
+    let mut case_lines = String::new();
+    case_lines.push_str(&format!(" switch ({scrut}) {{\n"));
     for (i, k) in case_ks.iter().enumerate() {
         case_lines.push_str(&format!(" case {k}:\n"));
         if let Some(body) = used_returns.get(i) {
@@ -1937,10 +1952,16 @@ fn fold_eq_ladder_empty_fallback(src: &str, scrut: &str, case_ks: &[i64], start:
         }
         case_lines.push_str(" break;\n");
     }
-    if used_returns.len() > case_ks.len() {
+    let extra_return = used_returns.len() > case_ks.len();
+    if extra_return || !side_effect_lines.is_empty() {
         case_lines.push_str(" default:\n");
-        if let Some(body) = used_returns.last() {
-            case_lines.push_str(&format!(" return {body};\n"));
+        for se in &side_effect_lines {
+            case_lines.push_str(&format!(" {se}\n"));
+        }
+        if extra_return {
+            if let Some(body) = used_returns.last() {
+                case_lines.push_str(&format!(" return {body};\n"));
+            }
         }
         case_lines.push_str(" break;\n");
     }
@@ -6772,6 +6793,49 @@ L_fail:
         assert!(
             out.contains("case 1") || out.contains("case 1:"),
             "case 1 missing:\n{out}"
+        );
+    }
+
+    /// Dense dispatch with empty then-arms + FUN_ default used to refuse empty
+    /// fallback (kept nested ifs). Park FUN_ in default so case labels surface.
+    #[test]
+    fn eq_ladder_empty_fallback_parks_fun_default() {
+        let src = r#"uint64 FUN_140001040(u64 arg1) {
+ if (!(*(rsp - 0x38 + 0x40) - 0x1 == 0x0)) {
+  if (*(rsp - 0x38 + 0x40) - 0x2 == 0x0) {
+  } else {
+   if (*(rsp - 0x38 + 0x40) - 0x3 == 0x0) {
+   } else {
+    if (*(rsp - 0x38 + 0x40) - 0x4 == 0x0) {
+    } else {
+     *mem_1400010c6 = v;
+     FUN_140001000();
+    }
+   }
+  }
+ }
+ return cond ? a + b : a - b;
+}
+"#;
+        let out = fold_eq_ladder_to_switch(src);
+        assert!(
+            out.contains("switch"),
+            "must fold empty FUN_ ladder to switch, got:\n{out}"
+        );
+        assert!(
+            out.contains("case 1:")
+                && out.contains("case 2:")
+                && out.contains("case 3:")
+                && out.contains("case 4:"),
+            "expected cases 1..4, got:\n{out}"
+        );
+        assert!(
+            out.contains("FUN_140001000"),
+            "must park call in default, got:\n{out}"
+        );
+        assert!(
+            out.contains("default:"),
+            "FUN_ side-effect must land in default, got:\n{out}"
         );
     }
 

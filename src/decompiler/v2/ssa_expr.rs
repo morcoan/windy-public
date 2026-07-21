@@ -2110,6 +2110,40 @@ mod tests {
         );
     }
 
+    /// P0 dispatch dense eq-ladder with FUN_ default must still fold switch.
+    #[test]
+    fn c03_dispatch_p0_pure_v2_surfaces_switch_with_fun_default() {
+        use crate::project::Project;
+        let pe = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("eval/grand/bin/P0/c03_dispatch.exe");
+        if !pe.is_file() {
+            return;
+        }
+        let dir = std::env::temp_dir().join("windy-ratchet-c03-disp-p0");
+        let _ = std::fs::create_dir_all(&dir);
+        // Map/export entry for dispatch on P0 (identity map may list a CRT VA).
+        let entry = 0x1400_01040u64;
+        let project =
+            Project::open_with_data_dir_and_entry_hints(&pe, &dir, &[entry]).expect("open");
+        let art = project
+            .function_decompile_artifact(
+                entry,
+                crate::decompiler::v2::DecompileOptions::pure_no_fallback(),
+            )
+            .expect("artifact");
+        assert!(art.fallback_reason.is_none(), "{art:?}");
+        assert!(
+            art.text.contains("switch"),
+            "c03 P0 dispatch must surface switch, got:\n{}",
+            art.text
+        );
+        assert!(
+            art.text.contains("FUN_") || art.text.contains("call("),
+            "default classify tail must remain a call site, got:\n{}",
+            art.text
+        );
+    }
+
     /// P3 walk_cstr still needs soft `!=` from byte `cmp; jne` (BoolNot ZF).
     #[test]
     fn b02_walk_cstr_p3_pure_v2_surfaces_ne_in_loop() {
