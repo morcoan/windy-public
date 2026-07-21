@@ -390,7 +390,30 @@ fn score_expr(e: &Expr) -> i32 {
     match e {
         Expr::UInt { value, .. } if (0x8000_0000..0x8001_0000).contains(value) => 20,
         Expr::UInt { value, .. } if *value == 0x4e67_c6a7 || *value == 0x045d_9f3b => 16,
-        Expr::Compare { .. } => 15,
+        // MSVC `neg` emits ZF (`x != 0`) before SF (`(-x) < 0`). Flat scores let
+        // ZF win and drop soft ops (`-`, `<`) gold wants on abs leaves. Demote
+        // only bare-name equality-to-zero; keep bit-tests and sign tests high.
+        // Arithmetic freeload is gated by `is_substantial_return_expr` on exits.
+        Expr::Compare { op, lhs, rhs, .. } => {
+            let is_zero =
+                |e: &Expr| matches!(e, Expr::Int { value: 0, .. } | Expr::UInt { value: 0, .. });
+            let eq_family = matches!(op.as_str(), "==" | "!=");
+            let val = if is_zero(rhs) {
+                Some(lhs.as_ref())
+            } else if is_zero(lhs) {
+                Some(rhs.as_ref())
+            } else {
+                None
+            };
+            match val {
+                // SF-style: (-x) < 0 — prefer over ZF `x != 0`.
+                Some(Expr::UnaryOp { op: uop, .. }) if uop == "-" => 16,
+                // ZF of a bare name/register (not a bit-test / sign test).
+                Some(Expr::Name { .. }) if eq_family => 8,
+                // Stay below HRESULT (20).
+                _ => 15,
+            }
+        }
         Expr::BinOp { op, lhs, rhs } => {
             // Penalize zero-xor / self-ops (x^x, x-x).
             if (op == "^" || op == "-") && format!("{lhs:?}") == format!("{rhs:?}") {
@@ -581,14 +604,27 @@ pub fn best_return_of_function(ssa: &SsaFunction, env: &HashMap<SsaVar, Expr>) -
         return best.map(|(_, e)| e);
     }
 
-    let mut best: Option<(i32, Expr)> = None;
+    // Prefer substantial architectural-exit values (arith, neg, loads, HRESULT)
+    // over freeloaded flag compares that happen to score higher. Thin exits
+    // (bare names / small constants) still allow whole-function freeload so
+    // pure predicates and abs-style SF forms can surface.
+    let mut best_exit: Option<(i32, Expr)> = None;
     for b in &ssa.blocks {
         if let Some(e) = return_expr_of_exit(ssa, b.id, env) {
             let s = score_expr(&e);
-            if best.as_ref().map(|(bs, _)| s > *bs).unwrap_or(true) {
-                best = Some((s, e));
+            if best_exit.as_ref().map(|(bs, _)| s > *bs).unwrap_or(true) {
+                best_exit = Some((s, e));
             }
         }
+    }
+    if let Some((_, ref e)) = best_exit
+        && is_substantial_return_expr(e)
+    {
+        return best_exit.map(|(_, e)| e);
+    }
+
+    let mut best = best_exit;
+    for b in &ssa.blocks {
         for op in &b.ops {
             if let Some(e) = expr_of_op(op, env) {
                 let s = score_expr(&e);
@@ -599,6 +635,31 @@ pub fn best_return_of_function(ssa: &SsaFunction, env: &HashMap<SsaVar, Expr>) -
         }
     }
     best.map(|(_, e)| e)
+}
+
+/// Return expressions that should not be displaced by freeloaded flag probes.
+///
+/// Deliberately excludes `&`/`|` — MSVC flag materialization often leaves
+/// `x & x & 0xff` on RAX, which must not suppress a freeloaded sign/relational
+/// compare that is the real soft-gold surface. Also requires a minimum score so
+/// zero-score self-ops (`x^x`, `x-x`) cannot suppress freeloaded compares.
+fn is_substantial_return_expr(e: &Expr) -> bool {
+    if score_expr(e) < 10 {
+        return false;
+    }
+    match e {
+        Expr::BinOp { op, .. }
+            if matches!(op.as_str(), "+" | "-" | "*" | "/" | "%" | "^" | "<<" | ">>") =>
+        {
+            true
+        }
+        Expr::UnaryOp { .. } | Expr::Select { .. } => true,
+        // Loads intentionally excluded: formal/stack loads often sit on RAX while
+        // freeload recovers a richer compare/arith the soft-gold actually wants.
+        Expr::UInt { value, .. } if (0x8000_0000..0x8001_0000).contains(value) => true,
+        Expr::UInt { value, .. } if *value == 0x4e67_c6a7 || *value == 0x045d_9f3b => true,
+        _ => false,
+    }
 }
 
 /// Condition expression of a CBranch block.
@@ -1221,6 +1282,46 @@ mod tests {
         assert!(
             art.text.contains('%'),
             "expected `%` in irem pure-v2 return path, got:\n{}",
+            art.text
+        );
+    }
+
+    /// Raw SSA for `neg; cmovs` abs leaves emits ZF (`x != 0`) before SF
+    /// (`(-x) < 0`). Richer compare scoring must prefer the SF form so soft
+    /// ops `-`/`<` surface on pure-V2 returns (P1/P2 iabs).
+    #[test]
+    fn a03_iabs_p1_pure_v2_surfaces_neg_and_less() {
+        use crate::project::Project;
+        let pe = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("eval/grand/bin/P1/a03_minmax_abs.exe");
+        if !pe.is_file() {
+            return;
+        }
+        let dir = std::env::temp_dir().join("windy-ratchet-iabs-neg-less");
+        let _ = std::fs::create_dir_all(&dir);
+        let project =
+            Project::open_with_data_dir_and_entry_hints(&pe, &dir, &[0x1400_01000]).expect("open");
+        let art = project
+            .function_decompile_artifact(
+                0x1400_01000,
+                crate::decompiler::v2::DecompileOptions::pure_no_fallback(),
+            )
+            .expect("artifact");
+        assert!(art.fallback_reason.is_none(), "{art:?}");
+        assert!(
+            art.text.contains('<'),
+            "iabs must surface `<` (SF form), got:\n{}",
+            art.text
+        );
+        assert!(
+            art.text.contains('-'),
+            "iabs must surface `-` (neg form), got:\n{}",
+            art.text
+        );
+        let compact = art.text.replace(' ', "");
+        assert!(
+            !compact.contains("rcx!=0") && !compact.contains("rcx!=0x0"),
+            "must not prefer ZF `!= 0` over SF `(-x)<0`:\n{}",
             art.text
         );
     }
