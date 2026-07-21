@@ -19,6 +19,7 @@ jobs:
     timeout-minutes: 60
     env:
       CARGO_TERM_COLOR: always
+      CARGO_BUILD_JOBS: 2
 
     steps:
       - name: Check out source
@@ -69,6 +70,7 @@ jobs:
     timeout-minutes: 45
     env:
       CARGO_TERM_COLOR: always
+      CARGO_BUILD_JOBS: 2
 
     steps:
       - name: Check out source
