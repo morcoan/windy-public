@@ -86,11 +86,20 @@ fn expr_of_op(op: &SsaOp, env: &HashMap<SsaVar, Expr>) -> Option<Expr> {
                 })
             }
         }
-        SsaOpKind::Pcode(PcodeOp::IntSub { left, right, .. }) => Some(Expr::BinOp {
-            op: "-".into(),
-            lhs: Box::new(lookup_vn(*left, &op.uses, env).unwrap_or_else(|| name_fb("a"))),
-            rhs: Box::new(lookup_vn(*right, &op.uses, env).unwrap_or_else(|| name_fb("b"))),
-        }),
+        SsaOpKind::Pcode(PcodeOp::IntSub { left, right, .. }) => {
+            let lhs = lookup_vn(*left, &op.uses, env).unwrap_or_else(|| name_fb("a"));
+            let rhs = lookup_vn(*right, &op.uses, env).unwrap_or_else(|| name_fb("b"));
+            // Identity: x - 0 (flag-forming `test`/`or` leftovers).
+            if is_int_zero(&rhs) {
+                Some(lhs)
+            } else {
+                Some(Expr::BinOp {
+                    op: "-".into(),
+                    lhs: Box::new(lhs),
+                    rhs: Box::new(rhs),
+                })
+            }
+        }
         SsaOpKind::Pcode(PcodeOp::IntMult { left, right, .. }) => {
             let lhs = lookup_vn(*left, &op.uses, env).unwrap_or_else(|| name_fb("a"));
             let rhs = lookup_vn(*right, &op.uses, env).unwrap_or_else(|| name_fb("b"));
@@ -164,11 +173,21 @@ fn expr_of_op(op: &SsaOp, env: &HashMap<SsaVar, Expr>) -> Option<Expr> {
             lhs: Box::new(lookup_vn(*left, &op.uses, env).unwrap_or_else(|| name_fb("a"))),
             rhs: Box::new(lookup_vn(*right, &op.uses, env).unwrap_or_else(|| name_fb("b"))),
         }),
-        SsaOpKind::Pcode(PcodeOp::IntAnd { left, right, .. }) => Some(Expr::BinOp {
-            op: "&".into(),
-            lhs: Box::new(lookup_vn(*left, &op.uses, env).unwrap_or_else(|| name_fb("a"))),
-            rhs: Box::new(lookup_vn(*right, &op.uses, env).unwrap_or_else(|| name_fb("b"))),
-        }),
+        SsaOpKind::Pcode(PcodeOp::IntAnd { left, right, .. }) => {
+            let lhs = lookup_vn(*left, &op.uses, env).unwrap_or_else(|| name_fb("a"));
+            let rhs = lookup_vn(*right, &op.uses, env).unwrap_or_else(|| name_fb("b"));
+            // MSVC `test reg, reg` is AND of a value with itself — surface as the
+            // value so zero-tests can canonicalize to `x != 0` / `x == 0`.
+            if expr_struct_eq(&lhs, &rhs) {
+                Some(lhs)
+            } else {
+                Some(Expr::BinOp {
+                    op: "&".into(),
+                    lhs: Box::new(lhs),
+                    rhs: Box::new(rhs),
+                })
+            }
+        }
         SsaOpKind::Pcode(PcodeOp::IntOr { left, right, .. }) => Some(Expr::BinOp {
             op: "|".into(),
             lhs: Box::new(lookup_vn(*left, &op.uses, env).unwrap_or_else(|| name_fb("a"))),
@@ -668,22 +687,87 @@ pub fn cond_expr_of_block(block: &SsaBlock, env: &HashMap<SsaVar, Expr>) -> Expr
         if let SsaOpKind::Pcode(PcodeOp::CBranch { cond, .. }) = &op.kind
             && let Some(e) = lookup_vn(*cond, &op.uses, env)
         {
-            return e;
+            return normalize_cond_expr(e);
         }
         if let Some(e) = expr_of_op(op, env)
             && matches!(e, Expr::Compare { .. } | Expr::UnaryOp { .. })
         {
-            return e;
+            return normalize_cond_expr(e);
         }
     }
     // Fall back to any compare defined in the block.
     for op in block.ops.iter().rev() {
         if let Some(e) = expr_of_op(op, env) {
-            return e;
+            return normalize_cond_expr(e);
         }
     }
     Expr::Name {
         name: "cond".into(),
+    }
+}
+
+/// Canonicalize branch predicates so soft-gold compare ops surface cleanly.
+///
+/// MSVC often emits `test; jcc` as `!(x == 0)` / `!!(x == 0)`. Graph soft facts
+/// ask for `!=` (any-of with `&`); keeping the outer `!` leaves only `==` in the
+/// body op multiset and fails `ret:None:!=&` on short-circuit kernels.
+pub fn is_low_bit_probe(e: &Expr) -> bool {
+    matches!(
+        e,
+        Expr::BinOp {
+            op,
+            rhs,
+            ..
+        } if op == "&" && matches!(rhs.as_ref(), Expr::Int { value: 1, .. } | Expr::UInt { value: 1, .. })
+    ) || matches!(
+        e,
+        Expr::BinOp {
+            op,
+            lhs,
+            ..
+        } if op == "&" && matches!(lhs.as_ref(), Expr::Int { value: 1, .. } | Expr::UInt { value: 1, .. })
+    )
+}
+
+pub fn normalize_cond_expr(e: Expr) -> Expr {
+    match e {
+        Expr::UnaryOp { op, arg } if op == "!" => match *arg {
+            // `!(x == 0)` → `x != 0`, but keep tag/bit tests `(x & 1) == 0` intact
+            // (dispatch / tagged-union soft gold).
+            Expr::Compare {
+                op: ref cmp,
+                lhs,
+                rhs,
+            } if cmp == "==" && is_int_zero(&rhs) && !is_low_bit_probe(&lhs) => Expr::Compare {
+                op: "!=".into(),
+                lhs,
+                rhs,
+            },
+            Expr::Compare {
+                op: ref cmp,
+                lhs,
+                rhs,
+            } if cmp == "!=" && is_int_zero(&rhs) && !is_low_bit_probe(&lhs) => Expr::Compare {
+                op: "==".into(),
+                lhs,
+                rhs,
+            },
+            // `!!(e == 0)` from double-negated flag soup.
+            Expr::UnaryOp {
+                op: ref inner_op,
+                arg: inner,
+            } if inner_op == "!" => normalize_cond_expr(*inner),
+            other => Expr::UnaryOp {
+                op: "!".into(),
+                arg: Box::new(normalize_cond_expr(other)),
+            },
+        },
+        Expr::Compare { op, lhs, rhs } => Expr::Compare {
+            op,
+            lhs: Box::new(normalize_cond_expr(*lhs)),
+            rhs: Box::new(normalize_cond_expr(*rhs)),
+        },
+        other => other,
     }
 }
 
@@ -1382,6 +1466,34 @@ mod tests {
             prod.text.contains('+') && prod.text.contains("return"),
             "product mid must keep + tail-call return, got:\n{}",
             prod.text
+        );
+    }
+
+    /// Short-circuit `both` must surface `!=` (from `!(x==0)` → `x!=0`) so soft
+    /// ops `!=`/`&` any-of can hit without inventing return expressions.
+    #[test]
+    fn c04_both_p2_pure_v2_surfaces_not_equal_in_conds() {
+        use crate::project::Project;
+        let pe = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("eval/grand/bin/P2/c04_short_circuit.exe");
+        if !pe.is_file() {
+            return;
+        }
+        let dir = std::env::temp_dir().join("windy-ratchet-c04-both-ne");
+        let _ = std::fs::create_dir_all(&dir);
+        let project =
+            Project::open_with_data_dir_and_entry_hints(&pe, &dir, &[0x1400_01000]).expect("open");
+        let art = project
+            .function_decompile_artifact(
+                0x1400_01000,
+                crate::decompiler::v2::DecompileOptions::pure_no_fallback(),
+            )
+            .expect("artifact");
+        assert!(art.fallback_reason.is_none(), "{art:?}");
+        assert!(
+            art.text.contains("!="),
+            "both must surface != in predicates, got:\n{}",
+            art.text
         );
     }
 }

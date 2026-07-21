@@ -18,7 +18,7 @@ use super::contracts::ContractBundle;
 use super::semantic::SemanticModel;
 use super::ssa_expr::{
     best_return_of_function, build_expr_map, cond_expr_of_block, is_leaf_kernel,
-    return_expr_of_exit,
+    normalize_cond_expr, return_expr_of_exit,
 };
 
 /// Build the primary pure-V2 candidate from regions + SSA (no text polish).
@@ -277,6 +277,7 @@ fn walk_region(
                         arg: Box::new(cond),
                     };
                 }
+                cond = normalize_cond_expr(cond);
                 let mut then_body = Vec::new();
                 let mut else_body = Vec::new();
                 walk_region(
@@ -327,6 +328,7 @@ fn walk_region(
                         arg: Box::new(cond),
                     };
                 }
+                cond = normalize_cond_expr(cond);
                 let mut then_body = Vec::new();
                 walk_region(
                     ssa,
@@ -347,7 +349,7 @@ fn walk_region(
                 current = Some(*merge);
             }
             Some(Region::While { body_entry, exit }) => {
-                let cond = cond_expr_of_block(block, env);
+                let cond = normalize_cond_expr(cond_expr_of_block(block, env));
                 let mut body = Vec::new();
                 emit_block_stmts(ssa, block, env, &mut body, effects);
                 walk_region(
