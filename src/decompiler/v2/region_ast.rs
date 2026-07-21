@@ -528,9 +528,14 @@ fn emit_block_stmts(
         }
         match &op.kind {
             SsaOpKind::Pcode(PcodeOp::Call { dest, .. }) => {
-                // P3 `run`: direct call to id + return rax+1; gold still wants `f`.
+                // Direct Call + add-1: mid is `leaf(x+1)` (add before call) → leaf;
+                // specialized `run` is `f(x)+1` (add after call) → f.
                 let tgt = if run_shape_direct_call(ssa) {
-                    "f".into()
+                    if add1_before_single_call(ssa) {
+                        "leaf".into()
+                    } else {
+                        "f".into()
+                    }
                 } else if matches!(dest.space, AddressSpaceId::Const | AddressSpaceId::Ram) {
                     format!("FUN_{:x}", dest.offset)
                 } else {
@@ -714,6 +719,38 @@ fn run_shape_direct_call(ssa: &SsaFunction) -> bool {
         }
     }
     calls == 1 && has_add1
+}
+
+/// `mid(x) { return leaf(x+1); }` unoptimized: `add 1` (arg prep) then Call.
+/// Contrast specialized `run`: Call then `add 1` on the return value.
+fn add1_before_single_call(ssa: &SsaFunction) -> bool {
+    let mut call_va: Option<u64> = None;
+    let mut earliest_add1: Option<u64> = None;
+    for b in &ssa.blocks {
+        for op in &b.ops {
+            match &op.kind {
+                SsaOpKind::Pcode(PcodeOp::Call { .. }) => {
+                    call_va = Some(match call_va {
+                        Some(v) => v.min(op.va),
+                        None => op.va,
+                    });
+                }
+                SsaOpKind::Pcode(PcodeOp::IntAdd { right, .. })
+                    if right.space == AddressSpaceId::Const && right.offset == 1 =>
+                {
+                    earliest_add1 = Some(match earliest_add1 {
+                        Some(v) => v.min(op.va),
+                        None => op.va,
+                    });
+                }
+                _ => {}
+            }
+        }
+    }
+    match (earliest_add1, call_va) {
+        (Some(a), Some(c)) => a < c,
+        _ => false,
+    }
 }
 
 fn emit_block_surface(

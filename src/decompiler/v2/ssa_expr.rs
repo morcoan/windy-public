@@ -277,7 +277,7 @@ fn expr_of_op(op: &SsaOp, env: &HashMap<SsaVar, Expr>) -> Option<Expr> {
                 }
                 _ => None,
             }
-        },
+        }
         // Low-half / truncation of a richer value (IDIV quotient is often
         // Subpiece(IntSDiv(...), lsb=0)). Treat as the input expression.
         SsaOpKind::Pcode(PcodeOp::Subpiece { input, lsb: 0, .. }) => {
@@ -1581,6 +1581,36 @@ mod tests {
             prod.text.contains('+') && prod.text.contains("return"),
             "product mid must keep + tail-call return, got:\n{}",
             prod.text
+        );
+    }
+
+    /// P0 mid is a non-tail Call (`lea/add; call leaf; ret`), not `jmp`.
+    /// run_shape must not name it `f` — gold wants `call:leaf`.
+    #[test]
+    fn e04_mid_p0_pure_v2_names_direct_call_leaf() {
+        use crate::project::Project;
+        let pe = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("eval/grand/bin/P0/e04_tailish.exe");
+        if !pe.is_file() {
+            return;
+        }
+        let dir = std::env::temp_dir().join("windy-ratchet-e04-mid-p0-leaf");
+        let _ = std::fs::create_dir_all(&dir);
+        let entry = 0x1400_01020u64;
+        let project =
+            Project::open_with_data_dir_and_entry_hints(&pe, &dir, &[entry]).expect("open");
+        let art = project
+            .function_decompile_artifact(
+                entry,
+                crate::decompiler::v2::DecompileOptions::pure_no_fallback(),
+            )
+            .expect("artifact");
+        assert!(art.fallback_reason.is_none(), "{art:?}");
+        let compact: String = art.text.chars().filter(|c| !c.is_whitespace()).collect();
+        assert!(
+            compact.contains("leaf()"),
+            "P0 mid must name direct-call callee leaf (not f), got:\n{}",
+            art.text
         );
     }
 
