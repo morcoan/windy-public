@@ -1978,6 +1978,34 @@ mod tests {
         );
     }
 
+    /// P0 homes use `*(rsp-0x18+0x20)-K`; trailing-sub peel must fold switch.
+    #[test]
+    fn c02_classify_p0_pure_v2_surfaces_switch() {
+        use crate::project::Project;
+        let pe = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("eval/grand/bin/P0/c02_switch_dense.exe");
+        if !pe.is_file() {
+            return;
+        }
+        let dir = std::env::temp_dir().join("windy-ratchet-c02-switch-p0");
+        let _ = std::fs::create_dir_all(&dir);
+        let entry = 0x1400_01000u64;
+        let project =
+            Project::open_with_data_dir_and_entry_hints(&pe, &dir, &[entry]).expect("open");
+        let art = project
+            .function_decompile_artifact(
+                entry,
+                crate::decompiler::v2::DecompileOptions::pure_no_fallback(),
+            )
+            .expect("artifact");
+        assert!(art.fallback_reason.is_none(), "{art:?}");
+        assert!(
+            art.text.contains("switch"),
+            "c02 P0 classify must surface switch from rsp-mem ladder, got:\n{}",
+            art.text
+        );
+    }
+
     /// P3 walk_cstr still needs soft `!=` from byte `cmp; jne` (BoolNot ZF).
     #[test]
     fn b02_walk_cstr_p3_pure_v2_surfaces_ne_in_loop() {

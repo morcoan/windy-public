@@ -1883,11 +1883,20 @@ fn fold_eq_ladder_empty_fallback(src: &str, scrut: &str, case_ks: &[i64], start:
     // drop later return soft ops like `-1`).
     let end_rel =
         brace_balanced_end(rest).unwrap_or_else(|| rest.find("return").unwrap_or(rest.len()));
-    // Also swallow following sequential `if (scrut…)` siblings when present
-    // (pure V2 emits flat if ladders, not nested else-if).
+    // Swallow trailing `else {…}` (first if was inverted empty) and sequential
+    // `if (scrut…)` siblings (pure V2 flat ladders, not nested else-if).
     let mut end_rel = end_rel;
+    let s_compact: String = scrut.chars().filter(|c| !c.is_whitespace()).collect();
     loop {
         let tail = rest[end_rel..].trim_start();
+        let ws = rest[end_rel..].len() - tail.len();
+        if tail.starts_with("else") {
+            let Some(rel) = brace_balanced_end(tail) else {
+                break;
+            };
+            end_rel += ws + rel;
+            continue;
+        }
         if !tail.starts_with("if") {
             break;
         }
@@ -1895,15 +1904,12 @@ fn fold_eq_ladder_empty_fallback(src: &str, scrut: &str, case_ks: &[i64], start:
         let line_end = tail.find('\n').unwrap_or(tail.len());
         let head = &tail[..line_end];
         let compact: String = head.chars().filter(|c| !c.is_whitespace()).collect();
-        let s: String = scrut.chars().filter(|c| !c.is_whitespace()).collect();
-        if !compact.contains(&s) {
+        if !compact.contains(&s_compact) {
             break;
         }
         let Some(rel) = brace_balanced_end(tail) else {
             break;
         };
-        // Account for leading whitespace between siblings.
-        let ws = rest[end_rel..].len() - tail.len();
         end_rel += ws + rel;
     }
     let span = &rest[..end_rel];
@@ -2251,32 +2257,13 @@ fn collect_eq_ladder_arms(src: &str) -> Vec<(String, i64, String)> {
         } else {
             (rest0.trim_start_matches('('), false)
         };
-        // Form A: SCRUT-0xK)==0x0 or SCRUT-0xK-0xK…==0 / !=0 (subtract-eq ladder)
-        if let Some(minus) = rest.find('-') {
-            let scrut = rest[..minus].trim_end_matches('(').to_string();
-            if is_scrutinee_token(&scrut) {
-                // Sum successive -0xK constants (pure emits rcx-0x1-0x1 for case 2).
-                let mut k_sum: i64 = 0;
-                let mut p = &rest[minus..];
-                while let Some(stripped) = p.strip_prefix('-') {
-                    let num_end = stripped
-                        .find(|ch: char| !ch.is_ascii_hexdigit() && ch != 'x' && ch != 'X')
-                        .unwrap_or(stripped.len());
-                    let num_s = &stripped[..num_end];
-                    if let Some(k) = parse_int_lit(num_s) {
-                        k_sum = k_sum.saturating_add(k);
-                        p = &stripped[num_end..];
-                    } else {
-                        break;
-                    }
-                }
-                let tail = p;
-                if (tail.contains("==0") || tail.contains("!=0")) && k_sum >= 0 {
-                    // !=0 with inverted empty then is still a case label (default arm).
-                    out.push((scrut, k_sum, String::new()));
-                    continue;
-                }
-            }
+        // Form A: SCRUT-0xK)==0x0 or SCRUT-0xK-0xK…==0 / !=0 (subtract-eq ladder).
+        // Walk the *trailing* `-lit` chain before `==0`/`!=0` so mid-expression
+        // minuses (`*(rsp-0x18+0x20)-0x1`) do not steal the scrutinee split
+        // (P0 c02/c03 mem homes).
+        if let Some((scrut, k_sum)) = parse_trailing_sub_eq_arm(rest) {
+            out.push((scrut, k_sum, String::new()));
+            continue;
         }
         // Form B: SCRUT==0xK)  (direct equality ladder)
         // Pure: if(!(rcx==0x0)) → case 0; if(rcx==0x1) → case 1.
@@ -2310,6 +2297,51 @@ fn parse_int_lit(num_s: &str) -> Option<i64> {
     }
 }
 
+/// Parse `SCRUT -k [-k…] ==0 / !=0` by peeling trailing `-lit` from the right.
+/// Returns `(scrutinee, k_sum)` when ≥1 trailing subtract and a zero-compare.
+fn parse_trailing_sub_eq_arm(rest: &str) -> Option<(String, i64)> {
+    let eq_pos = rest
+        .find("==0")
+        .or_else(|| rest.find("!=0"))
+        .or_else(|| rest.find("==0x0"))
+        .or_else(|| rest.find("!=0x0"))?;
+    // Prefer the earliest of the markers (find already does).
+    let mut before = &rest[..eq_pos];
+    // Drop closing parens between subtract chain and compare.
+    before = before.trim_end_matches(')');
+    let mut k_sum: i64 = 0;
+    let mut end = before.len();
+    let mut peeled = 0usize;
+    loop {
+        let slice = &before[..end];
+        let Some(minus) = slice.rfind('-') else {
+            break;
+        };
+        // Reject binary-minus mid tokens like `rsp-0x18+0x20` where after the
+        // minus is not a pure integer literal through `end`.
+        let num_s = slice[minus + 1..end].trim_end_matches(')');
+        let Some(k) = parse_int_lit(num_s) else {
+            break;
+        };
+        // Only allow non-negative case labels (ladder tags).
+        if k < 0 {
+            break;
+        }
+        k_sum = k_sum.saturating_add(k);
+        end = minus;
+        peeled += 1;
+    }
+    if peeled == 0 {
+        return None;
+    }
+    let scrut = before[..end].trim_end_matches('(').to_string();
+    if scrut.is_empty() || !is_scrutinee_token(&scrut) {
+        return None;
+    }
+    // `==0` / `!=0` already required above.
+    Some((scrut, k_sum))
+}
+
 fn is_scrutinee_token(scrut: &str) -> bool {
     scrut.contains("arg")
         || scrut.contains("mem")
@@ -2317,6 +2349,8 @@ fn is_scrutinee_token(scrut: &str) -> bool {
         || scrut.contains("rdx")
         || scrut.contains("r8")
         || scrut.contains("r9")
+        || scrut.contains("rsp")
+        || scrut.contains("rbp")
         || scrut.starts_with("*(")
         || scrut.starts_with("t_")
 }
@@ -6738,6 +6772,52 @@ L_fail:
         assert!(
             out.contains("case 1") || out.contains("case 1:"),
             "case 1 missing:\n{out}"
+        );
+    }
+
+    /// P0 classify homes: `*(rsp-0x18+0x20)-0x1` must not treat `rsp-0x18` as
+    /// the case subtract (trailing-sub peel).
+    #[test]
+    fn eq_ladder_folds_rsp_mem_scrutinee_ladder() {
+        let src = r#"uint64 FUN_140001000(u64 arg1) {
+ if (!(*(rsp - 0x18 + 0x20) == 0x0)) {
+  if (*(rsp - 0x18 + 0x20) - 0x1 == 0x0) {
+  } else {
+   if (*(rsp - 0x18 + 0x20) - 0x2 == 0x0) {
+   }
+  }
+ }
+ return cond ? 0xa : 0x14;
+}
+"#;
+        let out = fold_eq_ladder_to_switch(src);
+        assert!(
+            out.contains("switch"),
+            "rsp-mem eq-ladder must fold to switch, got:\n{out}"
+        );
+        assert!(
+            out.contains("case 1:") && out.contains("case 2:"),
+            "expected cases 1/2 from trailing -0xK, got:\n{out}"
+        );
+        // Soft `-` from a later default return must not be orphaned by a short span.
+        let with_neg = r#"uint64 FUN_140001000(u64 arg1) {
+ if (!(rcx == 0x0)) {
+ } else {
+  return 0xa;
+ }
+ if (rcx - 0x1 == 0x0) {
+  return 0x14;
+ }
+ if (rcx - 0x1 - 0x1 == 0x0) {
+  return 0x1e;
+ }
+ return -0x1;
+}
+"#;
+        let out2 = fold_eq_ladder_to_switch(with_neg);
+        assert!(
+            out2.contains("switch") && out2.contains("-0x1"),
+            "must keep soft -1 after fold, got:\n{out2}"
         );
     }
 
