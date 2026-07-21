@@ -109,7 +109,7 @@ try {
     $initialize = Invoke-Mcp $endpoint @{
         jsonrpc = "2.0"; id = 1; method = "initialize"; params = @{
             protocolVersion = "2025-11-25"; capabilities = @{}; clientInfo = @{
-                name = "windy-release-smoke"; version = "0.1.0"
+                name = "windy-release-smoke"; version = "0.1.1"
             }
         }
     }

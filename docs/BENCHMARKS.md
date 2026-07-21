@@ -31,13 +31,22 @@ Release acceptance requires:
 - no empty present functions;
 - a targeted per-exit semantic-return regression that fails on the old global substitution and passes on the candidate.
 
-The v0.1.0 candidate's exact-address run and machine-readable status are in
+The v0.1.0 exact-address floor and machine-readable status are in
 `docs/benchmarks/v0.1.0-rc/provenance.json`. Its locked forward guard is
 `docs/benchmarks/v0.1.0-baseline.json`; workflow acceptance uses the exact
 floating-point bounds and pinned manifest/report hashes in that file. The
 supplied approximate pre-change summary remains archived for audit and is
 explicitly non-comparable. Its old approximately `0.902` score is never an
 acceptance threshold.
+
+### v0.1.1 quality snapshot
+
+Post-0.1.0 decompiler ratchet (not a new floor for CI unless you pin it):
+
+- Summary: `docs/benchmarks/v0.1.1-summary.json`
+- Four-lane aggregates: `docs/benchmarks/v0.1.1-grand-v2-four-lanes.json`
+- pure_v2 overall ≈ **0.938** (catastrophic ≈ **0.025**), product ≈ **0.884**,
+  pure share **1.0**, fallbacks **0**, omit **5** (same identity set as 0.1.0).
 
 The checked-in Grand corpus is rebuilt and compared with fully analyzed Ghidra
 exports using the procedure in `eval/grand/README.md`. Exact source identities

@@ -1,0 +1,93 @@
+{
+  "version": "0.1.1",
+  "suite": "windy_grand_strict_v2_four_lanes",
+  "functions_scored": 475,
+  "pure_v2_share": 1.0,
+  "pure_fallback_count": 0,
+  "omitted_functions": [
+    {
+      "program_id": "a01_signed_rel",
+      "profile": "P3",
+      "function_id": "unsigned_lt",
+      "source_name": "unsigned_lt",
+      "status": "folded",
+      "folded_to": "signed_lt"
+    },
+    {
+      "program_id": "c03_dispatch",
+      "profile": "P3",
+      "function_id": "classify",
+      "source_name": "classify",
+      "status": "inlined_only"
+    },
+    {
+      "program_id": "boss_com_variant_router",
+      "profile": "P1",
+      "function_id": "Release",
+      "source_name": "Release",
+      "status": "inlined_only"
+    },
+    {
+      "program_id": "boss_com_variant_router",
+      "profile": "P2",
+      "function_id": "Release",
+      "source_name": "Release",
+      "status": "inlined_only"
+    },
+    {
+      "program_id": "boss_com_variant_router",
+      "profile": "P3",
+      "function_id": "Release",
+      "source_name": "Release",
+      "status": "inlined_only"
+    }
+  ],
+  "pure_v2": {
+    "overall_mean": 0.9379514553240968,
+    "catastrophic_rate": 0.02526315789473684,
+    "profile_means": {
+      "P0": 0.9490016915458731,
+      "P1": 0.9563024077926027,
+      "P2": 0.9563024077926027,
+      "P3": 0.8892885917846519
+    },
+    "residual_histogram": {
+      "CallTargetWrong": 5,
+      "ControlRegionWrong": 2,
+      "ExceptionPathMissing": 1,
+      "LoopRecurrenceWrong": 1,
+      "MissingStore": 1,
+      "SemanticReturnWrong": 18,
+      "StructureAlignLow": 28,
+      "SwitchCaseMissing": 5
+    }
+  },
+  "product": {
+    "overall_mean": 0.8839627637801297,
+    "catastrophic_rate": 0.07368421052631578,
+    "profile_means": {
+      "P0": 0.934248625942363,
+      "P1": 0.9240159258711456,
+      "P2": 0.9157118292093743,
+      "P3": 0.7593579045119457
+    },
+    "residual_histogram": {
+      "CallTargetWrong": 32,
+      "ContradictoryOutput": 8,
+      "ControlRegionWrong": 2,
+      "LoopRecurrenceWrong": 17,
+      "MissingStore": 2,
+      "SemanticReturnWrong": 50,
+      "StructureAlignLow": 29,
+      "SwitchCaseMissing": 8
+    }
+  },
+  "ghidra_overall_mean": 0.8793615980833477,
+  "legacy_overall_mean": 0.648506145797194,
+  "vs_v0_1_0_pure_overall": {
+    "v0_1_0": 0.6976985453832655,
+    "v0_1_1": 0.9379514553240968,
+    "delta": 0.24025290994083137
+  },
+  "report_sha256": "32c4c72d83084a743814c1b3700977e541ebd14955702a72d1379c5f058ae908"
+}

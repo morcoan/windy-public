@@ -1,4 +1,4 @@
-# Windy v0.1.0 for Windows x64
+# Windy v0.1.1 for Windows x64
 
 Windy is a portable static PE reverse-engineering GUI and local MCP server. No installer or external decompiler service is required.
 

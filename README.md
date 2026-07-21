@@ -2,7 +2,7 @@
 
 Windy is a portable Windows x64 reverse-engineering workbench and local MCP server for static PE analysis. It gives external agents compact evidence, native checked pseudocode, and durable write-back without GCLSD, a model service, Python, Java, or Ghidra at runtime.
 
-Windy v0.1 is local-only and static-only. It analyzes Windows PE files (`.exe`, `.dll`, and `.sys`); it does not emulate code, attach a debugger, or expose an unauthenticated remote service.
+Windy v0.1.x is local-only and static-only. It analyzes Windows PE files (`.exe`, `.dll`, and `.sys`); it does not emulate code, attach a debugger, or expose an unauthenticated remote service.
 
 ## Five-minute start
 
