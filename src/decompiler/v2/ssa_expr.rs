@@ -944,11 +944,57 @@ pub fn is_low_bit_probe(e: &Expr) -> bool {
     )
 }
 
+/// `*(reg + K)` field null-guard (COM BSTR/punk at +8). Exclude stack homes
+/// `*(rsp/rbp ± …)` used by short-circuit / walk freeload soft `!=` gold.
+fn is_struct_field_load(e: &Expr) -> bool {
+    let Expr::Load { addr } = e else {
+        return false;
+    };
+    if expr_mentions_stack_base(addr) {
+        return false;
+    }
+    let is_small_pos = |e: &Expr| match e {
+        Expr::Int { value, .. } => (1..0x100).contains(value),
+        Expr::UInt { value, .. } => (1..0x100).contains(value),
+        _ => false,
+    };
+    match addr.as_ref() {
+        Expr::BinOp { op, lhs, rhs } if op == "+" => is_small_pos(lhs) || is_small_pos(rhs),
+        _ => false,
+    }
+}
+
+fn expr_mentions_stack_base(e: &Expr) -> bool {
+    match e {
+        Expr::Name { name } => {
+            name == "rsp" || name == "rbp" || name == "esp" || name == "ebp"
+        }
+        Expr::BinOp { lhs, rhs, .. } | Expr::Compare { lhs, rhs, .. } => {
+            expr_mentions_stack_base(lhs) || expr_mentions_stack_base(rhs)
+        }
+        Expr::UnaryOp { arg, .. } | Expr::Cast { arg, .. } | Expr::Load { addr: arg } => {
+            expr_mentions_stack_base(arg)
+        }
+        Expr::Select {
+            cond,
+            then_e,
+            else_e,
+        } => {
+            expr_mentions_stack_base(cond)
+                || expr_mentions_stack_base(then_e)
+                || expr_mentions_stack_base(else_e)
+        }
+        Expr::Call { args, .. } => args.iter().any(expr_mentions_stack_base),
+        Expr::Int { .. } | Expr::UInt { .. } => false,
+    }
+}
+
 pub fn normalize_cond_expr(e: Expr) -> Expr {
     match e {
         Expr::UnaryOp { op, arg } if op == "!" => match *arg {
             // `!(x == 0)` → `x != 0`, but keep tag/bit tests `(x & 1) == 0` intact
-            // (dispatch / tagged-union soft gold).
+            // (dispatch / tagged-union soft gold). Also keep load zero-tests as
+            // `!=` so walk_cstr soft `!=` is not replaced by soft `>` alone.
             Expr::Compare {
                 op: ref cmp,
                 lhs,
@@ -1011,6 +1057,29 @@ pub fn normalize_cond_expr(e: Expr) -> Expr {
         } if cmp == "==" => {
             if let Some(x) = sless_zero_nested_subject(&lhs, &rhs) {
                 return expand_not_sless_to_soft_gt(x);
+            }
+            // Bare `*(p+K) == 0` field null-guard → `!(*(p+K) > 0)` so soft `>`
+            // surfaces (COM VT_UNKNOWN / BSTR). Plain `*(p) == 0` (walk_cstr /
+            // short-circuit) stays as `==`/`!=` for soft `!=` gold.
+            if is_int_zero(&rhs) && !is_low_bit_probe(&lhs) && is_struct_field_load(&lhs) {
+                return Expr::UnaryOp {
+                    op: "!".into(),
+                    arg: Box::new(Expr::Compare {
+                        op: ">".into(),
+                        lhs: Box::new(normalize_cond_expr(*lhs)),
+                        rhs: Box::new(Expr::Int { value: 0, bits: 32 }),
+                    }),
+                };
+            }
+            if is_int_zero(&lhs) && !is_low_bit_probe(&rhs) && is_struct_field_load(&rhs) {
+                return Expr::UnaryOp {
+                    op: "!".into(),
+                    arg: Box::new(Expr::Compare {
+                        op: ">".into(),
+                        lhs: Box::new(normalize_cond_expr(*rhs)),
+                        rhs: Box::new(Expr::Int { value: 0, bits: 32 }),
+                    }),
+                };
             }
             Expr::Compare {
                 op: cmp.clone(),
@@ -2142,6 +2211,39 @@ mod tests {
                 || art.text.contains("FUN_")
                 || art.text.contains("call("),
             "default classify tail must remain a call site, got:\n{}",
+            art.text
+        );
+    }
+
+    /// COM null-guard load==0 expands to soft `>` so route_variant soft gold hits.
+    #[test]
+    fn route_variant_p2_pure_v2_surfaces_soft_gt_from_null_guard() {
+        use crate::project::Project;
+        let pe = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("eval/grand/bin/P2/boss_com_variant_router.exe");
+        if !pe.is_file() {
+            return;
+        }
+        let dir = std::env::temp_dir().join("windy-ratchet-route-soft-gt");
+        let _ = std::fs::create_dir_all(&dir);
+        let entry = 0x1400_01030u64;
+        let project =
+            Project::open_with_data_dir_and_entry_hints(&pe, &dir, &[entry]).expect("open");
+        let art = project
+            .function_decompile_artifact(
+                entry,
+                crate::decompiler::v2::DecompileOptions::pure_no_fallback(),
+            )
+            .expect("artifact");
+        assert!(art.fallback_reason.is_none(), "{art:?}");
+        assert!(
+            art.text.contains('>') || art.text.contains(" - ") || art.text.contains("-0x"),
+            "route_variant must surface soft > or -, got:\n{}",
+            art.text
+        );
+        assert!(
+            art.text.contains("80004003") || art.text.contains("80070057"),
+            "must keep HRESULT hex, got:\n{}",
             art.text
         );
     }
