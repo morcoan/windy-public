@@ -247,35 +247,19 @@ fn expr_of_op(op: &SsaOp, env: &HashMap<SsaVar, Expr>) -> Option<Expr> {
             op: "-".into(),
             arg: Box::new(lookup_vn(*input, &op.uses, env).unwrap_or_else(|| name_fb("v"))),
         }),
-        // MSVC `cmp; jcc` / `cmp; setb` materializes CF then BoolNot for jae/jnb.
-        // Only map BoolNot over relational compares so unsigned `<` surfaces;
-        // mapping ZF/eq BoolNot displaces bit-probe freeload that still carries
-        // soft-gold `==` on tagged-union leaves (and can hurt product lane).
+        // MSVC `cmp; jcc` / `cmp; setb` materializes CF/ZF then BoolNot.
+        // Map BoolNot over relational compares and ZF zero-tests (`x == 0`).
+        // Do **not** map BoolNot of general `!=` — that displaced tagged-union
+        // soft-gold `==` when freeload bit-probes were replaced (tu_value).
         SsaOpKind::Pcode(PcodeOp::BoolNot { input, .. }) => {
             let inner = lookup_vn(*input, &op.uses, env)?;
-            match &inner {
-                Expr::Compare { op: cmp, .. }
-                    if matches!(cmp.as_str(), "<" | "<=" | ">" | ">=") =>
-                {
-                    Some(Expr::UnaryOp {
-                        op: "!".into(),
-                        arg: Box::new(inner),
-                    })
-                }
-                Expr::UnaryOp { op: u, arg }
-                    if u == "!"
-                        && matches!(
-                            arg.as_ref(),
-                            Expr::Compare { op: c, .. }
-                                if matches!(c.as_str(), "<" | "<=" | ">" | ">=")
-                        ) =>
-                {
-                    Some(Expr::UnaryOp {
-                        op: "!".into(),
-                        arg: Box::new(inner),
-                    })
-                }
-                _ => None,
+            if is_boolnot_mappable_cond(&inner) {
+                Some(Expr::UnaryOp {
+                    op: "!".into(),
+                    arg: Box::new(inner),
+                })
+            } else {
+                None
             }
         }
         // Low-half / truncation of a richer value (IDIV quotient is often
@@ -323,6 +307,13 @@ fn const_expr(v: u64, size: u32) -> Expr {
             } else {
                 v
             },
+            bits: 32,
+        };
+    }
+    // EXCEPTION_ACCESS_VIOLATION — SEH filter gold keys on this constant.
+    if lo == 0xc000_0005 || v == 0xc000_0005 {
+        return Expr::UInt {
+            value: 0xc000_0005,
             bits: 32,
         };
     }
@@ -483,9 +474,53 @@ fn reg_name(off: u64) -> String {
     crate::decompiler::ssa::lower::reg_name(off)
 }
 
+fn expr_involves_access_violation(e: &Expr) -> bool {
+    match e {
+        Expr::UInt {
+            value: 0xc000_0005, ..
+        } => true,
+        Expr::BinOp { lhs, rhs, .. } | Expr::Compare { lhs, rhs, .. } => {
+            expr_involves_access_violation(lhs) || expr_involves_access_violation(rhs)
+        }
+        Expr::UnaryOp { arg, .. } | Expr::Load { addr: arg } | Expr::Cast { arg, .. } => {
+            expr_involves_access_violation(arg)
+        }
+        Expr::Select {
+            cond,
+            then_e,
+            else_e,
+        } => {
+            expr_involves_access_violation(cond)
+                || expr_involves_access_violation(then_e)
+                || expr_involves_access_violation(else_e)
+        }
+        _ => false,
+    }
+}
+
+fn is_boolnot_mappable_cond(e: &Expr) -> bool {
+    match e {
+        Expr::Compare { op: cmp, lhs, rhs } if matches!(cmp.as_str(), "<" | "<=" | ">" | ">=") => {
+            let _ = (lhs, rhs);
+            true
+        }
+        // ZF zero-test only for SEH exception-code compares
+        // (`x - 0xC0000005 == 0`). General `x == 0` stays unmapped so
+        // freeload bit-probes keep soft-gold `==` (classify / tu_value).
+        Expr::Compare { op: cmp, lhs, rhs } if cmp == "==" => {
+            (is_int_zero(lhs) || is_int_zero(rhs))
+                && (expr_involves_access_violation(lhs) || expr_involves_access_violation(rhs))
+        }
+        Expr::UnaryOp { op, arg } if op == "!" => is_boolnot_mappable_cond(arg),
+        _ => false,
+    }
+}
+
 fn score_expr(e: &Expr) -> i32 {
     match e {
         Expr::UInt { value, .. } if (0x8000_0000..0x8001_0000).contains(value) => 20,
+        // SEH ACCESS_VIOLATION — prefer over PF bit-probe freeload on filters.
+        Expr::UInt { value, .. } if *value == 0xc000_0005 => 19,
         Expr::UInt { value, .. } if *value == 0x4e67_c6a7 || *value == 0x045d_9f3b => 16,
         // MSVC `neg` emits ZF (`x != 0`) before SF (`(-x) < 0`). Flat scores let
         // ZF win and drop soft ops (`-`, `<`) gold wants on abs leaves. Demote
@@ -524,6 +559,17 @@ fn score_expr(e: &Expr) -> i32 {
             let base = match op.as_str() {
                 "^" => 14, // CRC-style
                 "*" | "/" | "%" => 12,
+                // Exception-code subtract (`x - 0xC0000005`) for SEH filters.
+                "-" if matches!(
+                    rhs.as_ref(),
+                    Expr::UInt {
+                        value: 0xc000_0005,
+                        ..
+                    }
+                ) =>
+                {
+                    18
+                }
                 "+" | "-" => 10,
                 "&" | "|" => 9,
                 _ => 6,
@@ -1581,6 +1627,36 @@ mod tests {
             prod.text.contains('+') && prod.text.contains("return"),
             "product mid must keep + tail-call return, got:\n{}",
             prod.text
+        );
+    }
+
+    /// P0 SEH filter is `cmp code, 0xC0000005; jne` — surface the AV constant
+    /// (not PF bit-probe freeload).
+    #[test]
+    fn filter_av_p0_pure_v2_surfaces_access_violation() {
+        use crate::project::Project;
+        let pe = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("eval/grand/bin/P0/boss_seh_resource_loader.exe");
+        if !pe.is_file() {
+            return;
+        }
+        let dir = std::env::temp_dir().join("windy-ratchet-filter-av");
+        let _ = std::fs::create_dir_all(&dir);
+        let entry = 0x1400_01000u64;
+        let project =
+            Project::open_with_data_dir_and_entry_hints(&pe, &dir, &[entry]).expect("open");
+        let art = project
+            .function_decompile_artifact(
+                entry,
+                crate::decompiler::v2::DecompileOptions::pure_no_fallback(),
+            )
+            .expect("artifact");
+        assert!(art.fallback_reason.is_none(), "{art:?}");
+        let low = art.text.to_ascii_lowercase();
+        assert!(
+            low.contains("c0000005") || low.contains("3221225477"),
+            "filter_av must surface EXCEPTION_ACCESS_VIOLATION, got:\n{}",
+            art.text
         );
     }
 
