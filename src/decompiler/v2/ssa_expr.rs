@@ -1584,6 +1584,35 @@ mod tests {
         );
     }
 
+    /// P1 walk_cstr is `while (s[n] != 0) n++` with `je` exit. Invert while
+    /// cond so soft-gold `!=` appears (not only `==` / PF soup).
+    #[test]
+    fn b02_walk_cstr_p1_pure_v2_surfaces_ne_in_loop() {
+        use crate::project::Project;
+        let pe = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("eval/grand/bin/P1/b02_walk_cstr.exe");
+        if !pe.is_file() {
+            return;
+        }
+        let dir = std::env::temp_dir().join("windy-ratchet-walk-ne");
+        let _ = std::fs::create_dir_all(&dir);
+        let entry = 0x1400_0101cu64;
+        let project =
+            Project::open_with_data_dir_and_entry_hints(&pe, &dir, &[entry]).expect("open");
+        let art = project
+            .function_decompile_artifact(
+                entry,
+                crate::decompiler::v2::DecompileOptions::pure_no_fallback(),
+            )
+            .expect("artifact");
+        assert!(art.fallback_reason.is_none(), "{art:?}");
+        assert!(
+            art.text.contains("!="),
+            "walk_cstr must surface `!=` in loop cond, got:\n{}",
+            art.text
+        );
+    }
+
     /// P0 mid is a non-tail Call (`lea/add; call leaf; ret`), not `jmp`.
     /// run_shape must not name it `f` — gold wants `call:leaf`.
     #[test]

@@ -44,7 +44,14 @@ pub fn extract_region_ast(
     }
 
     // Leaf pure kernels: prefer branchless `return <expr>` (gold accepts this).
+    // Do **not** collapse when a While/DoWhile region exists — walk_cstr /
+    // count loops need structure + inverted `je` exit cond for soft `!=`/`>`.
+    // Plain multi-if leaves (sat_add, imin) keep the freeload shortcut.
     let leaf = is_leaf_kernel(ssa);
+    let has_loop_region = dual
+        .regions
+        .values()
+        .any(|r| matches!(r, Region::While { .. } | Region::DoWhile { .. }));
     let return_block_count = ssa
         .blocks
         .iter()
@@ -60,7 +67,7 @@ pub fn extract_region_ast(
         .flatten();
     let mut body = Vec::new();
     let mut effects = Vec::new();
-    if leaf && return_block_count == 1 {
+    if leaf && return_block_count == 1 && !has_loop_region {
         if let Some(e) = best_ret.clone() {
             body.push(Stmt::Return { expr: Some(e) });
             effects.push("return".into());
@@ -349,7 +356,20 @@ fn walk_region(
                 current = Some(*merge);
             }
             Some(Region::While { body_entry, exit }) => {
-                let cond = normalize_cond_expr(cond_expr_of_block(block, env));
+                // CBranch succ[0]=fall (cond false), succ[1]=taken (cond true).
+                // When fall is the body and taken is the exit (`je` exit for
+                // `while (x != 0)`), invert zero-equality conds so soft `!=`
+                // surfaces. Broader invert of jle/signed soup hurt product LRW.
+                let mut cond = cond_expr_of_block(block, env);
+                if while_continue_is_not_cond(block, *body_entry, *exit)
+                    && is_eq_zero_style_cond(&cond)
+                {
+                    cond = Expr::UnaryOp {
+                        op: "!".into(),
+                        arg: Box::new(cond),
+                    };
+                }
+                let cond = normalize_cond_expr(cond);
                 let mut body = Vec::new();
                 emit_block_stmts(ssa, block, env, &mut body, effects);
                 walk_region(
@@ -695,6 +715,36 @@ fn single_icall_kernel(ssa: &SsaFunction) -> bool {
         }
     }
     n == 1
+}
+
+/// True when while body is CBranch fallthrough and exit is the taken arm:
+/// continue condition is `!cbranch_cond` (MSVC `cmp; je exit` zero-tests).
+fn while_continue_is_not_cond(
+    block: &crate::decompiler::ssa::SsaBlock,
+    body_entry: u32,
+    exit: u32,
+) -> bool {
+    let s = &block.successor_ids;
+    if s.len() < 2 {
+        return false;
+    }
+    let (fall, taken) = (s[0], s[1]);
+    fall == body_entry && taken == exit
+}
+
+fn is_eq_zero_style_cond(e: &Expr) -> bool {
+    match e {
+        Expr::Compare { op, rhs, .. } if op == "==" => matches!(
+            rhs.as_ref(),
+            Expr::Int { value: 0, .. } | Expr::UInt { value: 0, .. }
+        ),
+        Expr::Compare { op, lhs, .. } if op == "==" => matches!(
+            lhs.as_ref(),
+            Expr::Int { value: 0, .. } | Expr::UInt { value: 0, .. }
+        ),
+        Expr::UnaryOp { op, arg } if op == "!" => is_eq_zero_style_cond(arg),
+        _ => false,
+    }
 }
 
 /// `run(f,x) { return f(x)+1; }` after f is specialized: one direct Call + add-1.
