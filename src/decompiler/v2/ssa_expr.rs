@@ -188,11 +188,24 @@ fn expr_of_op(op: &SsaOp, env: &HashMap<SsaVar, Expr>) -> Option<Expr> {
                 })
             }
         }
-        SsaOpKind::Pcode(PcodeOp::IntOr { left, right, .. }) => Some(Expr::BinOp {
-            op: "|".into(),
-            lhs: Box::new(lookup_vn(*left, &op.uses, env).unwrap_or_else(|| name_fb("a"))),
-            rhs: Box::new(lookup_vn(*right, &op.uses, env).unwrap_or_else(|| name_fb("b"))),
-        }),
+        SsaOpKind::Pcode(PcodeOp::IntOr { left, right, .. }) => {
+            let lhs = lookup_vn(*left, &op.uses, env).unwrap_or_else(|| name_fb("a"));
+            let rhs = lookup_vn(*right, &op.uses, env).unwrap_or_else(|| name_fb("b"));
+            // Algebra: x | 0xffffffff == -1 (32-bit). MSVC often materializes
+            // `return -1` this way in switch defaults.
+            if is_all_ones_u32(&lhs) || is_all_ones_u32(&rhs) {
+                Some(Expr::Int {
+                    value: -1,
+                    bits: 32,
+                })
+            } else {
+                Some(Expr::BinOp {
+                    op: "|".into(),
+                    lhs: Box::new(lhs),
+                    rhs: Box::new(rhs),
+                })
+            }
+        }
         // MSVC strength-reduces `x * (1<<n)` to SHL. Recover the multiply form for
         // constant counts so source-gold operators (`*`) match; keep `<<` when the
         // shift amount is not a small constant (variable shifts, non-canonical).
@@ -273,6 +286,15 @@ fn const_expr(v: u64, size: u32) -> Expr {
             bits: 32,
         };
     }
+    // 32-bit all-ones is source-level `-1` (switch default, error sentinels).
+    // Print as signed so soft-gold ops include `-` (e.g. classify → return -1).
+    // Size may be 4 or a zero-extended 8-byte container holding 0xffffffff.
+    if lo == 0xffff_ffff && (size <= 4 || v == 0xffff_ffff) {
+        return Expr::Int {
+            value: -1,
+            bits: 32,
+        };
+    }
     if lo == 0x4e67_c6a7 || v == 0x4e67_c6a7 {
         return Expr::UInt {
             value: 0x4e67_c6a7,
@@ -299,6 +321,22 @@ fn is_int_zero(e: &Expr) -> bool {
 
 fn is_int_one(e: &Expr) -> bool {
     matches!(e, Expr::Int { value: 1, .. } | Expr::UInt { value: 1, .. })
+}
+
+fn is_all_ones_u32(e: &Expr) -> bool {
+    matches!(
+        e,
+        Expr::Int {
+            value: -1,
+            bits: b,
+        } if *b <= 32
+    ) || matches!(
+        e,
+        Expr::UInt {
+            value: v,
+            bits: b,
+        } if *b <= 32 && *v as u32 == 0xffff_ffff
+    )
 }
 
 fn expr_struct_eq(a: &Expr, b: &Expr) -> bool {
@@ -1466,6 +1504,39 @@ mod tests {
             prod.text.contains('+') && prod.text.contains("return"),
             "product mid must keep + tail-call return, got:\n{}",
             prod.text
+        );
+    }
+
+    /// Switch default `return -1` often becomes `or reg, 0xffffffff`. Surface as
+    /// signed `-1` so soft op `-` hits (c02 classify).
+    #[test]
+    fn c02_classify_p1_pure_v2_surfaces_minus_one() {
+        use crate::project::Project;
+        let pe = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("eval/grand/bin/P1/c02_switch_dense.exe");
+        if !pe.is_file() {
+            return;
+        }
+        let dir = std::env::temp_dir().join("windy-ratchet-c02-classify-m1");
+        let _ = std::fs::create_dir_all(&dir);
+        let project =
+            Project::open_with_data_dir_and_entry_hints(&pe, &dir, &[0x1400_01000]).expect("open");
+        let art = project
+            .function_decompile_artifact(
+                0x1400_01000,
+                crate::decompiler::v2::DecompileOptions::pure_no_fallback(),
+            )
+            .expect("artifact");
+        assert!(art.fallback_reason.is_none(), "{art:?}");
+        assert!(
+            art.text.contains("-0x1") || art.text.contains("-1"),
+            "classify default must surface signed -1, got:\n{}",
+            art.text
+        );
+        assert!(
+            !art.text.contains("| 0xffffffff") && !art.text.contains("| 0xffff_ffff"),
+            "must not ship all-ones OR soup as default return:\n{}",
+            art.text
         );
     }
 
