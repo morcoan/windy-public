@@ -44,17 +44,33 @@ fn expr_of_op(op: &SsaOp, env: &HashMap<SsaVar, Expr>) -> Option<Expr> {
                 .flatten()
                 .filter_map(|var| env.get(var).cloned())
                 .collect();
-            incoming.dedup();
-            match incoming.as_slice() {
+            // Stable unique (not just consecutive dedup) so multi-arm const
+            // merges keep every distinct value.
+            let mut unique: Vec<Expr> = Vec::new();
+            for e in incoming.drain(..) {
+                if !unique.iter().any(|u| expr_struct_eq(u, &e)) {
+                    unique.push(e);
+                }
+            }
+            match unique.as_slice() {
                 [] => None,
                 [only] => Some(only.clone()),
-                [then_e, else_e, ..] => Some(Expr::Select {
-                    cond: Box::new(Expr::Name {
-                        name: "cond".into(),
-                    }),
-                    then_e: Box::new(then_e.clone()),
-                    else_e: Box::new(else_e.clone()),
-                }),
+                // Nest right-associated selects so *all* arms surface in text.
+                // Two-way only dropped soft ops from later arms (e.g. classify
+                // default `return -1` when phi was 10/20/30/-1).
+                many => {
+                    let mut acc = many.last().unwrap().clone();
+                    for e in many.iter().rev().skip(1) {
+                        acc = Expr::Select {
+                            cond: Box::new(Expr::Name {
+                                name: "cond".into(),
+                            }),
+                            then_e: Box::new(e.clone()),
+                            else_e: Box::new(acc),
+                        };
+                    }
+                    Some(acc)
+                }
             }
         }
         SsaOpKind::Pcode(PcodeOp::Copy { input, .. }) => {
@@ -1364,6 +1380,88 @@ mod tests {
         assert!(matches!(expr, Expr::Select { .. }), "{expr:?}");
     }
 
+    /// Four-way const phi (classify 10/20/30/-1) must not drop later arms.
+    #[test]
+    fn multi_const_phi_nests_select_keeping_soft_minus() {
+        let v = |ver: u32| SsaVar {
+            location: Location::Register { base_offset: 0 },
+            version: ver,
+        };
+        let a = v(1);
+        let b = v(2);
+        let c = v(3);
+        let d = v(4);
+        let merged = v(5);
+        let copy = |id: u32, va: u64, var: SsaVar, value: u64| SsaBlock {
+            id,
+            entry_va: va,
+            ops: vec![SsaOp {
+                va,
+                kind: SsaOpKind::Pcode(PcodeOp::Copy {
+                    out: Varnode::register(0, 8),
+                    input: Varnode::constant(value, 8),
+                }),
+                def: Some(var),
+                uses: vec![],
+            }],
+            successor_ids: vec![4],
+            predecessor_ids: vec![],
+        };
+        let merge = SsaBlock {
+            id: 4,
+            entry_va: 0x5000,
+            ops: vec![
+                SsaOp {
+                    va: 0,
+                    kind: SsaOpKind::Phi(PhiNode {
+                        out: merged.clone(),
+                        args: vec![
+                            Some(a.clone()),
+                            Some(b.clone()),
+                            Some(c.clone()),
+                            Some(d.clone()),
+                        ],
+                    }),
+                    def: Some(merged.clone()),
+                    uses: vec![],
+                },
+                return_block(4, 0x5001, merged).ops.remove(0),
+            ],
+            successor_ids: vec![],
+            predecessor_ids: vec![0, 1, 2, 3],
+        };
+        let ssa = SsaFunction {
+            entry_va: 0x1000,
+            bitness: 64,
+            blocks: vec![
+                copy(0, 0x1000, a, 10),
+                copy(1, 0x2000, b, 20),
+                copy(2, 0x3000, c, 30),
+                // 0xffffffff → signed -1 via const_expr
+                copy(3, 0x4000, d, 0xffff_ffff),
+                merge,
+            ],
+            image_base: 0,
+        };
+        let env = build_expr_map(&ssa);
+        let expr = return_expr_of_exit(&ssa, 4, &env).expect("merged return");
+        let dbg = format!("{expr:?}");
+        assert!(
+            dbg.contains("value: -1") || dbg.contains("value: -0x1"),
+            "soft - from default -1 must surface in nested select, got:\n{dbg}"
+        );
+        assert!(
+            dbg.contains("value: 10") && dbg.contains("value: 20") && dbg.contains("value: 30"),
+            "all positive case consts must surface, got:\n{dbg}"
+        );
+        // Nesting depth: outer Select of Select of Select.
+        let nest = dbg.matches("Select").count();
+        assert!(
+            nest >= 3,
+            "expected nested selects for 4 arms, Select count={nest}:\n{dbg}"
+        );
+    }
+
     #[test]
     fn const_left_shift_recovers_as_multiply() {
         // MSVC lowers `return x * 2` to SHL with flag side-effects. The recovered
@@ -2002,6 +2100,12 @@ mod tests {
         assert!(
             art.text.contains("switch"),
             "c02 P0 classify must surface switch from rsp-mem ladder, got:\n{}",
+            art.text
+        );
+        // Multi-const RAX phi (10/20/30/-1) must nest selects so soft `-` hits.
+        assert!(
+            art.text.contains("-0x1") || art.text.contains("-1"),
+            "c02 P0 classify must surface soft - from default -1, got:\n{}",
             art.text
         );
     }
