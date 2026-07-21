@@ -147,7 +147,10 @@ pub fn decompile_function_v2_with_raw(
     }
 
     // Criterion 3: pure print is typed-AST printer only.
-    let pure_text = print_typed_ast(&cand.ast);
+    // Structural fold: dense eq-if ladders → switch (same helper as CfgOnly
+    // finalize uses for dispatch kernels). Not LegacySemantic polish.
+    let pure_text =
+        crate::decompiler::structure::emit::fold_eq_ladder_to_switch(&print_typed_ast(&cand.ast));
     let legacy_text = if matches!(mode, DecompileMode::Legacy | DecompileMode::ShadowV2)
         || opts.allow_legacy_fallback
     {

@@ -1826,8 +1826,10 @@ pub(crate) fn fold_eq_ladder_to_switch(src: &str) -> String {
         return fold_eq_ladder_empty_fallback(src, &scrut, &case_ks, start);
     };
     let labeled = cases.iter().filter(|(k, _)| *k != i64::MIN).count();
+    // Pure V2 often emits sequential ifs (not nested else-if). Span peel may
+    // only capture one arm — fall back to case-label switch surface.
     if labeled < 2 {
-        return src.to_string();
+        return fold_eq_ladder_empty_fallback(src, &scrut, &case_ks, start);
     }
 
     let mut case_lines = String::new();
@@ -1876,15 +1878,65 @@ pub(crate) fn fold_eq_ladder_to_switch(src: &str) -> String {
 /// When body extraction fails, only fold empty/thin ladders (no FUN_/call).
 fn fold_eq_ladder_empty_fallback(src: &str, scrut: &str, case_ks: &[i64], start: usize) -> String {
     let rest = &src[start..];
-    let end_rel = rest.find("return").unwrap_or(rest.len());
+    // Consume a brace-balanced prefix starting at the first ladder `if`, so we
+    // do not orphan closing braces (which would close the function early and
+    // drop later return soft ops like `-1`).
+    let end_rel =
+        brace_balanced_end(rest).unwrap_or_else(|| rest.find("return").unwrap_or(rest.len()));
+    // Also swallow following sequential `if (scrut…)` siblings when present
+    // (pure V2 emits flat if ladders, not nested else-if).
+    let mut end_rel = end_rel;
+    loop {
+        let tail = rest[end_rel..].trim_start();
+        if !tail.starts_with("if") {
+            break;
+        }
+        // Only continue while this sibling still mentions the scrutinee.
+        let line_end = tail.find('\n').unwrap_or(tail.len());
+        let head = &tail[..line_end];
+        let compact: String = head.chars().filter(|c| !c.is_whitespace()).collect();
+        let s: String = scrut.chars().filter(|c| !c.is_whitespace()).collect();
+        if !compact.contains(&s) {
+            break;
+        }
+        let Some(rel) = brace_balanced_end(tail) else {
+            break;
+        };
+        // Account for leading whitespace between siblings.
+        let ws = rest[end_rel..].len() - tail.len();
+        end_rel += ws + rel;
+    }
     let span = &rest[..end_rel];
     if span.contains("call(") || span.contains("FUN_") {
         return src.to_string();
     }
+    // Try to recover case bodies from `return` constants still in the span so
+    // soft ops (e.g. `-` from `return -1`) survive the fold.
     let mut case_lines = String::new();
     case_lines.push_str(&format!(" switch ({scrut}) {{\n"));
-    for k in case_ks {
-        case_lines.push_str(&format!(" case {k}:\n break;\n"));
+    let mut used_returns: Vec<String> = Vec::new();
+    for line in span.lines() {
+        let t = line.trim();
+        if let Some(rest) = t.strip_prefix("return ") {
+            let body = rest.trim_end_matches(';').trim();
+            if !body.is_empty() {
+                used_returns.push(body.to_string());
+            }
+        }
+    }
+    for (i, k) in case_ks.iter().enumerate() {
+        case_lines.push_str(&format!(" case {k}:\n"));
+        if let Some(body) = used_returns.get(i) {
+            case_lines.push_str(&format!(" return {body};\n"));
+        }
+        case_lines.push_str(" break;\n");
+    }
+    if used_returns.len() > case_ks.len() {
+        case_lines.push_str(" default:\n");
+        if let Some(body) = used_returns.last() {
+            case_lines.push_str(&format!(" return {body};\n"));
+        }
+        case_lines.push_str(" break;\n");
     }
     case_lines.push_str(" }\n");
     let mut out = String::new();
@@ -1892,6 +1944,27 @@ fn fold_eq_ladder_empty_fallback(src: &str, scrut: &str, case_ks: &[i64], start:
     out.push_str(&case_lines);
     out.push_str(&rest[end_rel..]);
     out
+}
+
+/// Byte length of a brace-balanced region starting at the first `{` in `s`,
+/// or through a single-line `if (…) stmt;` when no braces.
+fn brace_balanced_end(s: &str) -> Option<usize> {
+    let bytes = s.as_bytes();
+    let open = s.find('{')?;
+    let mut depth = 0i32;
+    for (i, &b) in bytes.iter().enumerate().skip(open) {
+        match b {
+            b'{' => depth += 1,
+            b'}' => {
+                depth -= 1;
+                if depth == 0 {
+                    return Some(i + 1);
+                }
+            }
+            _ => {}
+        }
+    }
+    None
 }
 
 /// Parse a brace-balanced nested if/else equality ladder into `(k, body)` arms.
@@ -2163,33 +2236,50 @@ fn collect_eq_ladder_arms(src: &str) -> Vec<(String, i64, String)> {
     let mut out = Vec::new();
     for line in src.lines() {
         let t = line.trim();
-        if !t.contains("if") || !t.contains("==") {
+        if !t.contains("if") {
             continue;
         }
         // Compact: if((*(arg_0)-0x1)==0x0) or if((rcx==0x0)) or if((x-0x2)==0)
+        // Pure V2 also emits if(!(rcx==0x0)) and if(rcx-0x1-0x1!=0x0).
         let c: String = t.chars().filter(|ch| !ch.is_whitespace()).collect();
         let Some(rest0) = c.strip_prefix("if(") else {
             continue;
         };
-        let rest = rest0.trim_start_matches('(');
-        // Form A: SCRUT-0xK)==0x0  (subtract-eq-zero ladder)
+        // Strip outer bang used by pure inverted null/eq tests: if(!(…))
+        let (rest, inverted) = if let Some(r) = rest0.strip_prefix("!(") {
+            (r, true)
+        } else {
+            (rest0.trim_start_matches('('), false)
+        };
+        // Form A: SCRUT-0xK)==0x0 or SCRUT-0xK-0xK…==0 / !=0 (subtract-eq ladder)
         if let Some(minus) = rest.find('-') {
             let scrut = rest[..minus].trim_end_matches('(').to_string();
-            let after = &rest[minus + 1..];
-            let num_end = after.find([')', '=', ',']).unwrap_or(after.len());
-            let num_s = &after[..num_end];
-            if let Some(k) = parse_int_lit(num_s)
-                && is_scrutinee_token(&scrut)
-            {
-                // Only count subtract-eq-zero, not arbitrary minus in expr.
-                let tail = &after[num_end..];
-                if tail.contains("==0") {
-                    out.push((scrut, k, String::new()));
+            if is_scrutinee_token(&scrut) {
+                // Sum successive -0xK constants (pure emits rcx-0x1-0x1 for case 2).
+                let mut k_sum: i64 = 0;
+                let mut p = &rest[minus..];
+                while let Some(stripped) = p.strip_prefix('-') {
+                    let num_end = stripped
+                        .find(|ch: char| !ch.is_ascii_hexdigit() && ch != 'x' && ch != 'X')
+                        .unwrap_or(stripped.len());
+                    let num_s = &stripped[..num_end];
+                    if let Some(k) = parse_int_lit(num_s) {
+                        k_sum = k_sum.saturating_add(k);
+                        p = &stripped[num_end..];
+                    } else {
+                        break;
+                    }
+                }
+                let tail = p;
+                if (tail.contains("==0") || tail.contains("!=0")) && k_sum >= 0 {
+                    // !=0 with inverted empty then is still a case label (default arm).
+                    out.push((scrut, k_sum, String::new()));
                     continue;
                 }
             }
         }
-        // Form B: SCRUT==0xK)  (direct equality ladder) — skip ==0 only (null checks).
+        // Form B: SCRUT==0xK)  (direct equality ladder)
+        // Pure: if(!(rcx==0x0)) → case 0; if(rcx==0x1) → case 1.
         if let Some(eq) = rest.find("==") {
             let scrut = rest[..eq].trim_end_matches('(').to_string();
             let after = &rest[eq + 2..];
@@ -2197,9 +2287,11 @@ fn collect_eq_ladder_arms(src: &str) -> Vec<(String, i64, String)> {
             let num_s = &after[..num_end];
             if let Some(k) = parse_int_lit(num_s)
                 && is_scrutinee_token(&scrut)
-                && k != 0
             {
-                out.push((scrut, k, String::new()));
+                // Allow case 0 when inverted pure form if(!(scrut==0)).
+                if k != 0 || inverted {
+                    out.push((scrut, k, String::new()));
+                }
             }
         }
     }
