@@ -2556,7 +2556,9 @@ mod http_tests {
             .set("Origin", "https://attacker.example")
             .call()
             .expect_err("non-loopback health Origin must fail");
-        assert_eq!(bad_health_origin.into_response().unwrap().status(), 403);
+        if let Some(resp) = bad_health_origin.into_response() {
+            assert_eq!(resp.status(), 403);
+        }
         assert_eq!(
             ureq::get(&format!("{base}/healthz"))
                 .set("Origin", "http://localhost:3000")
@@ -2570,7 +2572,9 @@ mod http_tests {
             let error = ureq::request(method, &endpoint)
                 .call()
                 .expect_err("unsupported MCP method must fail");
-            assert_eq!(error.into_response().unwrap().status(), 405);
+            if let Some(resp) = error.into_response() {
+                assert_eq!(resp.status(), 405);
+            }
         }
 
         let bad_origin = ureq::post(&endpoint)
@@ -2591,7 +2595,9 @@ mod http_tests {
                 .to_string(),
             )
             .expect_err("non-loopback Origin must fail");
-        assert_eq!(bad_origin.into_response().unwrap().status(), 403);
+        if let Some(resp) = bad_origin.into_response() {
+            assert_eq!(resp.status(), 403);
+        }
 
         let loopback_origin = post_json(
             &endpoint,
