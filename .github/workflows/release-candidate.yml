@@ -67,7 +67,7 @@ jobs:
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           $report = Get-Content $reportPath -Raw | ConvertFrom-Json
           $share = Get-Content (Join-Path $bench "engine_share_v2.json") -Raw | ConvertFrom-Json
-          $baselinePath = .\docs\benchmarks\v0.1.0-baseline.json
+          $baselinePath = '.\docs\benchmarks\v0.1.0-baseline.json'
           $baseline = Get-Content $baselinePath -Raw | ConvertFrom-Json
           if ($baseline.schema -ne "windy_exact_address_baseline" -or $baseline.version -ne 1) { throw "Unsupported v0.1 baseline schema" }
           $manifestHash = (Get-FileHash $baseline.manifest.path -Algorithm SHA256).Hash.ToLowerInvariant()
