@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use iced_x86::{
     Decoder, DecoderOptions, Formatter as _, Instruction, IntelFormatter, MasmFormatter,
@@ -18,10 +19,14 @@ pub enum Syntax {
 }
 
 impl Syntax {
-    pub fn format_instruction(&self, instr: &Instruction, names: &HashMap<u64, String>) -> String {
+    fn format_instruction_shared(
+        &self,
+        instr: &Instruction,
+        names: Arc<HashMap<u64, String>>,
+    ) -> String {
         let mut output = String::new();
         let resolver: Option<Box<dyn SymbolResolver>> =
-            Some(Box::new(TableResolver::from_map(names)));
+            Some(Box::new(TableResolver::from_shared(names)));
         match self {
             Syntax::Intel => {
                 IntelFormatter::with_options(resolver, None).format(instr, &mut output);
@@ -39,20 +44,24 @@ impl Syntax {
 
 /// Owns the symbol-name map so it can satisfy iced's `'static` formatter resolver.
 pub struct TableResolver {
-    names: HashMap<u64, String>,
+    names: Arc<HashMap<u64, String>>,
 }
 
 impl TableResolver {
     pub fn from_map(names: &HashMap<u64, String>) -> Self {
         Self {
-            names: names.clone(),
+            names: Arc::new(names.clone()),
         }
+    }
+
+    pub fn from_shared(names: Arc<HashMap<u64, String>>) -> Self {
+        Self { names }
     }
 
     #[allow(dead_code)] // alternate constructor for TableResolver
     pub fn from_symbol_table(table: &SymbolTable) -> Self {
         Self {
-            names: table.to_resolver_map(),
+            names: Arc::new(table.to_resolver_map()),
         }
     }
 }
@@ -76,12 +85,15 @@ impl SymbolResolver for TableResolver {
 /// newly renamed symbols appear in the listing.
 pub struct Disassembler {
     syntax: Syntax,
-    names: HashMap<u64, String>,
+    names: Arc<HashMap<u64, String>>,
 }
 
 impl Disassembler {
     pub fn new(syntax: Syntax, names: HashMap<u64, String>) -> Self {
-        Self { syntax, names }
+        Self {
+            syntax,
+            names: Arc::new(names),
+        }
     }
 
     pub fn new_from_symbol_table(syntax: Syntax, table: &SymbolTable) -> Self {
@@ -89,12 +101,13 @@ impl Disassembler {
     }
 
     pub fn format(&self, instr: &Instruction) -> String {
-        self.syntax.format_instruction(instr, &self.names)
+        self.syntax
+            .format_instruction_shared(instr, self.names.clone())
     }
 
     #[allow(dead_code)] // rebuild resolver after symbol renames
     pub fn set_names(&mut self, table: &SymbolTable) {
-        self.names = table.to_resolver_map();
+        self.names = Arc::new(table.to_resolver_map());
     }
 }
 

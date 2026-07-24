@@ -1,6 +1,6 @@
 # Windy MCP contract
 
-Windy v0.1 serves MCP Streamable HTTP at `http://127.0.0.1:8765/mcp` by default and advertises protocol `2025-11-25`. `GET /healthz` returns the server name, Cargo version, status, and supported protocol.
+Windy v0.1 serves MCP Streamable HTTP at `http://127.0.0.1:8765/mcp` by default and advertises protocol `2025-11-25`. `GET /healthz` returns identity/channel, protocol, idle/busy state, active operation, elapsed time, open-project count, and a human message. `get_server_status` additionally reports recent-project reopen hints and per-project BEL readiness/stats.
 
 ## Security boundary
 
@@ -36,17 +36,55 @@ JSON-RPC errors are reserved for malformed protocol requests and unknown methods
 ## Recommended tool ladder
 
 1. `list_projects` / `open_project`
-2. Triage: `list_imports`, `list_exports`, `list_strings`, `list_sections`, `search_summary`
-3. `list_functions` with `offset` and `limit`
-4. `get_function_evidence` as the default one-shot pack
-5. `apply_rename_batch`, `apply_type_recovery`, or `set_comment`
-6. `verify_claims` and/or `get_function_consistency`
-7. `set_function_memory`
-8. Re-read evidence and confirm annotations and memory
-9. `get_cross_project_similar` for multi-binary workspaces
-10. Full agent text or pseudocode only when the bounded evidence pack is insufficient
+2. `get_triage` for first-minute ranked focus
+3. Triage: `list_imports`, `list_exports`, `list_strings`, `list_sections`, `search_bel`
+4. `list_functions` with `offset` and `limit`
+5. `get_function_evidence` as the default one-shot pack
+6. Structured reads: `read_pointers`, `walk_list`, `read_struct_array`, `describe_address` (prefer over hex dumps)
+7. `trace_value` for interprocedural provenance (reports where the chain died)
+8. `apply_rename_batch`, `apply_type_recovery`, or `set_comment`
+9. `verify_claims` and/or `get_function_consistency`
+10. `set_function_memory`
+11. Re-read evidence and confirm annotations and memory
+12. `get_cross_project_similar` for multi-binary workspaces
+13. Full agent text or pseudocode only when the bounded evidence pack is insufficient
 
 Read-only tool annotations are set only on genuine queries. Opening projects, annotations, memory, focus, undo/redo, claim verification, and workspace additions are stateful but non-destructive. Only actual workspace removal is marked destructive. `verify_claims` is stateful because it appends to the claim journal.
+
+## Binary Evidence Lattice search
+
+`search_bel` is the authoritative whole-project search API. It accepts `query`,
+`mode`, optional `evidence`/`quorum`, `relationship_depth`, entity `kinds`,
+`limit`, opaque `cursor`, and `deadline_ms`. It returns scored hits with exact
+provenance, `total_kind` (`exact` or `lower_bound`), a stable next cursor,
+truncation/deadline state, candidate estimate, strategy, and refinement advice.
+
+`search_summary` remains a compatibility view over BEL. It keeps shallow offset
+pagination and human messages but omits full provenance. Deep pagination uses
+`search_bel` cursors. Full architecture and correctness rules are in
+[BEL.md](BEL.md).
+
+## Structured memory reads
+
+Prefer these over `read_va` when enumerating tables or lists:
+
+| Tool | Purpose |
+|------|---------|
+| `read_pointers` | N machine pointers at a VA, each **resolved** (function/import/string) |
+| `walk_list` | Follow `next` at `next_offset`; cycle-safe; optional field layout |
+| `read_struct_array` | Decode an array given stride + field layout |
+| `describe_address` | Section, symbol, function, string, or pointer target |
+
+Bounds are element/node counts (not a 512-byte hex dump). List walks report
+`died`: `null` | `cycle` | `node_cap` | `unmapped`.
+
+## First-minute triage and provenance
+
+- `get_triage(project_id, limit)` — deterministic fixed-point ranking (export,
+  entry, call degree, imports, strings, size, BEL ontology/motifs when ready).
+- `trace_value(project_id, va, site, direction, depth)` — interprocedural
+  walk; always returns a `died` reason (`depth_cap`, `inlined`, `indirect`,
+  `origin`, …) and `exact` vs `may` confidence.
 
 ## Native decompilation
 

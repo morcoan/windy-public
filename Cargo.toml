@@ -1,3 +1,7 @@
+[workspace]
+members = [".", "eval/agent-bench"]
+resolver = "2"
+
 [package]
 name = "windy"
 version = "0.1.1"
@@ -12,12 +16,17 @@ categories = ["development-tools", "command-line-utilities"]
 
 [features]
 default = []
+# Local-only fast-iteration channel. Changes product identity and enables
+# eager search warming; it is packaged by scripts/package-beta.ps1 and is not
+# connected to GitHub release workflows.
+beta = []
 # Archived corpus/model authoring support. The public release binary is fully
 # native and does not compile an HTTP model client.
 gclsd-archive = ["dep:reqwest"]
 
 [dependencies]
 anyhow = "1"
+ahash = "0.8"
 arc-swap = "1"
 clap = { version = "4", features = ["derive"] }
 directories = "6"
@@ -28,11 +37,13 @@ egui_extras = "0.35"
 iced-x86 = "1.21.0"
 memmap2 = "0.9.11"
 fallible-iterator = "0.2"
+fst = "0.4"
 pdb = "0.8"
 petriage = "0.5.0"
 postcard = { version = "1", features = ["alloc"] }
 regex = "1"
 rfd = "0.15"
+roaring = "0.11"
 ron = "0.8"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

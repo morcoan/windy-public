@@ -1,0 +1,340 @@
+{
+  "harness": "agent-bench-v1",
+  "commit": "996961a855e48b30f9aaaa3179fcbd8b13b7d7fe",
+  "model": null,
+  "live": false,
+  "arms": [
+    {
+      "arm": "A",
+      "tasks": 8,
+      "successes": 8,
+      "abstentions": 8,
+      "abstention_correct": 8,
+      "total_tool_calls": 24,
+      "tokens": {
+        "input_tokens": 9600,
+        "cache_creation_input_tokens": 4000,
+        "cache_read_input_tokens": 6400,
+        "output_tokens": 640
+      },
+      "wall_ms": 0
+    },
+    {
+      "arm": "B",
+      "tasks": 8,
+      "successes": 0,
+      "abstentions": 0,
+      "abstention_correct": 0,
+      "total_tool_calls": 40,
+      "tokens": {
+        "input_tokens": 19200,
+        "cache_creation_input_tokens": 4000,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 640
+      },
+      "wall_ms": 0
+    }
+  ],
+  "results": [
+    {
+      "task_id": "abstain:a01_signed_rel:P0:signed_lt",
+      "arm": "A",
+      "success": true,
+      "abstained": true,
+      "answer": "refuse",
+      "gold": "refuse",
+      "tool_calls": 3,
+      "tokens": {
+        "input_tokens": 1200,
+        "cache_creation_input_tokens": 500,
+        "cache_read_input_tokens": 800,
+        "output_tokens": 80
+      },
+      "wall_ms": 0,
+      "mode": "offline_oracle",
+      "error": null
+    },
+    {
+      "task_id": "abstain:a01_signed_rel:P0:unsigned_lt",
+      "arm": "A",
+      "success": true,
+      "abstained": true,
+      "answer": "refuse",
+      "gold": "refuse",
+      "tool_calls": 3,
+      "tokens": {
+        "input_tokens": 1200,
+        "cache_creation_input_tokens": 500,
+        "cache_read_input_tokens": 800,
+        "output_tokens": 80
+      },
+      "wall_ms": 0,
+      "mode": "offline_oracle",
+      "error": null
+    },
+    {
+      "task_id": "abstain:a01_signed_rel:P1:signed_lt",
+      "arm": "A",
+      "success": true,
+      "abstained": true,
+      "answer": "refuse",
+      "gold": "refuse",
+      "tool_calls": 3,
+      "tokens": {
+        "input_tokens": 1200,
+        "cache_creation_input_tokens": 500,
+        "cache_read_input_tokens": 800,
+        "output_tokens": 80
+      },
+      "wall_ms": 0,
+      "mode": "offline_oracle",
+      "error": null
+    },
+    {
+      "task_id": "abstain:a01_signed_rel:P1:unsigned_lt",
+      "arm": "A",
+      "success": true,
+      "abstained": true,
+      "answer": "refuse",
+      "gold": "refuse",
+      "tool_calls": 3,
+      "tokens": {
+        "input_tokens": 1200,
+        "cache_creation_input_tokens": 500,
+        "cache_read_input_tokens": 800,
+        "output_tokens": 80
+      },
+      "wall_ms": 0,
+      "mode": "offline_oracle",
+      "error": null
+    },
+    {
+      "task_id": "abstain:a03_minmax_abs:P0:iabs",
+      "arm": "A",
+      "success": true,
+      "abstained": true,
+      "answer": "refuse",
+      "gold": "refuse",
+      "tool_calls": 3,
+      "tokens": {
+        "input_tokens": 1200,
+        "cache_creation_input_tokens": 500,
+        "cache_read_input_tokens": 800,
+        "output_tokens": 80
+      },
+      "wall_ms": 0,
+      "mode": "offline_oracle",
+      "error": null
+    },
+    {
+      "task_id": "abstain:a03_minmax_abs:P0:imin",
+      "arm": "A",
+      "success": true,
+      "abstained": true,
+      "answer": "refuse",
+      "gold": "refuse",
+      "tool_calls": 3,
+      "tokens": {
+        "input_tokens": 1200,
+        "cache_creation_input_tokens": 500,
+        "cache_read_input_tokens": 800,
+        "output_tokens": 80
+      },
+      "wall_ms": 0,
+      "mode": "offline_oracle",
+      "error": null
+    },
+    {
+      "task_id": "abstain:a03_minmax_abs:P1:iabs",
+      "arm": "A",
+      "success": true,
+      "abstained": true,
+      "answer": "refuse",
+      "gold": "refuse",
+      "tool_calls": 3,
+      "tokens": {
+        "input_tokens": 1200,
+        "cache_creation_input_tokens": 500,
+        "cache_read_input_tokens": 800,
+        "output_tokens": 80
+      },
+      "wall_ms": 0,
+      "mode": "offline_oracle",
+      "error": null
+    },
+    {
+      "task_id": "abstain:a03_minmax_abs:P1:imin",
+      "arm": "A",
+      "success": true,
+      "abstained": true,
+      "answer": "refuse",
+      "gold": "refuse",
+      "tool_calls": 3,
+      "tokens": {
+        "input_tokens": 1200,
+        "cache_creation_input_tokens": 500,
+        "cache_read_input_tokens": 800,
+        "output_tokens": 80
+      },
+      "wall_ms": 0,
+      "mode": "offline_oracle",
+      "error": null
+    },
+    {
+      "task_id": "abstain:a01_signed_rel:P0:signed_lt",
+      "arm": "B",
+      "success": false,
+      "abstained": false,
+      "answer": "0x140001000",
+      "gold": "refuse",
+      "tool_calls": 5,
+      "tokens": {
+        "input_tokens": 2400,
+        "cache_creation_input_tokens": 500,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 80
+      },
+      "wall_ms": 0,
+      "mode": "offline_oracle",
+      "error": null
+    },
+    {
+      "task_id": "abstain:a01_signed_rel:P0:unsigned_lt",
+      "arm": "B",
+      "success": false,
+      "abstained": false,
+      "answer": "0x140001000",
+      "gold": "refuse",
+      "tool_calls": 5,
+      "tokens": {
+        "input_tokens": 2400,
+        "cache_creation_input_tokens": 500,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 80
+      },
+      "wall_ms": 0,
+      "mode": "offline_oracle",
+      "error": null
+    },
+    {
+      "task_id": "abstain:a01_signed_rel:P1:signed_lt",
+      "arm": "B",
+      "success": false,
+      "abstained": false,
+      "answer": "0x140001000",
+      "gold": "refuse",
+      "tool_calls": 5,
+      "tokens": {
+        "input_tokens": 2400,
+        "cache_creation_input_tokens": 500,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 80
+      },
+      "wall_ms": 0,
+      "mode": "offline_oracle",
+      "error": null
+    },
+    {
+      "task_id": "abstain:a01_signed_rel:P1:unsigned_lt",
+      "arm": "B",
+      "success": false,
+      "abstained": false,
+      "answer": "0x140001000",
+      "gold": "refuse",
+      "tool_calls": 5,
+      "tokens": {
+        "input_tokens": 2400,
+        "cache_creation_input_tokens": 500,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 80
+      },
+      "wall_ms": 0,
+      "mode": "offline_oracle",
+      "error": null
+    },
+    {
+      "task_id": "abstain:a03_minmax_abs:P0:iabs",
+      "arm": "B",
+      "success": false,
+      "abstained": false,
+      "answer": "0x140001000",
+      "gold": "refuse",
+      "tool_calls": 5,
+      "tokens": {
+        "input_tokens": 2400,
+        "cache_creation_input_tokens": 500,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 80
+      },
+      "wall_ms": 0,
+      "mode": "offline_oracle",
+      "error": null
+    },
+    {
+      "task_id": "abstain:a03_minmax_abs:P0:imin",
+      "arm": "B",
+      "success": false,
+      "abstained": false,
+      "answer": "0x140001000",
+      "gold": "refuse",
+      "tool_calls": 5,
+      "tokens": {
+        "input_tokens": 2400,
+        "cache_creation_input_tokens": 500,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 80
+      },
+      "wall_ms": 0,
+      "mode": "offline_oracle",
+      "error": null
+    },
+    {
+      "task_id": "abstain:a03_minmax_abs:P1:iabs",
+      "arm": "B",
+      "success": false,
+      "abstained": false,
+      "answer": "0x140001000",
+      "gold": "refuse",
+      "tool_calls": 5,
+      "tokens": {
+        "input_tokens": 2400,
+        "cache_creation_input_tokens": 500,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 80
+      },
+      "wall_ms": 0,
+      "mode": "offline_oracle",
+      "error": null
+    },
+    {
+      "task_id": "abstain:a03_minmax_abs:P1:imin",
+      "arm": "B",
+      "success": false,
+      "abstained": false,
+      "answer": "0x140001000",
+      "gold": "refuse",
+      "tool_calls": 5,
+      "tokens": {
+        "input_tokens": 2400,
+        "cache_creation_input_tokens": 500,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 80
+      },
+      "wall_ms": 0,
+      "mode": "offline_oracle",
+      "error": null
+    }
+  ],
+  "corpus": {
+    "families": [
+      "locate",
+      "abstain"
+    ],
+    "profiles": [
+      "P0",
+      "P1"
+    ],
+    "task_count": 8,
+    "task_set_sha256": "f13fbfee5a0c6b1bc22920da1a69ea7c48a7f890c5f4f6c80371c835320c8607"
+  }
+}

@@ -5,10 +5,13 @@ use crate::analysis::functions::{
 use crate::analysis::xrefs::XrefIndex;
 use crate::loader::address_space::AddressSpace;
 use crate::project::symbols::{SymbolKind, SymbolTable};
+use std::sync::{Arc, OnceLock};
 
+pub mod bel;
 pub mod code_index;
 pub mod functions;
 pub mod indirect;
+pub mod mem_walk;
 pub mod search;
 pub mod signatures;
 pub mod stack_frame;
@@ -32,6 +35,14 @@ pub struct Analysis {
     pub functions: FunctionTable,
     /// Cross-reference index.
     pub xrefs: XrefIndex,
+    /// Lazily formatted instruction text used by whole-image searches. Shared
+    /// across project snapshots so renames/comments do not discard the cache.
+    pub instruction_search: Arc<OnceLock<search::InstructionSearchIndex>>,
+    /// Sorted immediate-value postings for exact numeric/VA searches.
+    pub immediate_search: Arc<OnceLock<search::ImmediateSearchIndex>>,
+    /// Immutable Binary Evidence Lattice, built cooperatively after project
+    /// open and shared across copy-on-write annotation snapshots.
+    pub bel: Arc<bel::BelIndexCell>,
 }
 
 impl Analysis {
@@ -83,18 +94,28 @@ impl Analysis {
         seeds.sort_unstable();
         seeds.dedup();
 
-        let functions = if entry_hints.is_empty() {
-            discover_functions(&code_index, address_space, &seeds)
-        } else {
-            discover_functions_with_entry_hints(&code_index, address_space, &seeds, entry_hints)
-        };
-        let xrefs = XrefIndex::build(&code_index, address_space, bitness);
+        // Function discovery and xref indexing only read the decoded cache, so
+        // run them together on large images instead of serially walking the
+        // entire instruction set twice.
+        let (functions, xrefs) = std::thread::scope(|scope| {
+            let xref_task = scope.spawn(|| XrefIndex::build(&code_index, address_space, bitness));
+            let functions = if entry_hints.is_empty() {
+                discover_functions(&code_index, address_space, &seeds)
+            } else {
+                discover_functions_with_entry_hints(&code_index, address_space, &seeds, entry_hints)
+            };
+            let xrefs = xref_task.join().expect("xref indexing thread panicked");
+            (functions, xrefs)
+        });
 
         Self {
             code_index,
             runtime_functions,
             functions,
             xrefs,
+            instruction_search: Arc::new(OnceLock::new()),
+            immediate_search: Arc::new(OnceLock::new()),
+            bel: Arc::new(bel::BelIndexCell::default()),
         }
     }
 }

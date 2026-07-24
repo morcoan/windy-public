@@ -3,12 +3,15 @@
 // Individual pub items used only by MCP/external agents are allowed below.
 
 use std::collections::HashSet;
+use std::time::Instant;
 
 use iced_x86::{FlowControl, Instruction, InstructionInfoFactory, Register};
 use serde::Serialize;
 
 use crate::analysis::functions::Function;
-use crate::analysis::search::SearchHit;
+use crate::analysis::search::{
+    SearchHit, contains_ascii_case_insensitive, search_everything_bounded,
+};
 use crate::analysis::xrefs::XrefKind;
 use crate::ir::export::FunctionExport;
 use crate::project::Project;
@@ -383,48 +386,124 @@ pub fn xrefs_to_named(project: &Project, va: u64) -> Vec<(u64, String, String)> 
 }
 
 /// Global search wrapper that returns a concise text summary.
+#[allow(dead_code)] // compatibility helper for in-process/UI callers
 pub fn search_summary(project: &Project, query: &str) -> Vec<String> {
+    search_summary_page(project, query, 0, MAX_LIST, false, None).hits
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct SearchSummaryPage {
+    pub hits: Vec<String>,
+    pub total: usize,
+    pub offset: usize,
+    pub limit: usize,
+    pub next_offset: Option<usize>,
+    pub truncated: bool,
+    pub timed_out: bool,
+    pub fast_path: bool,
+    pub instruction_index_ready: bool,
+}
+
+/// Paginated whole-project search with a symbol/string fast path and an
+/// optional hard deadline for instruction-text work.
+pub fn search_summary_page(
+    project: &Project,
+    query: &str,
+    offset: usize,
+    limit: usize,
+    fast_only: bool,
+    deadline: Option<Instant>,
+) -> SearchSummaryPage {
+    let limit = limit.clamp(1, 128);
     if query.is_empty() {
-        return Vec::new();
+        return SearchSummaryPage {
+            hits: Vec::new(),
+            total: 0,
+            offset,
+            limit,
+            next_offset: None,
+            truncated: false,
+            timed_out: false,
+            fast_path: true,
+            instruction_index_ready: crate::analysis::search::instruction_search_ready(project),
+        };
     }
 
-    // Most agent triage searches target a symbol or extracted string. Resolve
-    // those indexed sources first and avoid formatting every instruction in a
-    // million-instruction image merely to duplicate the same named hit.
-    if !query.starts_with('/') && parse_search_number(query).is_none() {
-        let needle = query.to_ascii_lowercase();
+    // The explicit fast path searches only indexed symbols and extracted
+    // strings. Normal searches remain comprehensive so a quick symbol hit
+    // never silently hides matching instruction references.
+    if fast_only && !query.starts_with('/') && parse_search_number(query).is_none() {
         let mut fast = Vec::new();
+        let mut total = 0usize;
         for (va, symbol) in project.symbols.iter() {
-            if symbol.name.to_ascii_lowercase().contains(&needle) {
-                fast.push(format!("sym {va:#x}: {}", symbol.name));
-                if fast.len() == MAX_LIST {
-                    return fast;
+            if contains_ascii_case_insensitive(&symbol.name, query) {
+                if total >= offset && fast.len() < limit {
+                    fast.push(format!("sym {va:#x}: {}", symbol.name));
                 }
+                total += 1;
             }
         }
         for string in project.pe.triage.strings.as_deref().unwrap_or_default() {
-            if string.value.to_ascii_lowercase().contains(&needle) {
-                fast.push(format!("str @{:x}: {}", string.offset, string.value));
-                if fast.len() == MAX_LIST {
-                    return fast;
+            if contains_ascii_case_insensitive(&string.value, query) {
+                if total >= offset && fast.len() < limit {
+                    fast.push(format!("str @{:x}: {}", string.offset, string.value));
                 }
+                total += 1;
             }
         }
-        if !fast.is_empty() {
-            return fast;
-        }
+        let next = offset.saturating_add(fast.len());
+        return SearchSummaryPage {
+            hits: fast,
+            total,
+            offset,
+            limit,
+            next_offset: (next < total).then_some(next),
+            truncated: next < total,
+            timed_out: false,
+            fast_path: true,
+            instruction_index_ready: crate::analysis::search::instruction_search_ready(project),
+        };
     }
 
-    project
-        .search(query)
+    if fast_only {
+        return SearchSummaryPage {
+            hits: Vec::new(),
+            total: 0,
+            offset,
+            limit,
+            next_offset: None,
+            truncated: false,
+            timed_out: false,
+            fast_path: true,
+            instruction_index_ready: crate::analysis::search::instruction_search_ready(project),
+        };
+    }
+
+    let outcome = search_everything_bounded(project, query, deadline);
+    let total = outcome.hits.len();
+    let hits: Vec<_> = outcome
+        .hits
         .into_iter()
-        .take(MAX_LIST)
+        .skip(offset)
+        .take(limit)
         .map(|hit| match hit {
             SearchHit::Instruction { va, text } => format!("insn {va:#x}: {text}"),
             SearchHit::Symbol { va, name } => format!("sym {va:#x}: {name}"),
             SearchHit::String { offset, value } => format!("str @{offset:#x}: {value}"),
         })
-        .collect()
+        .collect();
+    let next = offset.saturating_add(hits.len());
+    SearchSummaryPage {
+        hits,
+        total,
+        offset,
+        limit,
+        next_offset: (next < total).then_some(next),
+        truncated: next < total,
+        timed_out: outcome.timed_out,
+        fast_path: false,
+        instruction_index_ready: outcome.instruction_index_ready,
+    }
 }
 
 fn parse_search_number(query: &str) -> Option<u64> {
@@ -941,6 +1020,74 @@ mod tests {
                 .any(|hit| hit.contains("sym ") && hit.contains(&api)),
             "indexed import symbol should satisfy summary search without a full disassembly scan"
         );
+    }
+
+    #[test]
+    fn fast_search_reports_exact_total_and_paginates() {
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/gclsd/bench/complex.exe");
+        let project = Project::open(path).expect("open complex fixture");
+        let (query, expected) = ["_", "e", "a", "i"]
+            .into_iter()
+            .map(|query| {
+                let symbols = project
+                    .symbols
+                    .iter()
+                    .filter(|(_, symbol)| contains_ascii_case_insensitive(&symbol.name, query))
+                    .count();
+                let strings = project
+                    .pe
+                    .triage
+                    .strings
+                    .as_deref()
+                    .unwrap_or_default()
+                    .iter()
+                    .filter(|string| contains_ascii_case_insensitive(&string.value, query))
+                    .count();
+                (query, symbols + strings)
+            })
+            .max_by_key(|(_, count)| *count)
+            .expect("search candidates");
+        assert!(expected > 1, "fixture should provide pagination coverage");
+
+        let first = search_summary_page(&project, query, 0, 1, true, None);
+        assert_eq!(first.total, expected);
+        assert_eq!(first.hits.len(), 1);
+        assert_eq!(first.next_offset, Some(1));
+        assert!(first.truncated);
+        assert!(first.fast_path);
+
+        let second = search_summary_page(&project, query, 1, 1, true, None);
+        assert_eq!(second.total, expected);
+        assert_eq!(second.hits.len(), 1);
+        assert_eq!(second.offset, 1);
+    }
+
+    #[test]
+    fn instruction_search_obeys_deadline_then_reuses_index() {
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/gclsd/bench/sample.exe");
+        let project = Project::open(path).expect("open sample fixture");
+        let expired = Instant::now() - std::time::Duration::from_millis(1);
+        let timed_out = search_summary_page(
+            &project,
+            "__windy_deadline_probe_that_does_not_exist__",
+            0,
+            8,
+            false,
+            Some(expired),
+        );
+        assert!(timed_out.timed_out);
+        assert!(!timed_out.instruction_index_ready);
+
+        let completed = search_summary_page(
+            &project,
+            "__windy_deadline_probe_that_does_not_exist__",
+            0,
+            8,
+            false,
+            None,
+        );
+        assert!(!completed.timed_out);
+        assert!(completed.instruction_index_ready);
     }
 
     #[test]

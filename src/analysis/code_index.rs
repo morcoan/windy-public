@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::HashMap;
 
 use iced_x86::{Code, Decoder, DecoderOptions, Instruction};
 
@@ -27,23 +27,36 @@ impl DecodedInstr {
 #[derive(Clone, Debug)]
 pub struct CodeIndex {
     pub instrs: Vec<DecodedInstr>,
-    pub va_to_idx: BTreeMap<u64, usize>,
+    pub va_to_idx: HashMap<u64, usize>,
 }
 
 impl CodeIndex {
     pub fn build(image: &[u8], address_space: &AddressSpace, bitness: u32) -> Self {
-        let mut instrs = Vec::new();
-        let mut va_to_idx = BTreeMap::new();
+        let mut sections: Vec<_> = address_space.exec_sections().collect();
+        sections.sort_unstable_by_key(|section| section.vaddr);
+        let estimated_instructions = sections
+            .iter()
+            .map(|section| section.raw_size as usize / 4)
+            .sum();
+        let mut instrs = Vec::with_capacity(estimated_instructions);
 
-        for section in address_space.exec_sections() {
+        for section in sections {
             decode_section(
                 image,
                 address_space.image_base,
                 bitness,
                 section,
                 &mut instrs,
-                &mut va_to_idx,
             );
+        }
+
+        // Exact VA lookup is the hottest operation during discovery, CFG, and
+        // decompilation. A HashMap builds in linear time and avoids the
+        // pointer-heavy BTreeMap previously populated once per instruction.
+        // `instrs` remains VA-sorted for range/floor lookups.
+        let mut va_to_idx = HashMap::with_capacity(instrs.len());
+        for (index, instruction) in instrs.iter().enumerate() {
+            va_to_idx.insert(instruction.ip, index);
         }
 
         Self { instrs, va_to_idx }
@@ -70,12 +83,14 @@ impl CodeIndex {
 
     /// Returns `count` instructions starting at the index closest to `va` (floor).
     pub fn window(&self, va: u64, count: usize) -> &[DecodedInstr] {
-        let idx = self
-            .va_to_idx
-            .range(..=va)
-            .next_back()
-            .map(|(_, &i)| i)
-            .unwrap_or(0);
+        let idx = match self
+            .instrs
+            .binary_search_by_key(&va, |instruction| instruction.ip)
+        {
+            Ok(index) => index,
+            Err(0) => 0,
+            Err(index) => index - 1,
+        };
         let end = (idx + count).min(self.instrs.len());
         &self.instrs[idx..end]
     }
@@ -100,7 +115,6 @@ fn decode_section(
     bitness: u32,
     section: &Section,
     instrs: &mut Vec<DecodedInstr>,
-    va_to_idx: &mut BTreeMap<u64, usize>,
 ) {
     let raw_start = section.raw_addr as usize;
     let raw_end = raw_start
@@ -112,39 +126,43 @@ fn decode_section(
 
     let section_bytes = &image[raw_start..raw_end];
     let base_ip = image_base.saturating_add(u64::from(section.vaddr));
-    let mut offset: usize = 0;
+    let mut decoder = Decoder::with_ip(bitness, section_bytes, base_ip, DecoderOptions::NONE);
 
-    while offset < section_bytes.len() {
-        let ip = base_ip.saturating_add(offset as u64);
-        let mut decoder =
-            Decoder::with_ip(bitness, &section_bytes[offset..], ip, DecoderOptions::NONE);
+    // Reusing one decoder is materially faster on multi-million-instruction
+    // images than reconstructing a decoder over the remaining slice for every
+    // instruction.
+    while decoder.can_decode() {
         let instr = decoder.decode();
+        let ip = instr.ip();
+        let offset = ip.saturating_sub(base_ip) as usize;
 
-        // Robustness: invalid bytes advance by one and retry.
+        // iced advances over invalid encodings. A zero-length result can only
+        // occur at an exhausted/malformed tail; stop rather than spin.
         if instr.code() == Code::INVALID && instr.len() == 0 {
-            offset = offset.saturating_add(1);
-            continue;
+            break;
         }
 
         let len = instr.len();
         if len == 0 {
-            offset = offset.saturating_add(1);
-            continue;
+            break;
         }
 
         let mut bytes = [0u8; 16];
         let available = section_bytes[offset..].len().min(16).min(len);
         bytes[..available].copy_from_slice(&section_bytes[offset..offset + available]);
 
-        va_to_idx.insert(ip, instrs.len());
         instrs.push(DecodedInstr {
             ip,
             len: len as u8,
             bytes,
             instr,
         });
-
-        offset = offset.saturating_add(len);
+        if instrs.len() % 1_000_000 == 0 {
+            tracing::info!(
+                "Decoded {} million instructions...",
+                instrs.len() / 1_000_000
+            );
+        }
     }
 }
 
@@ -160,5 +178,54 @@ mod tests {
         };
         let idx = CodeIndex::build(&[], &space, 64);
         assert!(idx.is_empty());
+    }
+
+    #[test]
+    fn executable_sections_are_sorted_and_exact_lookup_is_stable() {
+        // Two executable sections deliberately supplied in reverse VA order.
+        let image = [0x90, 0xc3, 0, 0, 0x90, 0xc3];
+        let space = AddressSpace {
+            image_base: 0x1_4000_0000,
+            sections: vec![
+                Section {
+                    vaddr: 0x2000,
+                    vsize: 2,
+                    raw_addr: 4,
+                    raw_size: 2,
+                    characteristics: 0x6000_0020,
+                },
+                Section {
+                    vaddr: 0x1000,
+                    vsize: 2,
+                    raw_addr: 0,
+                    raw_size: 2,
+                    characteristics: 0x6000_0020,
+                },
+            ],
+        };
+        let idx = CodeIndex::build(&image, &space, 64);
+        let low = space.image_base + 0x1000;
+        let high = space.image_base + 0x2000;
+
+        assert_eq!(idx.len(), 4);
+        assert_eq!(
+            idx.instrs.first().map(|instruction| instruction.ip),
+            Some(low)
+        );
+        assert_eq!(
+            idx.instrs.last().map(|instruction| instruction.ip),
+            Some(high + 1)
+        );
+        assert_eq!(
+            idx.at_va(high).map(|instruction| instruction.ip),
+            Some(high)
+        );
+        assert_eq!(idx.idx_for_va(high), Some(2));
+        assert_eq!(idx.window(low + 0x800, 1)[0].ip, low + 1);
+        assert_eq!(
+            idx.instruction_before(high + 1)
+                .map(|instruction| instruction.ip),
+            Some(high)
+        );
     }
 }

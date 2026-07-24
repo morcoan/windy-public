@@ -12,6 +12,7 @@ use tracing_subscriber::EnvFilter;
 
 mod analysis;
 mod app;
+mod build_info;
 mod cross_project;
 mod decomp_scorecard;
 mod decompiler;
@@ -27,9 +28,9 @@ mod project_manager;
 mod ui;
 
 #[derive(Parser)]
-#[command(name = "windy")]
+#[command(name = build_info::PRODUCT_ID)]
 #[command(about = "Windy reverse-engineering workbench")]
-#[command(version)]
+#[command(version = build_info::VERSION)]
 struct Cli {
     /// Optional PE to open directly in the GUI.
     #[arg(value_name = "PE")]
@@ -46,6 +47,7 @@ struct Cli {
 #[derive(Subcommand)]
 enum Commands {
     /// Run headless MCP HTTP server for external agents (OpenCode, Claude, Cursor, …).
+    #[command(visible_alias = "agent")]
     ServeMcp {
         /// Bind address (default 127.0.0.1:8765).
         #[arg(long, default_value = "127.0.0.1:8765")]
@@ -53,6 +55,12 @@ enum Commands {
         /// Optional PE path to open on startup.
         #[arg(long)]
         open: Option<PathBuf>,
+        /// Reopen the most recently used PE when --open is omitted.
+        #[arg(long)]
+        reopen_last: bool,
+        /// Optional endpoint text file (defaults to <data-dir>/agent-endpoint.txt).
+        #[arg(long, value_name = "FILE")]
+        endpoint_file: Option<PathBuf>,
     },
     /// Check the standalone runtime, storage, bundled databases, and MCP endpoint.
     Doctor {
@@ -127,7 +135,20 @@ enum Commands {
 
 #[derive(Subcommand)]
 enum BenchCommands {
-    /// Compare evidence-first agent queries with whole-function dumps.
+    /// Build and benchmark the Binary Evidence Lattice with oracle checksums.
+    Bel {
+        /// Path to PE.
+        #[arg(long)]
+        pe: PathBuf,
+        /// Warm iterations per representative query.
+        #[arg(long, default_value_t = 20)]
+        iterations: usize,
+        /// Optional literal substring queries (repeat --query). Defaults are
+        /// derived deterministically from the PE.
+        #[arg(long)]
+        query: Vec<String>,
+    },
+    /// Smoke evidence cards on a PE (full agent loop lives in eval/agent-bench).
     AgentLoop {
         /// Path to PE.
         #[arg(long)]
@@ -178,9 +199,19 @@ fn main() -> anyhow::Result<()> {
     };
 
     match cli.command {
-        Some(Commands::ServeMcp { bind, open }) => run_serve_mcp(bind, open, data_dir),
+        Some(Commands::ServeMcp {
+            bind,
+            open,
+            reopen_last,
+            endpoint_file,
+        }) => run_serve_mcp(bind, open, reopen_last, endpoint_file, data_dir),
         Some(Commands::Doctor { open, endpoint }) => run_doctor(data_dir, open, endpoint),
         Some(Commands::Bench { command }) => match command {
+            BenchCommands::Bel {
+                pe,
+                iterations,
+                query,
+            } => run_bel_bench(pe, iterations, query),
             BenchCommands::AgentLoop { pe, limit } => run_eval_agent_loop(pe, limit),
             BenchCommands::Scorecard { gold, output } => run_decomp_scorecard(gold, output),
             BenchCommands::Grand {
@@ -208,6 +239,255 @@ fn main() -> anyhow::Result<()> {
         }) => run_grand_bench(manifest, output, table, suite),
         None => run_gui(data_dir, cli.path),
     }
+}
+
+fn run_bel_bench(pe: PathBuf, iterations: usize, queries: Vec<String>) -> anyhow::Result<()> {
+    use std::sync::atomic::AtomicBool;
+    use std::time::{Duration, Instant};
+
+    let opened_at = Instant::now();
+    let project = crate::project::Project::open(&pe)
+        .with_context(|| format!("open BEL benchmark PE {}", pe.display()))?;
+    let open_ms = opened_at.elapsed().as_millis();
+    let cancel = AtomicBool::new(false);
+    let progress = |status: crate::analysis::bel::BelBuildProgress| {
+        if status.completed == 0 || status.completed == status.total {
+            eprintln!(
+                "BEL {}: {}/{}",
+                status.stage, status.completed, status.total
+            );
+        }
+    };
+    let control = crate::analysis::bel::BelBuildControl {
+        cancel: &cancel,
+        deadline: None,
+        progress: Some(&progress),
+    };
+    let built_at = Instant::now();
+    let index = crate::analysis::bel::BelIndex::build(
+        &project,
+        crate::analysis::bel::BelConfig::default(),
+        &control,
+    )?;
+    let build_ms = built_at.elapsed().as_millis();
+    let overlay = index.overlay(&project);
+
+    let mut cases: Vec<(String, crate::analysis::bel::Query, bool)> = queries
+        .into_iter()
+        .map(|text| {
+            (
+                format!("substring:{text}"),
+                crate::analysis::bel::Query {
+                    text,
+                    mode: crate::analysis::bel::SearchMode::Substring,
+                    evidence: Vec::new(),
+                    quorum: None,
+                    relationship_depth: 1,
+                    kinds: Vec::new(),
+                },
+                true,
+            )
+        })
+        .collect();
+    if cases.is_empty() {
+        if let Some(entity) = index.entities.iter().find(|entity| {
+            matches!(
+                entity.kind,
+                crate::analysis::bel::EntityKind::Import
+                    | crate::analysis::bel::EntityKind::Export
+                    | crate::analysis::bel::EntityKind::String
+                    | crate::analysis::bel::EntityKind::Symbol
+            ) && entity.display.len() >= 6
+        }) {
+            for (label, mode) in [
+                ("exact", crate::analysis::bel::SearchMode::Exact),
+                (
+                    "selective_substring",
+                    crate::analysis::bel::SearchMode::Substring,
+                ),
+                ("regex_literal", crate::analysis::bel::SearchMode::Regex),
+            ] {
+                let text = if mode == crate::analysis::bel::SearchMode::Regex {
+                    regex::escape(entity.display.as_ref())
+                } else {
+                    entity.display.to_string()
+                };
+                cases.push((
+                    label.to_string(),
+                    crate::analysis::bel::Query {
+                        text,
+                        mode,
+                        evidence: Vec::new(),
+                        quorum: None,
+                        relationship_depth: 1,
+                        kinds: Vec::new(),
+                    },
+                    true,
+                ));
+            }
+            cases.push((
+                "relationship".to_string(),
+                crate::analysis::bel::Query {
+                    text: entity.display.to_string(),
+                    mode: crate::analysis::bel::SearchMode::Relationship,
+                    evidence: Vec::new(),
+                    quorum: None,
+                    relationship_depth: 1,
+                    kinds: Vec::new(),
+                },
+                false,
+            ));
+            if let Some(va) = entity.va {
+                cases.push((
+                    "numeric".to_string(),
+                    crate::analysis::bel::Query {
+                        text: format!("{va:#x}"),
+                        mode: crate::analysis::bel::SearchMode::Numeric,
+                        evidence: Vec::new(),
+                        quorum: None,
+                        relationship_depth: 1,
+                        kinds: Vec::new(),
+                    },
+                    true,
+                ));
+            }
+        }
+        cases.push((
+            "token:mov".to_string(),
+            crate::analysis::bel::Query {
+                text: "mov".to_string(),
+                mode: crate::analysis::bel::SearchMode::Token,
+                evidence: Vec::new(),
+                quorum: None,
+                relationship_depth: 1,
+                kinds: Vec::new(),
+            },
+            true,
+        ));
+    }
+
+    let iterations = iterations.clamp(1, 10_000);
+    let mut reports = Vec::new();
+    for (label, query, oracle_compatible) in cases {
+        let warm = crate::analysis::bel::search(
+            &index,
+            &overlay,
+            &query,
+            512,
+            None,
+            Instant::now() + Duration::from_secs(60),
+        )?;
+        let mut optimized_ids: Vec<_> = warm.hits.iter().map(|hit| hit.entity_id).collect();
+        let mut page_cursor = oracle_compatible
+            .then(|| warm.next_cursor.clone())
+            .flatten();
+        let mut paginated_exact = warm.total_kind == crate::analysis::bel::TotalKind::Exact;
+        for _ in 0..10_000 {
+            let Some(cursor) = page_cursor.take() else {
+                break;
+            };
+            if optimized_ids.len() >= 100_000 {
+                page_cursor = Some(cursor);
+                break;
+            }
+            let page = crate::analysis::bel::search(
+                &index,
+                &overlay,
+                &query,
+                512,
+                Some(&cursor),
+                Instant::now() + Duration::from_secs(60),
+            )?;
+            paginated_exact &= page.total_kind == crate::analysis::bel::TotalKind::Exact
+                && page.total == warm.total;
+            optimized_ids.extend(page.hits.iter().map(|hit| hit.entity_id));
+            page_cursor = page.next_cursor;
+        }
+        let correctness = if oracle_compatible
+            && paginated_exact
+            && page_cursor.is_none()
+            && optimized_ids.len() as u64 == warm.total
+            && warm.total <= 100_000
+        {
+            let mut oracle = crate::analysis::bel::query::linear_oracle_ids(
+                &index,
+                &overlay,
+                query.mode,
+                &query.text,
+            )?;
+            oracle.sort_unstable();
+            let mut optimized = optimized_ids.clone();
+            optimized.sort_unstable();
+            serde_json::json!({
+                "checked": true,
+                "equal": optimized == oracle,
+                "optimized_checksum": bel_id_checksum(&optimized),
+                "oracle_checksum": bel_id_checksum(&oracle),
+            })
+        } else {
+            serde_json::json!({
+                "checked": false,
+                "reason": "mode is structural, partial, or exceeds the 100k oracle cap",
+            })
+        };
+        let mut samples = Vec::with_capacity(iterations);
+        for _ in 0..iterations {
+            let start = Instant::now();
+            let _ = crate::analysis::bel::search(
+                &index,
+                &overlay,
+                &query,
+                32,
+                None,
+                Instant::now() + Duration::from_secs(60),
+            )?;
+            samples.push(start.elapsed().as_micros() as u64);
+        }
+        samples.sort_unstable();
+        reports.push(serde_json::json!({
+            "name": label,
+            "mode": query.mode,
+            "query": query.text,
+            "strategy": warm.strategy,
+            "total": warm.total,
+            "total_kind": warm.total_kind,
+            "p50_us": percentile(&samples, 50),
+            "p95_us": percentile(&samples, 95),
+            "p99_us": percentile(&samples, 99),
+            "correctness": correctness,
+        }));
+    }
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&serde_json::json!({
+            "engine": "binary_evidence_lattice",
+            "pe": pe,
+            "open_ms": open_ms,
+            "build_ms": build_ms,
+            "iterations": iterations,
+            "stats": index.stats,
+            "queries": reports,
+        }))?
+    );
+    Ok(())
+}
+
+fn percentile(sorted: &[u64], percentile: usize) -> u64 {
+    let index = sorted
+        .len()
+        .saturating_mul(percentile)
+        .div_ceil(100)
+        .saturating_sub(1)
+        .min(sorted.len().saturating_sub(1));
+    sorted.get(index).copied().unwrap_or_default()
+}
+
+fn bel_id_checksum(ids: &[crate::analysis::bel::EntityId]) -> String {
+    let mut bytes = Vec::with_capacity(std::mem::size_of_val(ids));
+    for id in ids {
+        bytes.extend_from_slice(&id.to_le_bytes());
+    }
+    format!("{:016x}", crate::analysis::bel::stable_u64_hash(&bytes))
 }
 
 fn run_grand_bench(
@@ -339,23 +619,24 @@ fn run_decomp_scorecard(gold: Option<PathBuf>, output: Option<PathBuf>) -> anyho
 fn run_eval_agent_loop(pe: PathBuf, limit: usize) -> anyhow::Result<()> {
     let project =
         crate::project::Project::open(&pe).with_context(|| format!("open PE {}", pe.display()))?;
-    let (evidence, dump) = crate::eval_metrics::run_agent_loop_eval(&project, limit);
+    let smoke = crate::eval_metrics::run_evidence_smoke(&project, limit);
     let out = serde_json::json!({
         "pe": pe.display().to_string(),
-        "evidence": evidence,
-        "dump": dump,
-        "north_star": "verified_facts_per_1k_tokens",
-        "winner": if evidence.verified_facts_per_1k_tokens >= dump.verified_facts_per_1k_tokens {
-            "evidence"
-        } else {
-            "dump"
-        },
+        "evidence_smoke": smoke,
+        "note": "Full agent-loop benchmark is eval/agent-bench (workspace crate). This CLI path only smokes evidence cards.",
+        "north_star": "agent_task_success_and_tokens (see docs/benchmarks/agent-loop-v1.md)",
     });
     println!("{}", serde_json::to_string_pretty(&out)?);
     Ok(())
 }
 
-fn run_serve_mcp(bind: String, open: Option<PathBuf>, data_dir: PathBuf) -> anyhow::Result<()> {
+fn run_serve_mcp(
+    bind: String,
+    open: Option<PathBuf>,
+    reopen_last: bool,
+    endpoint_file: Option<PathBuf>,
+    data_dir: PathBuf,
+) -> anyhow::Result<()> {
     let addr: SocketAddr = bind
         .parse()
         .with_context(|| format!("parse bind address {bind}"))?;
@@ -368,22 +649,56 @@ fn run_serve_mcp(bind: String, open: Option<PathBuf>, data_dir: PathBuf) -> anyh
     let manager = Arc::new(crate::project_manager::ProjectManager::with_home_dir(
         &data_dir,
     )?);
+    let open = open.or_else(|| {
+        reopen_last
+            .then(|| manager.recent_projects(1).into_iter().next())
+            .flatten()
+            .map(|entry| entry.path)
+    });
     if let Some(path) = open {
-        let id = manager
-            .open(&path)
+        let id = open_project_with_heartbeat(&manager, &path)
             .with_context(|| format!("open PE {}", path.display()))?;
+        let project = manager.get(id).expect("project was just opened");
+        let functions = project.functions().len();
+        let instructions = project.analysis.code_index.len();
         eprintln!("Opened {} as project_id={}", path.display(), id);
+        if project.pe.image.len() >= 128 * 1024 * 1024
+            || functions >= 100_000
+            || instructions >= 2_000_000
+        {
+            eprintln!(
+                "Large PE detected ({functions} functions, {instructions} instructions, {} MiB). Targeted searches are fast; broad searches may take longer and time out after 30s by default.",
+                project.pe.image.len() / (1024 * 1024)
+            );
+        }
+    } else if let Some(last) = manager.recent_projects(1).first() {
+        eprintln!(
+            "No PE opened. Last used: {}. Restart with --reopen-last or --open <PE>.",
+            last.path.display()
+        );
+    } else {
+        eprintln!("No PE opened. Use --open <PE> or call open_project from your agent.");
     }
-    let mut server = manager
-        .start_http_server(addr)
-        .context("start MCP HTTP server")?;
+    let mut server = match manager.start_http_server(addr) {
+        Ok(server) => server,
+        Err(error) => return Err(friendly_bind_error(addr, error)),
+    };
     let port = server.port();
     let host = match addr.ip() {
         std::net::IpAddr::V4(v4) if v4.is_unspecified() => "127.0.0.1".to_string(),
         other => other.to_string(),
     };
-    eprintln!("Windy MCP listening on http://{host}:{port}/mcp");
+    let endpoint = format!("http://{host}:{port}/mcp");
+    eprintln!("{} listening on {endpoint}", build_info::PRODUCT_TITLE);
     eprintln!("State directory: {}", data_dir.display());
+    let endpoint_file = endpoint_file.unwrap_or_else(|| data_dir.join("agent-endpoint.txt"));
+    if let Some(parent) = endpoint_file.parent() {
+        std::fs::create_dir_all(parent)
+            .with_context(|| format!("create endpoint file directory {}", parent.display()))?;
+    }
+    std::fs::write(&endpoint_file, format!("{endpoint}\n"))
+        .with_context(|| format!("write endpoint file {}", endpoint_file.display()))?;
+    eprintln!("Agent URL written to {}", endpoint_file.display());
     eprintln!("Pure MCP mode - external agents plan; Windy answers and commits.");
     eprintln!("Ctrl+C to stop.");
     // Multi-threaded runtime keeps the server alive; block until interrupt.
@@ -399,12 +714,75 @@ fn run_serve_mcp(bind: String, open: Option<PathBuf>, data_dir: PathBuf) -> anyh
     Ok(())
 }
 
+fn open_project_with_heartbeat(
+    manager: &Arc<crate::project_manager::ProjectManager>,
+    path: &std::path::Path,
+) -> anyhow::Result<crate::project_manager::ProjectId> {
+    let (finished_tx, finished_rx) = std::sync::mpsc::channel();
+    let label = path.display().to_string();
+    let heartbeat = std::thread::spawn(move || {
+        let started = std::time::Instant::now();
+        loop {
+            match finished_rx.recv_timeout(std::time::Duration::from_secs(5)) {
+                Ok(()) | Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                    eprintln!(
+                        "Still opening {label} ({:.0}s): parsing/indexing is active...",
+                        started.elapsed().as_secs_f64()
+                    );
+                }
+            }
+        }
+    });
+    let result = manager.open(path);
+    let _ = finished_tx.send(());
+    let _ = heartbeat.join();
+    result
+}
+
+fn friendly_bind_error(addr: SocketAddr, error: anyhow::Error) -> anyhow::Error {
+    let endpoint = format!("http://{}:{}/mcp", addr.ip(), addr.port());
+    let pid = port_owner_pid(addr.port())
+        .map(|pid| format!(" (PID {pid})"))
+        .unwrap_or_default();
+    anyhow::anyhow!(
+        "Port {} is already in use by another process{pid}. If it is Windy, attach to {endpoint}; otherwise stop that process or choose --bind 127.0.0.1:<port>. Details: {error}",
+        addr.port()
+    )
+}
+
+fn port_owner_pid(port: u16) -> Option<u32> {
+    if !cfg!(windows) {
+        return None;
+    }
+    let output = std::process::Command::new("netstat")
+        .args(["-ano", "-p", "tcp"])
+        .output()
+        .ok()?;
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    stdout.lines().find_map(|line| {
+        let fields: Vec<_> = line.split_whitespace().collect();
+        if fields.len() < 5 || !fields[3].eq_ignore_ascii_case("LISTENING") {
+            return None;
+        }
+        let local_port = fields[1].rsplit(':').next()?.parse::<u16>().ok()?;
+        (local_port == port)
+            .then(|| fields[4].parse::<u32>().ok())
+            .flatten()
+    })
+}
+
 fn run_doctor(
     data_dir: PathBuf,
     open: Option<PathBuf>,
     endpoint: Option<String>,
 ) -> anyhow::Result<()> {
-    println!("Windy {} doctor", env!("CARGO_PKG_VERSION"));
+    println!(
+        "{} {} doctor ({})",
+        build_info::PRODUCT_TITLE,
+        build_info::VERSION,
+        build_info::CHANNEL
+    );
     println!(
         "  platform: {}-{}",
         std::env::consts::OS,
@@ -445,7 +823,14 @@ fn run_doctor(
                 drop(listener);
                 println!("  127.0.0.1:8765: available");
             }
-            Err(_) => probe_mcp_endpoint("http://127.0.0.1:8765/mcp")?,
+            Err(_) => {
+                if let Err(error) = probe_mcp_endpoint("http://127.0.0.1:8765/mcp") {
+                    return Err(friendly_bind_error(
+                        "127.0.0.1:8765".parse().unwrap(),
+                        error,
+                    ));
+                }
+            }
         }
     }
 
@@ -460,8 +845,9 @@ fn probe_mcp_endpoint(endpoint: &str) -> anyhow::Result<()> {
         |base| format!("{base}/healthz"),
     );
     let health_response = ureq::get(&health)
+        .timeout(std::time::Duration::from_secs(5))
         .call()
-        .with_context(|| format!("GET {health}"))?;
+        .map_err(|error| friendly_endpoint_error(endpoint, &health, error))?;
     let health_json: serde_json::Value = serde_json::from_str(
         &health_response
             .into_string()
@@ -493,7 +879,7 @@ fn probe_mcp_endpoint(endpoint: &str) -> anyhow::Result<()> {
             "params": {
                 "protocolVersion": "2025-11-25",
                 "capabilities": {},
-                "clientInfo": { "name": "windy-doctor", "version": env!("CARGO_PKG_VERSION") }
+                "clientInfo": { "name": "windy-doctor", "version": build_info::VERSION }
             }
         }),
         None,
@@ -505,7 +891,7 @@ fn probe_mcp_endpoint(endpoint: &str) -> anyhow::Result<()> {
         .context("MCP initialize response did not include Mcp-Session-Id")?;
     let initialized_json = parse_mcp_response(initialized, "initialize")?;
     anyhow::ensure!(
-        initialized_json["result"]["serverInfo"]["name"] == "windy",
+        initialized_json["result"]["serverInfo"]["name"] == build_info::PRODUCT_ID,
         "endpoint is not a Windy MCP server"
     );
 
@@ -523,8 +909,33 @@ fn probe_mcp_endpoint(endpoint: &str) -> anyhow::Result<()> {
         .as_array()
         .map(Vec::len)
         .context("tools/list response has no tools array")?;
-    println!("  MCP: ok ({count} tools at {endpoint})");
+    println!(
+        "  MCP: ok ({count} tools at {endpoint}; state={}, projects={})",
+        health_json["state"].as_str().unwrap_or("unknown"),
+        health_json["projects_open"].as_u64().unwrap_or_default()
+    );
+    if health_json["projects_open"].as_u64() == Some(0) {
+        println!("  hint: server is up but no PE is open. Use --open <PE> or call open_project.");
+    }
     Ok(())
+}
+
+fn friendly_endpoint_error(endpoint: &str, health: &str, error: ureq::Error) -> anyhow::Error {
+    let default_endpoint = "http://127.0.0.1:8765/mcp";
+    let default_is_running = endpoint != default_endpoint
+        && ureq::get("http://127.0.0.1:8765/healthz")
+            .timeout(std::time::Duration::from_secs(2))
+            .call()
+            .is_ok();
+    if default_is_running {
+        anyhow::anyhow!(
+            "Nothing usable answered at {endpoint}. Windy Agent is running at {default_endpoint}; update the client URL and refresh its MCP session. ({error})"
+        )
+    } else {
+        anyhow::anyhow!(
+            "Nothing usable is listening at {health}. Start it with: windy serve-mcp --open <PE>. The default agent URL is {default_endpoint}. ({error})"
+        )
+    }
 }
 
 fn parse_mcp_response(
@@ -549,12 +960,12 @@ fn run_gui(data_dir: PathBuf, initial_path: Option<PathBuf>) -> anyhow::Result<(
     let options = NativeOptions {
         viewport: ViewportBuilder::default()
             .with_inner_size([1280.0, 900.0])
-            .with_title("Windy"),
+            .with_title(build_info::PRODUCT_TITLE),
         ..Default::default()
     };
 
     eframe::run_native(
-        "Windy",
+        build_info::PRODUCT_TITLE,
         options,
         Box::new(move |cc| {
             Ok(Box::new(app::App::new(

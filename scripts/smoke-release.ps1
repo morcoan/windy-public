@@ -3,7 +3,9 @@ param(
     [Parameter(Mandatory = $true)]
     [string]$ExePath,
 
-    [string]$FixturePath = ""
+    [string]$FixturePath = "",
+
+    [string]$ExpectedProductName = "windy"
 )
 
 $ErrorActionPreference = "Stop"
@@ -78,9 +80,6 @@ $health = "http://127.0.0.1:$port/healthz"
 $process = $null
 
 try {
-    & $exe --data-dir $dataDir doctor --open $fixture | Out-Null
-    if ($LASTEXITCODE -ne 0) { throw "windy doctor failed" }
-
     $argumentList = @(
         "--data-dir", ('"' + $dataDir + '"'),
         "serve-mcp", "--bind", "127.0.0.1:$port",
@@ -96,7 +95,7 @@ try {
         }
         try {
             $status = Invoke-RestMethod -Method Get -Uri $health
-            if ($status.name -eq "windy" -and $status.status -eq "ok") {
+            if ($status.name -eq $ExpectedProductName -and $status.status -eq "ok") {
                 $ready = $true
                 break
             }
@@ -113,7 +112,7 @@ try {
             }
         }
     }
-    Assert-True ($initialize.Json.result.serverInfo.name -eq "windy") "Unexpected MCP identity"
+    Assert-True ($initialize.Json.result.serverInfo.name -eq $ExpectedProductName) "Unexpected MCP identity"
     $session = [string]$initialize.Response.Headers["Mcp-Session-Id"]
     Assert-True ([bool]$session) "MCP session header missing"
     Invoke-Mcp $endpoint @{ jsonrpc = "2.0"; method = "notifications/initialized" } $session -AllowEmpty | Out-Null
@@ -126,6 +125,15 @@ try {
     }} $session
     $projectId = [string]$open.Json.result.structuredContent.project_id
     Assert-True ([bool]$projectId) "open_project returned no project_id"
+
+    $bel = Invoke-Mcp $endpoint @{ jsonrpc = "2.0"; id = 7; method = "tools/call"; params = @{
+        name = "search_bel"; arguments = @{
+            project_id = $projectId; query = "mov"; mode = "token"; limit = 2; deadline_ms = 120000
+        }
+    }} $session
+    Assert-True (-not $bel.Json.result.isError) "search_bel failed"
+    Assert-True ([bool]$bel.Json.result.structuredContent.total_kind) "BEL total contract missing"
+    Assert-True ([bool]$bel.Json.result.structuredContent.strategy) "BEL strategy missing"
 
     $functions = Invoke-Mcp $endpoint @{ jsonrpc = "2.0"; id = 4; method = "tools/call"; params = @{
         name = "list_functions"; arguments = @{ project_id = $projectId; limit = 16 }
@@ -145,9 +153,9 @@ try {
     Assert-True (-not $decompile.Json.result.isError) "native decompilation failed"
     Assert-True (@("ok", "omitted") -contains [string]$decompile.Json.result.structuredContent.status) "Unexpected decompile status"
 
-    & $exe doctor --endpoint $endpoint --data-dir $dataDir | Out-Null
+    & $exe doctor --endpoint $endpoint --open $fixture --data-dir $dataDir | Out-Null
     if ($LASTEXITCODE -ne 0) { throw "windy doctor endpoint probe failed" }
-    Write-Host "Packaged Windy smoke test passed ($projectId $va)."
+    Write-Host "Packaged $ExpectedProductName smoke test passed ($projectId $va)."
 }
 finally {
     if ($process -and -not $process.HasExited) {

@@ -21,6 +21,10 @@ To use a different state directory:
 .\windy.exe --data-dir D:\windy-state serve-mcp --open C:\samples\target.exe
 ```
 
+`agent` is a shorter alias for `serve-mcp`. Add `--reopen-last` to restore the
+most recent PE. Windy also writes the exact URL to
+`<data-dir>\agent-endpoint.txt`.
+
 Check a running endpoint at any time:
 
 ```powershell
@@ -97,7 +101,8 @@ Run `opencode mcp list` to verify it. See the official [OpenCode MCP server guid
 ## 3. First useful prompt
 
 ```text
-Use Windy. List open projects, triage imports/exports/strings, then inspect the
+Use Windy. Check get_server_status, list open projects, triage
+imports/exports/strings, use search_bel for a selective query, then inspect the
 largest interesting function with get_function_evidence. Do not rename anything
 until you can cite evidence. Verify claims, write a concise function memory card,
 and re-read the evidence to confirm persistence.
@@ -108,7 +113,9 @@ If no project was opened on startup, ask the client to call `open_project` with 
 ## Troubleshooting
 
 - `connection refused`: keep `serve-mcp` running and check Windows Firewall or another process using port 8765.
+- an empty project list: the server is healthy but no PE is open; call `open_project`, pass `--open`, or use `--reopen-last`.
 - `doctor` reports the port is busy: either use the existing Windy endpoint or start with `--bind 127.0.0.1:<another-port>` and update the client URL.
+- a search reports a lower bound: its deadline or safety cardinality was reached; refine the query, use exact/token mode, or continue with the BEL guidance.
 - tools do not appear: restart the client after editing its MCP configuration, then run its MCP list/status command.
 - a browser-origin request gets HTTP 403: only absent, `localhost`, or loopback origins are accepted in v0.1.
 - state appears in the wrong place: run `windy.exe doctor --data-dir <DIR>` and check the printed resolver result.

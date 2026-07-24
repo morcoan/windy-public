@@ -20,7 +20,7 @@ use crate::ui::{WindyTabViewer, empty_tree, project_tree};
 
 pub struct App {
     manager: Arc<ProjectManager>,
-    _mcp_server: crate::mcp::McpServerHandle,
+    _mcp_server: Option<crate::mcp::McpServerHandle>,
     mcp_endpoint: String,
     project: Option<Arc<Project>>,
     active_id: Option<ProjectId>,
@@ -43,14 +43,28 @@ impl App {
     ) -> Self {
         let manager =
             Arc::new(ProjectManager::with_home_dir(&data_dir).expect("tokio runtime required"));
-        let mcp_server = manager
-            .start_http_server("127.0.0.1:0".parse().unwrap())
-            .expect("MCP server required");
-        let mcp_port = mcp_server.port();
-        let mcp_endpoint = format!("http://127.0.0.1:{mcp_port}/mcp");
+        let mcp_endpoint = "http://127.0.0.1:8765/mcp".to_string();
+        let (mcp_server, mcp_notice) = match manager
+            .start_http_server("127.0.0.1:8765".parse().unwrap())
+        {
+            Ok(server) => (
+                Some(server),
+                format!("Windy Agent listening on {mcp_endpoint}"),
+            ),
+            Err(error) => (
+                None,
+                format!(
+                    "Port 8765 is already in use. If another Windy owns it, agents should attach to {mcp_endpoint}; Desktop browsing remains available. ({error})"
+                ),
+            ),
+        };
         let (decompiler_tx, decompiler_rx) = mpsc::channel();
-        let mut console = vec!["Windy ready. Use File → Open to load a PE.".to_string()];
-        console.push(format!("MCP server listening on {mcp_endpoint}"));
+        let mut console = vec![format!(
+            "{} ready ({}). Use File → Open to load a PE.",
+            crate::build_info::PRODUCT_TITLE,
+            crate::build_info::CHANNEL
+        )];
+        console.push(mcp_notice);
         console.push(format!("State directory: {}", data_dir.display()));
         console.push("Decompiler: native Windy V2 (no external service)".to_string());
         let mut app = Self {
@@ -164,9 +178,14 @@ impl App {
             }
 
             ui.separator();
+            let agent_state = if self._mcp_server.is_some() {
+                self.manager.server_activity().state
+            } else {
+                "external/port busy"
+            };
             if ui
-                .button(format!("MCP {}", self.mcp_endpoint))
-                .on_hover_text("Copy the embedded MCP endpoint")
+                .button(format!("Agent {agent_state} · {}", self.mcp_endpoint))
+                .on_hover_text("Copy the stable Windy Agent endpoint")
                 .clicked()
             {
                 ui.ctx().copy_text(self.mcp_endpoint.clone());

@@ -52,7 +52,7 @@ impl PdbInfo {
         };
 
         let store = SymbolStore::with_home_dir(home_dir);
-        let path = match store.resolve(&rec) {
+        let path = match store.resolve_with_download(&rec, should_download_public_symbols(pe)) {
             Some(p) => p,
             None => {
                 // Fallback: a relative CodeView path may refer to a PDB next to the PE.
@@ -276,6 +276,43 @@ impl PdbInfo {
             types.add_signature(sig.clone());
         }
     }
+}
+
+fn should_download_public_symbols(pe: &LoadedPe) -> bool {
+    match std::env::var("WINDY_SYMBOL_DOWNLOAD")
+        .unwrap_or_default()
+        .trim()
+        .to_ascii_lowercase()
+        .as_str()
+    {
+        "always" | "1" | "true" | "yes" => return true,
+        "never" | "0" | "false" | "no" | "local" => return false,
+        "auto" | "" => {}
+        _ => {}
+    }
+
+    // Keep the public release's established automatic behavior. The private
+    // beta defaults to a fast auto policy and still checks all local/bundled
+    // symbol locations before making this decision.
+    if !cfg!(feature = "beta") {
+        return true;
+    }
+    pe.triage
+        .authenticode
+        .as_ref()
+        .and_then(|authenticode| authenticode.signer.as_ref())
+        .is_some_and(|signer| signer.subject.to_ascii_lowercase().contains("microsoft"))
+        || pe
+            .triage
+            .resources
+            .as_ref()
+            .and_then(|resources| resources.version_info.as_ref())
+            .is_some_and(|version| {
+                version.string_info.iter().any(|entry| {
+                    entry.key.eq_ignore_ascii_case("CompanyName")
+                        && entry.value.to_ascii_lowercase().contains("microsoft")
+                })
+            })
 }
 
 type TypeMap = BTreeMap<::pdb::TypeIndex, DataType>;

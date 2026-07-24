@@ -26,7 +26,7 @@ Windy v0.1.x is local-only and static-only. It analyzes Windows PE files (`.exe`
    .\windy.exe serve-mcp --open C:\path\to\program.exe
    ```
 
-   The stable endpoint is `http://127.0.0.1:8765/mcp`. The GUI also starts an ephemeral endpoint and provides a copy button, but persistent client configuration should use `serve-mcp`.
+   The stable endpoint is `http://127.0.0.1:8765/mcp`. Desktop and headless mode use the same default. If another Windy owns it, Desktop remains usable and tells you to attach to the existing agent server.
 
 5. Follow the [client setup guide](docs/QUICKSTART.md) for Codex, Claude Code, Cursor, or OpenCode.
 
@@ -35,7 +35,7 @@ Windy v0.1.x is local-only and static-only. It analyzes Windows PE files (`.exe`
 Use an evidence-first loop:
 
 1. `list_projects` / `open_project`
-2. `list_imports`, `list_exports`, `list_strings`, `list_sections`, `search_summary`
+2. `list_imports`, `list_exports`, `list_strings`, `list_sections`, `search_bel`
 3. `list_functions`
 4. `get_function_evidence`
 5. `apply_rename_batch`, `apply_type_recovery`, or `set_comment`
@@ -46,6 +46,8 @@ Use an evidence-first loop:
 `decompile_function` is the canonical native decompiler tool. Its default `product` policy uses V2 output when the structural validator and semantic checker accept it, with an explicit legacy fallback only on rejection. `pure_v2` never falls back; `legacy` is available for comparison.
 
 See [MCP.md](docs/MCP.md) for the protocol and tool contracts.
+
+`search_bel` is the Binary Evidence Lattice: deterministic exact/prefix/substring/numeric/regex/token/relationship/motif/ontology/multi-evidence search with provenance, stable cursors, immediate annotation overlays, and hard cooperative deadlines. See [BEL.md](docs/BEL.md).
 
 ## Data and privacy
 
@@ -68,6 +70,8 @@ cargo test
 ```
 
 Archived GCLSD corpus/model authoring commands are excluded from normal builds. Opt in only for historical reproducibility with `--features gclsd-archive`.
+
+The local private channel is built with `scripts\package-beta.ps1`. It produces an ignored `.artifacts\windy-beta\*.zip`, runs all local verification gates, and never calls GitHub. It is not a public release workflow.
 
 Benchmark and release-candidate procedures are documented in [BENCHMARKS.md](docs/BENCHMARKS.md) and [RELEASING.md](RELEASING.md).
 

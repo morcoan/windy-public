@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use anyhow::{Context, Result};
-use tracing::{info, warn};
+use tracing::{debug, info};
 
 use crate::loader::debug_dir::CodeViewRecord;
 use crate::project::persistence::windy_home_dir;
@@ -50,7 +50,19 @@ impl SymbolStore {
 
     /// Resolve a PDB record to a local file path. The file is fetched once and
     /// cached forever afterwards.
+    #[allow(dead_code)] // public-channel compatibility; beta selects policy explicitly
     pub fn resolve(&self, rec: &CodeViewRecord) -> Option<PathBuf> {
+        self.resolve_with_download(rec, true)
+    }
+
+    /// Resolve locally first and optionally query Microsoft's public symbol
+    /// server. Private beta uses this to avoid a guaranteed 30-second network
+    /// miss for unsigned/private game modules.
+    pub fn resolve_with_download(
+        &self,
+        rec: &CodeViewRecord,
+        allow_public_download: bool,
+    ) -> Option<PathBuf> {
         let original = Path::new(&rec.pdb_name);
         if original.is_absolute() && original.exists() {
             info!(
@@ -72,10 +84,18 @@ impl SymbolStore {
             );
             return Some(path);
         }
+        if !allow_public_download {
+            debug!(
+                "Skipping Microsoft symbol server for private/non-Microsoft PDB {}",
+                rec.pdb_basename()
+            );
+            return None;
+        }
         match self.download_and_cache(rec) {
             Ok(path) => Some(path),
             Err(e) => {
-                warn!("failed to fetch {}: {e}", rec.pdb_basename());
+                info!("No PDB (normal for private binaries). Continuing without symbols.");
+                debug!("PDB fetch failed for {}: {e}", rec.pdb_basename());
                 None
             }
         }

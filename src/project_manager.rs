@@ -8,7 +8,8 @@ use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::time::SystemTime;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result};
 use arc_swap::ArcSwap;
@@ -32,8 +33,57 @@ const ACTIVITY_CAPACITY: usize = 200;
 /// (persisting a full `ProjectState` snapshot and truncating the oplog). Bounds
 /// oplog growth so a crash never replays an unbounded tail.
 const CHECKPOINT_OPS: usize = 256;
+const RECENT_PROJECT_CAPACITY: usize = 8;
+const RECENT_PROJECTS_FILE: &str = "recent-projects.json";
 
 pub type ProjectId = Uuid;
+
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub struct RecentProject {
+    pub path: PathBuf,
+    pub last_project_id: ProjectId,
+    pub last_opened_unix_secs: u64,
+}
+
+#[derive(Clone, Debug, serde::Serialize)]
+pub struct ServerActivitySnapshot {
+    pub state: &'static str,
+    pub busy: bool,
+    pub active_operations: usize,
+    pub operation: Option<String>,
+    pub elapsed_secs: Option<f64>,
+}
+
+#[derive(Debug)]
+struct ActiveOperation {
+    name: String,
+    started: Instant,
+}
+
+#[derive(Debug, Default)]
+struct ServerActivity {
+    next_id: u64,
+    active: BTreeMap<u64, ActiveOperation>,
+}
+
+pub struct OperationGuard {
+    id: u64,
+    activity: Arc<std::sync::Mutex<ServerActivity>>,
+}
+
+impl OperationGuard {
+    pub fn update(&self, name: impl Into<String>) {
+        if let Some(operation) = self.activity.lock().unwrap().active.get_mut(&self.id) {
+            operation.name = name.into();
+        }
+    }
+}
+
+impl Drop for OperationGuard {
+    fn drop(&mut self) {
+        self.activity.lock().unwrap().active.remove(&self.id);
+    }
+}
 
 /// Shared handle to an open project.
 pub struct ProjectHandle {
@@ -79,6 +129,9 @@ pub struct ProjectManager {
     projects: Arc<std::sync::Mutex<BTreeMap<ProjectId, Arc<ProjectHandle>>>>,
     workspaces: Arc<std::sync::Mutex<BTreeMap<WorkspaceId, Workspace>>>,
     activity_log: Arc<std::sync::Mutex<VecDeque<ActivityEvent>>>,
+    server_activity: Arc<std::sync::Mutex<ServerActivity>>,
+    recent_projects: Arc<std::sync::Mutex<VecDeque<RecentProject>>>,
+    bel_cancel: Arc<AtomicBool>,
     home_dir: PathBuf,
     /// Phase 7 E: cross-binary index keyed by workspace id (rebuilt on open).
     cross_project:
@@ -110,11 +163,15 @@ impl ProjectManager {
             .into_iter()
             .map(|ws| (ws.id, ws))
             .collect();
+        let recent_projects = load_recent_projects(&home_dir);
         Ok(Self {
             runtime,
             projects: Arc::new(std::sync::Mutex::new(BTreeMap::new())),
             workspaces: Arc::new(std::sync::Mutex::new(workspaces)),
             activity_log: Arc::new(std::sync::Mutex::new(VecDeque::new())),
+            server_activity: Arc::new(std::sync::Mutex::new(ServerActivity::default())),
+            recent_projects: Arc::new(std::sync::Mutex::new(recent_projects)),
+            bel_cancel: Arc::new(AtomicBool::new(false)),
             home_dir,
             cross_project: Arc::new(std::sync::Mutex::new(BTreeMap::new())),
         })
@@ -122,7 +179,21 @@ impl ProjectManager {
 
     /// Open a PE file, build a project, and start its write task.
     pub fn open(&self, path: impl AsRef<Path>) -> Result<ProjectId> {
-        let project = Project::open_with_data_dir(path, &self.home_dir)?;
+        let requested_path = path.as_ref();
+        let normalized_path = normalize_local_path(requested_path);
+        if let Some(existing) = self
+            .projects
+            .lock()
+            .unwrap()
+            .values()
+            .find(|handle| paths_match(&handle.path, &normalized_path))
+            .cloned()
+        {
+            self.record_recent_project(existing.path.clone(), existing.id);
+            return Ok(existing.id);
+        }
+
+        let project = Project::open_with_data_dir(&normalized_path, &self.home_dir)?;
         let id = ProjectId::new_v4();
         let path = project.pe.path.clone();
         let sha256 = project.image_sha256.clone();
@@ -151,12 +222,121 @@ impl ProjectManager {
 
         let handle = Arc::new(ProjectHandle {
             id,
-            path,
+            path: path.clone(),
             read_state,
             write_tx,
         });
         self.projects.lock().unwrap().insert(id, handle);
+        self.record_recent_project(path, id);
+
+        // Private beta favors first-query latency: build the immutable Binary
+        // Evidence Lattice immediately after structural project open. Public
+        // builds retain deadline-bound lazy construction.
+        if cfg!(feature = "beta") {
+            let project = self.get(id).expect("project was just inserted");
+            let operation = self.begin_operation("building BEL search index");
+            let cancel = self.bel_cancel.clone();
+            self.runtime.spawn_blocking(move || {
+                let started = Instant::now();
+                tracing::info!("Building Binary Evidence Lattice...");
+                let progress = |status: crate::analysis::bel::BelBuildProgress| {
+                    operation.update(format!(
+                        "building BEL: {} ({}/{})",
+                        status.stage, status.completed, status.total
+                    ));
+                    if status.completed == 0 || status.completed == status.total {
+                        tracing::info!(
+                            "BEL {}: {}/{}",
+                            status.stage,
+                            status.completed,
+                            status.total
+                        );
+                    }
+                };
+                let control = crate::analysis::bel::BelBuildControl {
+                    cancel: &cancel,
+                    deadline: None,
+                    progress: Some(&progress),
+                };
+                match crate::analysis::bel::get_or_build(
+                    &project,
+                    crate::analysis::bel::BelConfig::default(),
+                    &control,
+                ) {
+                    Ok(index) => {
+                        let stats = index.stats.clone();
+                        tracing::info!(
+                            "BEL ready in {:.2}s: {} entities, {:.1} MiB estimated",
+                            started.elapsed().as_secs_f64(),
+                            stats.entities,
+                            stats.memory.estimated_total_bytes as f64 / (1024.0 * 1024.0)
+                        );
+                    }
+                    Err(error) => tracing::info!("BEL build stopped: {error}"),
+                }
+                drop(operation);
+            });
+        }
         Ok(id)
+    }
+
+    pub fn begin_operation(&self, name: impl Into<String>) -> OperationGuard {
+        let mut activity = self.server_activity.lock().unwrap();
+        activity.next_id = activity.next_id.saturating_add(1);
+        let id = activity.next_id;
+        activity.active.insert(
+            id,
+            ActiveOperation {
+                name: name.into(),
+                started: Instant::now(),
+            },
+        );
+        OperationGuard {
+            id,
+            activity: self.server_activity.clone(),
+        }
+    }
+
+    pub fn server_activity(&self) -> ServerActivitySnapshot {
+        let activity = self.server_activity.lock().unwrap();
+        let oldest = activity
+            .active
+            .values()
+            .min_by_key(|operation| operation.started);
+        ServerActivitySnapshot {
+            state: if oldest.is_some() { "busy" } else { "idle" },
+            busy: oldest.is_some(),
+            active_operations: activity.active.len(),
+            operation: oldest.map(|operation| operation.name.clone()),
+            elapsed_secs: oldest.map(|operation| operation.started.elapsed().as_secs_f64()),
+        }
+    }
+
+    pub fn recent_projects(&self, limit: usize) -> Vec<RecentProject> {
+        self.recent_projects
+            .lock()
+            .unwrap()
+            .iter()
+            .take(limit.min(RECENT_PROJECT_CAPACITY))
+            .cloned()
+            .collect()
+    }
+
+    fn record_recent_project(&self, path: PathBuf, id: ProjectId) {
+        let mut recent = self.recent_projects.lock().unwrap();
+        recent.retain(|entry| !paths_match(&entry.path, &path));
+        recent.push_front(RecentProject {
+            path,
+            last_project_id: id,
+            last_opened_unix_secs: SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs(),
+        });
+        recent.truncate(RECENT_PROJECT_CAPACITY);
+        if let Err(error) = save_recent_projects(&self.home_dir, &recent) {
+            tracing::debug!("Could not persist recent projects: {error}");
+        }
     }
 
     /// Return recent activity, optionally filtered to a single project. The
@@ -492,6 +672,92 @@ impl ProjectManager {
     }
 }
 
+#[derive(serde::Serialize, serde::Deserialize)]
+struct RecentProjectsFile {
+    version: u32,
+    projects: Vec<RecentProject>,
+}
+
+fn load_recent_projects(home_dir: &Path) -> VecDeque<RecentProject> {
+    let path = home_dir.join(RECENT_PROJECTS_FILE);
+    let Ok(bytes) = std::fs::read(path) else {
+        return VecDeque::new();
+    };
+    let Ok(file) = serde_json::from_slice::<RecentProjectsFile>(&bytes) else {
+        return VecDeque::new();
+    };
+    file.projects
+        .into_iter()
+        .take(RECENT_PROJECT_CAPACITY)
+        .collect()
+}
+
+fn save_recent_projects(home_dir: &Path, recent: &VecDeque<RecentProject>) -> Result<()> {
+    std::fs::create_dir_all(home_dir)
+        .with_context(|| format!("create Windy home {}", home_dir.display()))?;
+    let file = RecentProjectsFile {
+        version: 1,
+        projects: recent.iter().cloned().collect(),
+    };
+    let bytes = serde_json::to_vec_pretty(&file).context("serialize recent projects")?;
+    std::fs::write(home_dir.join(RECENT_PROJECTS_FILE), bytes).context("write recent projects")?;
+    Ok(())
+}
+
+fn paths_match(left: &Path, right: &Path) -> bool {
+    if cfg!(windows) {
+        normalize_local_path(left)
+            .to_string_lossy()
+            .eq_ignore_ascii_case(&normalize_local_path(right).to_string_lossy())
+    } else {
+        left == right
+    }
+}
+
+fn normalize_local_path(path: &Path) -> PathBuf {
+    user_visible_path(std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf()))
+}
+
+#[cfg(windows)]
+fn user_visible_path(path: PathBuf) -> PathBuf {
+    use std::ffi::OsString;
+    use std::os::windows::ffi::{OsStrExt, OsStringExt};
+
+    let wide: Vec<u16> = path.as_os_str().encode_wide().collect();
+    const VERBATIM: &[u16] = &[b'\\' as u16, b'\\' as u16, b'?' as u16, b'\\' as u16];
+    if !wide.starts_with(VERBATIM) {
+        return path;
+    }
+    let rest = &wide[VERBATIM.len()..];
+    let is_unc = rest.len() >= 4
+        && matches!(rest[0], 85 | 117)
+        && matches!(rest[1], 78 | 110)
+        && matches!(rest[2], 67 | 99)
+        && rest[3] == b'\\' as u16;
+    if is_unc {
+        let mut ordinary = vec![b'\\' as u16, b'\\' as u16];
+        ordinary.extend_from_slice(&rest[4..]);
+        PathBuf::from(OsString::from_wide(&ordinary))
+    } else if rest.len() >= 2 && rest[1] == b':' as u16 {
+        PathBuf::from(OsString::from_wide(rest))
+    } else {
+        path
+    }
+}
+
+#[cfg(not(windows))]
+fn user_visible_path(path: PathBuf) -> PathBuf {
+    path
+}
+
+impl Drop for ProjectManager {
+    fn drop(&mut self) {
+        // Every BEL construction loop checks this flag. Runtime shutdown can
+        // therefore join blocking builders without leaving orphaned work.
+        self.bel_cancel.store(true, Ordering::Relaxed);
+    }
+}
+
 async fn writer_loop(
     id: ProjectId,
     read_state: Arc<ArcSwap<Project>>,
@@ -696,6 +962,63 @@ mod tests {
     #[test]
     fn manager_creation_ok() {
         let _ = ProjectManager::new().unwrap();
+    }
+
+    #[test]
+    fn server_activity_guard_exposes_busy_operation() {
+        let tmp = std::env::temp_dir().join(format!(
+            "windy-activity-{}-{}",
+            std::process::id(),
+            Uuid::new_v4()
+        ));
+        let manager = ProjectManager::with_home_dir(&tmp).unwrap();
+        assert_eq!(manager.server_activity().state, "idle");
+
+        let guard = manager.begin_operation("search_summary");
+        let busy = manager.server_activity();
+        assert_eq!(busy.state, "busy");
+        assert_eq!(busy.operation.as_deref(), Some("search_summary"));
+        assert_eq!(busy.active_operations, 1);
+
+        drop(guard);
+        assert_eq!(manager.server_activity().state, "idle");
+        drop(manager);
+        fs::remove_dir_all(&tmp).ok();
+    }
+
+    #[test]
+    fn recent_projects_persist_and_duplicate_open_reuses_id() {
+        let exe = PathBuf::from(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/gclsd/bench/sample.exe"
+        ));
+        let tmp = std::env::temp_dir().join(format!(
+            "windy-recents-{}-{}",
+            std::process::id(),
+            Uuid::new_v4()
+        ));
+
+        let opened_id = {
+            let manager = ProjectManager::with_home_dir(&tmp).unwrap();
+            let first = manager.open(&exe).unwrap();
+            let duplicate = manager.open(&exe).unwrap();
+            assert_eq!(duplicate, first);
+            assert_eq!(manager.list().len(), 1);
+            let recent = manager.recent_projects(8);
+            assert_eq!(recent.len(), 1);
+            assert_eq!(recent[0].last_project_id, first);
+            first
+        };
+
+        {
+            let manager = ProjectManager::with_home_dir(&tmp).unwrap();
+            let recent = manager.recent_projects(8);
+            assert_eq!(recent.len(), 1);
+            assert_eq!(recent[0].last_project_id, opened_id);
+            assert!(paths_match(&recent[0].path, &exe));
+        }
+
+        fs::remove_dir_all(&tmp).ok();
     }
 
     #[test]

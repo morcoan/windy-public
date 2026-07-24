@@ -1,6 +1,8 @@
 use crate::project::Project;
 
+pub mod provenance;
 pub mod query;
+pub mod triage;
 pub mod verify;
 
 /// Supported LLM providers.

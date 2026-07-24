@@ -212,7 +212,14 @@ fn read_u64_le(bytes: &[u8]) -> u64 {
     u64::from_le_bytes(b)
 }
 
-fn read_pointer(address_space: &AddressSpace, image: &[u8], va: u64, ptr_size: usize) -> u64 {
+/// Read a machine-width pointer at `va`. Public for structured agent reads
+/// ([`crate::analysis::mem_walk`]) as well as vtable/IAT resolution.
+pub(crate) fn read_pointer(
+    address_space: &AddressSpace,
+    image: &[u8],
+    va: u64,
+    ptr_size: usize,
+) -> u64 {
     let bytes = match address_space.slice_for_va(image, va, ptr_size) {
         Some(b) => b,
         None => return 0,
@@ -222,6 +229,16 @@ fn read_pointer(address_space: &AddressSpace, image: &[u8], va: u64, ptr_size: u
     } else {
         u64::from(read_u32_le(bytes))
     }
+}
+
+/// Alias kept for call sites that want an explicit "at VA" name.
+pub(crate) fn read_pointer_at(
+    address_space: &AddressSpace,
+    image: &[u8],
+    va: u64,
+    ptr_size: usize,
+) -> u64 {
+    read_pointer(address_space, image, va, ptr_size)
 }
 
 /// A resolved COM / C++ vtable call site.

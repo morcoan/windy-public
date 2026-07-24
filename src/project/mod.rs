@@ -1,6 +1,7 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
+use std::time::Instant;
 
 use anyhow::Result;
 
@@ -205,8 +206,15 @@ impl Project {
         data_dir: impl Into<PathBuf>,
         entry_hints: &[u64],
     ) -> Result<Self> {
+        let opened_at = Instant::now();
         let data_dir = data_dir.into();
+        let path = path.as_ref();
+        tracing::info!("Opening {}...", path.display());
         let pe = LoadedPe::open(path)?;
+        tracing::info!(
+            "Parsed PE headers, imports, exports, and strings in {:.2}s",
+            opened_at.elapsed().as_secs_f64()
+        );
         let image_sha256 = hash_bytes(&pe.image);
         let mut symbols = SymbolTable::default();
 
@@ -225,13 +233,17 @@ impl Project {
         SeedSymbolTable::from_triage(&pe, &mut symbols, &address_space, bitness);
 
         // Load PDB symbols/frames/types before analysis so function discovery seeds them.
+        tracing::info!("Checking local symbol sources...");
         let pdb_info = PdbInfo::load_for_pe_in(&pe, &data_dir);
         let mut function_frames: BTreeMap<u64, StackFrame> = BTreeMap::new();
         let mut types = DataTypeManager::new();
         let mut typed_globals: HashMap<u64, DataType> = HashMap::new();
         let mut function_signatures: BTreeMap<u64, FunctionSignature> = BTreeMap::new();
         if let Some(err) = &pdb_info.error {
-            tracing::warn!("PDB: {}", err);
+            tracing::info!(
+                "No PDB (normal for private or game binaries). Continuing without symbols."
+            );
+            tracing::debug!("PDB detail: {err}");
         } else if pdb_info.loaded {
             tracing::info!("PDB loaded from {:?}", pdb_info.source);
         }
@@ -244,6 +256,8 @@ impl Project {
             &mut function_signatures,
         );
 
+        tracing::info!("Decoding instructions and discovering functions...");
+        let analysis_started = Instant::now();
         let mut analysis = if entry_hints.is_empty() {
             Analysis::build(&pe.image, &address_space, bitness, entry_va, &symbols)
         } else {
@@ -256,6 +270,12 @@ impl Project {
                 entry_hints,
             )
         };
+        tracing::info!(
+            "Indexed {} instructions and discovered {} functions in {:.2}s",
+            analysis.code_index.len(),
+            analysis.functions.len(),
+            analysis_started.elapsed().as_secs_f64()
+        );
         analysis.functions.apply_frames(&function_frames);
 
         // Attach PDB-derived function signatures.
@@ -369,6 +389,13 @@ impl Project {
                 project.op_seq = record.seq;
             }
         }
+
+        tracing::info!(
+            "Project ready: {} functions, {} instructions ({:.2}s total)",
+            project.functions().len(),
+            project.analysis.code_index.len(),
+            opened_at.elapsed().as_secs_f64()
+        );
 
         Ok(project)
     }

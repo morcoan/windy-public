@@ -38,17 +38,21 @@ Prefer headless `serve-mcp` for agent sessions.
 Point your MCP client at the streamable HTTP URL above. Recommended tool ladder:
 
 1. `list_projects` / `open_project`
-2. Triage: `list_imports`, `list_exports`, `list_strings`, `list_sections`, `search_summary`
-3. `list_functions` (paginated: `offset` + `limit`)
-4. **`get_function_evidence`** — one-shot pack (summary, APIs, strings w/ encoding,
+2. **`get_triage`** — first-minute ranked functions (exports, call degree, imports, BEL)
+3. Triage: `list_imports`, `list_exports`, `list_strings`, `list_sections`, **`search_bel`** (`search_summary` is the compatibility view)
+4. `list_functions` (paginated: `offset` + `limit`)
+5. **`get_function_evidence`** — one-shot pack (summary, APIs, strings w/ encoding,
    call sites with optional string `value`, points-to, constants, entities, callers,
    callees, **memory**). Prefer this over 5+ separate tools.
-5. Write-back: `apply_rename_batch` / `apply_type_recovery` / `set_comment`
-6. Check: **`verify_claims`** and/or **`get_function_consistency`**
-7. Persist understanding: **`set_function_memory`** (purpose, tags; auto-seeds APIs/strings)
-8. Re-read evidence — annotations + memory should stick across IDB reloads
-9. Multi-DLL workspaces: **`get_cross_project_similar`** (API Jaccard + size/shape)
-10. Full `get_function_agent_text` / decompile only when the pack is not enough
+6. Structured data: **`read_pointers`**, **`walk_list`**, **`read_struct_array`**,
+   **`describe_address`** (resolved — not raw hex). Prefer over `read_va`.
+7. Provenance: **`trace_value`** (backward/forward; reports `died` reason)
+8. Write-back: `apply_rename_batch` / `apply_type_recovery` / `set_comment`
+9. Check: **`verify_claims`** and/or **`get_function_consistency`**
+10. Persist understanding: **`set_function_memory`** (purpose, tags; auto-seeds APIs/strings)
+11. Re-read evidence — annotations + memory should stick across IDB reloads
+12. Multi-DLL workspaces: **`get_cross_project_similar`** (API Jaccard + size/shape)
+13. Full `get_function_agent_text` / decompile only when the pack is not enough
 
 Prefer evidence tools over freeform C. Never dump whole image bytes unless the
 user asked for hex (`read_va` / `get_fragment` capped at 512 bytes).
@@ -61,15 +65,22 @@ user asked for hex (`read_va` / `get_fragment` capped at 512 bytes).
 
 ### North-star metric
 
-`verified_facts_per_1k_tokens` (evidence policy vs dump baseline):
+Agent-loop task success + honest abstention vs python/pefile baseline
+(see `docs/benchmarks/agent-loop-v1.md`). The harness is the workspace crate
+`eval/agent-bench` (raw HTTP Anthropic client; **not** inside the windy binary).
 
 ```bash
-windy eval-agent-loop --pe gclsd/bench/sample.exe --limit 16
+# Offline task load + report shape (no API key)
+cargo run -p agent-bench -- --root . --limit 12 --profile P0 --profile P1
+# Evidence-card smoke (not the full agent loop)
+windy bench agent-loop --pe gclsd/bench/sample.exe --limit 16
 cargo test eval_metrics
 # Windy vs Ghidra vs source gold (sample.c smoke + complex.c quality gap)
 windy decomp-scorecard
 windy decomp-scorecard --gold eval/gold/complex_source_gold.json
 cargo test decomp_scorecard
+# BEL cold build, memory, warm percentiles, and oracle checksums
+windy bench bel --pe gclsd/bench/sample.exe --iterations 100
 ```
 
 ## Module Responsibilities
@@ -116,6 +127,7 @@ and add pagination / broader triage:
 **Per-function**
 
 - `get_function_evidence` — **preferred** one-shot evidence pack (+ `memory` if set)
+- `get_triage` — first-minute ranked functions (deterministic fixed-point scores)
 - `get_function_summary` — compact structural stats (not agent purpose)
 - `get_function_memory` / `set_function_memory` / `list_function_memory` — durable cards
 - `get_function_entities` — args + stack locals with stable IDs
@@ -123,6 +135,8 @@ and add pagination / broader triage:
 - `get_function_consistency` — auto pass/warn checks (frame, SigDB, SSA, callers, memory)
 - `get_alias_history` — rename lineage (old→new)
 - `get_fragment` — bounded VA excerpt with cite (same caps as `read_va`)
+- `read_pointers` / `walk_list` / `read_struct_array` / `describe_address` — resolved bulk reads
+- `trace_value` — interprocedural provenance (`died`: depth_cap|inlined|indirect|…)
 - `get_function_agent_text` / `get_function_json` / `get_function_context`
 - `function_callers` / `function_callees` / `callers_with_args`
 - `strings_in_function` / `apis_called` / `xrefs_to`
@@ -146,6 +160,7 @@ and add pagination / broader triage:
 **Project triage**
 
 - `list_functions` — `pattern`, `offset`, `limit` (max 128)
+- `search_bel` — exact/prefix/substring/numeric/regex/token/relationship/motif/ontology/multi-evidence; provenance + stable cursors
 - `list_imports` / `list_exports` / `list_strings` / `list_sections`
 - `search_summary` / `functions_named`
 - `list_api_signatures` / `list_vtable_signatures`
