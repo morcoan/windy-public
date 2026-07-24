@@ -1,7 +1,7 @@
-//! Agent-loop benchmark harness (outside the windy binary).
+﻿//! Agent-loop benchmark harness (outside the windy binary).
 //!
 //! Arms:
-//! - A: windy-evidence (MCP tools: get_function_evidence, search_bel, get_triage, …)
+//! - A: windy-evidence (MCP tools: get_function_evidence, search_bel, get_triage, â€¦)
 //! - B: python-tools (bash + scratch dir with pefile/capstone; no Windy)
 //! - C: windy-dump (agent_text + read_va only)
 //!
@@ -10,7 +10,7 @@
 //! input_tokens alone.
 //!
 //! Default mode is offline **scoring-wiring** only (synthetic answers, no
-//! binary analysis). It is not a benchmark result — write fixtures under
+//! binary analysis). It is not a benchmark result â€” write fixtures under
 //! `eval/agent-bench/fixtures/`, never under `docs/benchmarks/`.
 //! Pass `--live` with ANTHROPIC_API_KEY and a built `windy` binary for a
 //! real model loop; live reports may land in `docs/benchmarks/`.
@@ -68,15 +68,22 @@ struct Cli {
     /// Max tasks (after filtering).
     #[arg(long, default_value_t = 12)]
     limit: usize,
-    /// Profiles to include (P0 P1 …).
+    /// Profiles to include (P0 P1 â€¦).
     #[arg(long, default_values_t = ["P0".to_string(), "P1".to_string()])]
     profile: Vec<String>,
     /// Task families: locate, abstain, enumerate, triage, provenance.
     #[arg(long, default_values_t = ["locate".to_string(), "abstain".to_string()])]
     family: Vec<String>,
-    /// Live Anthropic loop (requires ANTHROPIC_API_KEY).
+    /// Live Anthropic loop (requires ANTHROPIC_API_KEY). Paid tokens.
     #[arg(long, default_value_t = false)]
     live: bool,
+    /// Free local tool agents: arm A = `windy agent-query`, arm B = python+pefile.
+    /// No Anthropic. Preferred for P0/P1 CI / free subagent orchestration.
+    #[arg(long, default_value_t = false)]
+    local: bool,
+    /// Interleave locate/abstain instead of sort-all-abstain-first.
+    #[arg(long, default_value_t = false)]
+    balanced: bool,
     /// Model id for live runs.
     #[arg(long, default_value = "claude-opus-4-20250514")]
     model: String,
@@ -103,7 +110,7 @@ struct IdentityEntry {
     folded_to: Option<String>,
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 struct Task {
     id: String,
     family: String,
@@ -198,7 +205,17 @@ enum ToolBackend {
 fn main() -> Result<()> {
     let cli = Cli::parse();
     let root = cli.root.canonicalize().unwrap_or(cli.root.clone());
-    let tasks = load_tasks(&root, &cli.profile, &cli.family, cli.limit)?;
+    if cli.live && cli.local {
+        bail!("pass only one of --live or --local");
+    }
+
+    let tasks = load_tasks(
+        &root,
+        &cli.profile,
+        &cli.family,
+        cli.limit,
+        cli.balanced || cli.local,
+    )?;
     if tasks.is_empty() {
         bail!(
             "no tasks matched filters (profiles={:?} families={:?})",
@@ -207,10 +224,14 @@ fn main() -> Result<()> {
         );
     }
 
-    if !cli.live {
+    if cli.local {
+        eprintln!(
+            "agent-bench: free --local mode (windy agent-query vs python/pefile). No Anthropic."
+        );
+    } else if !cli.live {
         eprintln!(
             "agent-bench: offline wiring-check mode (synthetic answers). \
-             Not a benchmark result. Use --live for A-vs-B measurement."
+             Not a benchmark result. Use --local (free) or --live (paid Anthropic)."
         );
     }
 
@@ -221,6 +242,8 @@ fn main() -> Result<()> {
         for task in &tasks {
             let result = if cli.live {
                 run_live_task(&cli, &root, &windy, *arm, task)
+            } else if cli.local {
+                run_local_task(&root, &windy, *arm, task)
             } else {
                 run_offline_task(*arm, task)
             };
@@ -279,18 +302,31 @@ fn resolve_windy(root: &Path, explicit: Option<&Path>) -> Result<PathBuf> {
     if let Some(p) = explicit {
         return Ok(p.to_path_buf());
     }
-    for rel in [
-        "target/release/windy.exe",
-        "target/debug/windy.exe",
-        "target/release/windy",
-        "target/debug/windy",
-    ] {
-        let p = root.join(rel);
-        if p.exists() {
-            return Ok(p);
+    // Prefer newest among debug/release so a stale release binary does not hide
+    // a freshly built debug with agent-query.
+    let candidates = [
+        root.join("target/debug/windy.exe"),
+        root.join("target/release/windy.exe"),
+        root.join("target/debug/windy"),
+        root.join("target/release/windy"),
+    ];
+    let mut best: Option<(std::time::SystemTime, PathBuf)> = None;
+    for p in candidates {
+        if !p.exists() {
+            continue;
+        }
+        let modified = fs::metadata(&p)
+            .and_then(|m| m.modified())
+            .unwrap_or(std::time::SystemTime::UNIX_EPOCH);
+        match &best {
+            None => best = Some((modified, p)),
+            Some((t, _)) if modified > *t => best = Some((modified, p)),
+            _ => {}
         }
     }
-    Ok(root.join("target/debug/windy.exe"))
+    Ok(best
+        .map(|(_, p)| p)
+        .unwrap_or_else(|| root.join("target/debug/windy.exe")))
 }
 
 fn load_tasks(
@@ -298,6 +334,7 @@ fn load_tasks(
     profiles: &[String],
     families: &[String],
     limit: usize,
+    balanced: bool,
 ) -> Result<Vec<Task>> {
     let id_dir = root.join("eval/grand/identity_maps");
     let bin_root = root.join("eval/grand/bin");
@@ -369,8 +406,248 @@ fn load_tasks(
     }
 
     tasks.sort_by(|a, b| a.id.cmp(&b.id));
+    if balanced {
+        // Interleave locate and abstain so limit=12 is not all-abstain.
+        let mut locate: Vec<_> = tasks
+            .iter()
+            .filter(|t| t.family == "locate")
+            .cloned()
+            .collect();
+        let mut abstain: Vec<_> = tasks
+            .iter()
+            .filter(|t| t.family == "abstain")
+            .cloned()
+            .collect();
+        let other: Vec<_> = tasks
+            .iter()
+            .filter(|t| t.family != "locate" && t.family != "abstain")
+            .cloned()
+            .collect();
+        let mut out = Vec::new();
+        let half = limit.div_ceil(2);
+        locate.truncate(half);
+        abstain.truncate(limit.saturating_sub(locate.len()));
+        let mut i = 0usize;
+        while out.len() < limit && (i < locate.len() || i < abstain.len()) {
+            if i < locate.len() {
+                out.push(locate[i].clone());
+            }
+            if out.len() >= limit {
+                break;
+            }
+            if i < abstain.len() {
+                out.push(abstain[i].clone());
+            }
+            i += 1;
+        }
+        for t in other {
+            if out.len() >= limit {
+                break;
+            }
+            out.push(t);
+        }
+        return Ok(out);
+    }
     tasks.truncate(limit);
     Ok(tasks)
+}
+
+/// Free local tool agents (no LLM / no Anthropic).
+/// Arm A: `windy agent-query --functions-named` (substrate).
+/// Arm B: python + pefile in scratch (baseline).
+/// Arm C: refuse unless name is literally an export-like hit via agent-query dump-style:
+/// uses agent-query then only accepts exact name match without fuzzy refuse heuristics beyond empty.
+fn run_local_task(root: &Path, windy: &Path, arm: Arm, task: &Task) -> TaskResult {
+    let started = Instant::now();
+    let source = task.source_name.clone().unwrap_or_else(|| "unknown".into());
+    let (answer, tool_calls, error) = match arm {
+        Arm::A => match local_arm_a_windy(windy, &task.pe_path, &source) {
+            Ok((ans, n)) => (ans, n, None),
+            Err(e) => (String::new(), 0, Some(e.to_string())),
+        },
+        Arm::B => match local_arm_b_python(root, &task.pe_path, &source) {
+            Ok((ans, n)) => (ans, n, None),
+            Err(e) => (String::new(), 0, Some(e.to_string())),
+        },
+        Arm::C => match local_arm_c_dump(windy, &task.pe_path, &source) {
+            Ok((ans, n)) => (ans, n, None),
+            Err(e) => (String::new(), 0, Some(e.to_string())),
+        },
+    };
+    let success = if error.is_some() {
+        false
+    } else {
+        score_answer(task, &answer)
+    };
+    TaskResult {
+        task_id: task.id.clone(),
+        arm: arm_name(arm).into(),
+        success,
+        abstained: is_abstain(&answer),
+        answer,
+        gold: task.gold.clone(),
+        tool_calls,
+        tokens: TokenUsage::default(), // free path: no model tokens
+        wall_ms: started.elapsed().as_millis(),
+        mode: "local_tools".into(),
+        error,
+    }
+}
+
+fn local_arm_a_windy(windy: &Path, pe: &Path, source: &str) -> Result<(String, usize)> {
+    if !windy.exists() {
+        bail!("windy binary missing: {}", windy.display());
+    }
+    let out = Command::new(windy)
+        .arg("agent-query")
+        .arg("--pe")
+        .arg(pe)
+        .arg("--functions-named")
+        .arg(source)
+        .arg("--limit")
+        .arg("32")
+        .env("RUST_LOG", "error")
+        .output()
+        .with_context(|| format!("spawn {}", windy.display()))?;
+    if !out.status.success() {
+        bail!(
+            "agent-query failed: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+    }
+    let v: Value = parse_json_stdout(&out.stdout).context("parse agent-query json")?;
+    let matches = v
+        .get("matches")
+        .and_then(|m| m.as_array())
+        .cloned()
+        .unwrap_or_default();
+    let answer = pick_name_match(&matches, source).unwrap_or_else(|| "refuse".into());
+    Ok((answer, 1))
+}
+
+/// Prefer exact (case-insensitive) name, else unique substring hit, else refuse.
+fn pick_name_match(matches: &[Value], source: &str) -> Option<String> {
+    let src = source.to_ascii_lowercase();
+    let mut exact = Vec::new();
+    let mut fuzzy = Vec::new();
+    for m in matches {
+        let name = m
+            .get("name")
+            .and_then(|n| n.as_str())
+            .unwrap_or("")
+            .to_ascii_lowercase();
+        let va = m.get("va").and_then(|v| v.as_str()).unwrap_or("");
+        if va.is_empty() {
+            continue;
+        }
+        if name == src || name.ends_with(&format!("::{src}")) || name.ends_with(&src) {
+            exact.push(va.to_string());
+        } else if name.contains(&src) {
+            fuzzy.push(va.to_string());
+        }
+    }
+    if exact.len() == 1 {
+        return Some(exact[0].clone());
+    }
+    if exact.is_empty() && fuzzy.len() == 1 {
+        return Some(fuzzy[0].clone());
+    }
+    if exact.len() > 1 {
+        // Stable: pick lowest VA.
+        exact.sort();
+        return Some(exact[0].clone());
+    }
+    None
+}
+
+fn local_arm_b_python(root: &Path, pe: &Path, source: &str) -> Result<(String, usize)> {
+    let scratch = root.join("target/agent-bench-scratch").join("local_b");
+    fs::create_dir_all(&scratch)?;
+    ensure_python_pe_tools(&scratch)?;
+    let script = scratch.join("locate_symbol.py");
+    // Throwaway baseline: exports + entry only (honest pefile without Windy analysis).
+    let code = r#"
+import json, sys
+import pefile
+pe_path, needle = sys.argv[1], sys.argv[2].lower()
+pe = pefile.PE(pe_path)
+base = pe.OPTIONAL_HEADER.ImageBase
+hits = []
+if hasattr(pe, "DIRECTORY_ENTRY_EXPORT") and pe.DIRECTORY_ENTRY_EXPORT:
+    for exp in pe.DIRECTORY_ENTRY_EXPORT.symbols:
+        if not exp.name:
+            continue
+        name = exp.name.decode(errors="replace")
+        if needle in name.lower():
+            hits.append(hex(base + exp.address))
+entry = hex(base + pe.OPTIONAL_HEADER.AddressOfEntryPoint)
+# Confabulation risk: if no export hit, some agents return entry â€” we mirror weak baseline.
+if len(hits) == 1:
+    print(hits[0])
+elif len(hits) > 1:
+    print(sorted(hits)[0])
+elif needle in ("main", "wmain", "winmain", "wwinmain"):
+    print(entry)
+else:
+    print("refuse")
+"#;
+    fs::write(&script, code)?;
+    let vpy = venv_python(&scratch.join(".venv"));
+    let out = Command::new(&vpy)
+        .arg(&script)
+        .arg(pe)
+        .arg(source)
+        .current_dir(&scratch)
+        .output()
+        .with_context(|| format!("spawn {}", vpy.display()))?;
+    if !out.status.success() {
+        bail!(
+            "pefile script failed: {} {}",
+            String::from_utf8_lossy(&out.stdout),
+            String::from_utf8_lossy(&out.stderr)
+        );
+    }
+    let answer = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    Ok((answer, 2))
+}
+
+fn local_arm_c_dump(windy: &Path, pe: &Path, source: &str) -> Result<(String, usize)> {
+    // Dump-style: same query, but only accept exact name match (no fuzzy).
+    if !windy.exists() {
+        bail!("windy binary missing: {}", windy.display());
+    }
+    let out = Command::new(windy)
+        .arg("agent-query")
+        .arg("--pe")
+        .arg(pe)
+        .arg("--functions-named")
+        .arg(source)
+        .env("RUST_LOG", "error")
+        .output()
+        .with_context(|| format!("spawn {}", windy.display()))?;
+    if !out.status.success() {
+        bail!("agent-query failed");
+    }
+    let v: Value = parse_json_stdout(&out.stdout)?;
+    let matches = v
+        .get("matches")
+        .and_then(|m| m.as_array())
+        .cloned()
+        .unwrap_or_default();
+    let src = source.to_ascii_lowercase();
+    for m in &matches {
+        let name = m
+            .get("name")
+            .and_then(|n| n.as_str())
+            .unwrap_or("")
+            .to_ascii_lowercase();
+        if name == src {
+            if let Some(va) = m.get("va").and_then(|v| v.as_str()) {
+                return Ok((va.to_string(), 1));
+            }
+        }
+    }
+    Ok(("refuse".into(), 1))
 }
 
 /// Offline **wiring** oracle: proves scorer + report shape only.
@@ -399,7 +676,7 @@ fn run_offline_task(arm: Arm, task: &Task) -> TaskResult {
             Arm::C => 2,
         },
         tokens: TokenUsage {
-            // Distinct shapes only — not measured cost.
+            // Distinct shapes only â€” not measured cost.
             input_tokens: match arm {
                 Arm::A => 1200,
                 Arm::B => 2400,
@@ -508,7 +785,7 @@ fn python_scratch_tool_defs() -> Vec<Value> {
             "name": "bash",
             "description": "Run a shell command in the scratch directory (cwd is the scratch root). \
                 Python venv with pefile and capstone is on PATH. BINARY_PATH env var points at the PE. \
-                Use this to write/run throwaway scripts. Do not invent VAs — read them from the binary.",
+                Use this to write/run throwaway scripts. Do not invent VAs â€” read them from the binary.",
             "input_schema": {
                 "type": "object",
                 "properties": {
@@ -591,7 +868,7 @@ fn run_live_python_arm(
     // Seed a helper the agent may edit; it is not product code.
     let helper = scratch.join("pe_inspect.py");
     let seed = format!(
-        r#"# Scratch helper (agent-bench arm B). Throwaway — not maintained product code.
+        r#"# Scratch helper (agent-bench arm B). Throwaway â€” not maintained product code.
 import sys
 import pefile
 pe = pefile.PE(r"{pe}")
@@ -622,7 +899,7 @@ if hasattr(pe, "DIRECTORY_ENTRY_EXPORT") and pe.DIRECTORY_ENTRY_EXPORT:
          Binary path: {pe}\n\
          Environment: BINARY_PATH is set; a venv with pefile and capstone is on PATH.\n\
          Tools: bash (run commands), write_file, read_file.\n\
-         Seed script: pe_inspect.py — you may edit or replace it.\n\
+         Seed script: pe_inspect.py â€” you may edit or replace it.\n\
          Answer with a single hex VA, or refuse if the function is gone/inlined/eliminated.\n\
          Do not invent VAs. Inspect the binary with your tools first.",
         scratch = scratch.display(),
@@ -663,43 +940,109 @@ if hasattr(pe, "DIRECTORY_ENTRY_EXPORT") and pe.DIRECTORY_ENTRY_EXPORT:
 
 /// Create a scratch venv and install pefile + capstone when missing.
 fn ensure_python_pe_tools(scratch: &Path) -> Result<()> {
-    let py = python_launcher();
     let venv = scratch.join(".venv");
     let marker = scratch.join(".venv_ready");
-    if marker.exists() {
-        return Ok(());
+    let vpy_existing = venv_python(&venv);
+    if vpy_existing.is_file() {
+        // Reuse existing venv; ensure deps present.
+        let check = Command::new(&vpy_existing)
+            .args(["-c", "import pefile, capstone"])
+            .status();
+        if matches!(check, Ok(s) if s.success()) {
+            let _ = fs::write(&marker, b"ok");
+            return Ok(());
+        }
+    }
+    if venv.exists() {
+        let _ = fs::remove_dir_all(&venv);
     }
 
-    let status = Command::new(&py)
-        .args(["-m", "venv"])
-        .arg(&venv)
-        .current_dir(scratch)
-        .status()
-        .with_context(|| format!("spawn {py} -m venv"))?;
-    if !status.success() {
-        bail!("python -m venv failed with {status}");
-    }
-
-    let pip = if cfg!(windows) {
-        venv.join("Scripts").join("pip.exe")
-    } else {
-        venv.join("bin").join("pip")
+    // Each attempt is (program, prefix_args before -m venv).
+    let attempts: Vec<(String, Vec<&str>)> = {
+        let mut v = Vec::new();
+        if let Ok(p) = std::env::var("PYTHON") {
+            if !p.is_empty() {
+                v.push((p, vec![]));
+            }
+        }
+        // Absolute Windows installs (PATH is often empty/minimal under cargo).
+        let mut abs = Vec::new();
+        if let Some(local_app) = std::env::var_os("LOCALAPPDATA").map(PathBuf::from) {
+            for ver in [
+                "Python314",
+                "Python313",
+                "Python312",
+                "Python311",
+                "Python310",
+            ] {
+                abs.push(
+                    local_app
+                        .join("Programs")
+                        .join("Python")
+                        .join(ver)
+                        .join("python.exe"),
+                );
+            }
+        }
+        if let Some(home) = std::env::var_os("USERPROFILE").map(PathBuf::from) {
+            abs.push(home.join(r"AppData\Local\Programs\Python\Python312\python.exe"));
+            abs.push(home.join(r"AppData\Local\Programs\Python\Python311\python.exe"));
+        }
+        abs.push(PathBuf::from(r"C:\Python312\python.exe"));
+        abs.push(PathBuf::from(
+            r"python",
+        ));
+        for c in abs {
+            if c.is_file() {
+                v.push((c.display().to_string(), vec![]));
+            }
+        }
+        if cfg!(windows) {
+            v.push(("py".into(), vec!["-3"]));
+            v.push(("python".into(), vec![]));
+            v.push(("python3".into(), vec![]));
+        } else {
+            v.push(("python3".into(), vec![]));
+            v.push(("python".into(), vec![]));
+        }
+        v
     };
-    let status = Command::new(&pip)
-        .args(["install", "--quiet", "pefile", "capstone"])
+
+    let mut last_err = String::from("no python launcher tried");
+    let mut created = false;
+    for (prog, prefix) in &attempts {
+        let mut cmd = Command::new(prog);
+        for a in prefix {
+            cmd.arg(a);
+        }
+        let status = cmd
+            .args(["-m", "venv"])
+            .arg(&venv)
+            .current_dir(scratch)
+            .status();
+        match status {
+            Ok(s) if s.success() => {
+                created = true;
+                break;
+            }
+            Ok(s) => last_err = format!("{prog} {:?} -m venv -> {s}", prefix),
+            Err(e) => last_err = format!("{prog} {:?} -m venv: {e}", prefix),
+        }
+    }
+    if !created {
+        bail!("python venv creation failed: {last_err}");
+    }
+
+    let vpy = venv_python(&venv);
+    let status = Command::new(&vpy)
+        .args(["-m", "pip", "install", "--quiet", "pefile", "capstone"])
         .current_dir(scratch)
         .status()
-        .with_context(|| format!("spawn {}", pip.display()))?;
+        .with_context(|| format!("spawn {} -m pip", vpy.display()))?;
     if !status.success() {
         bail!("pip install pefile capstone failed with {status}");
     }
 
-    // Quick import check via venv python.
-    let vpy = if cfg!(windows) {
-        venv.join("Scripts").join("python.exe")
-    } else {
-        venv.join("bin").join("python")
-    };
     let status = Command::new(&vpy)
         .args(["-c", "import pefile, capstone; print('ok')"])
         .current_dir(scratch)
@@ -713,17 +1056,32 @@ fn ensure_python_pe_tools(scratch: &Path) -> Result<()> {
     Ok(())
 }
 
-fn python_launcher() -> String {
-    std::env::var("PYTHON")
-        .ok()
-        .filter(|s| !s.is_empty())
-        .unwrap_or_else(|| {
-            if cfg!(windows) {
-                "python".into()
-            } else {
-                "python3".into()
+fn venv_python(venv: &Path) -> PathBuf {
+    if cfg!(windows) {
+        venv.join("Scripts").join("python.exe")
+    } else {
+        venv.join("bin").join("python")
+    }
+}
+
+/// Extract JSON object from stdout that may include log noise.
+fn parse_json_stdout(stdout: &[u8]) -> Result<Value> {
+    let text = String::from_utf8_lossy(stdout);
+    if let Ok(v) = serde_json::from_str::<Value>(text.trim()) {
+        return Ok(v);
+    }
+    if let Some(start) = text.find('{') {
+        if let Some(end) = text.rfind('}') {
+            if end > start {
+                return serde_json::from_str(&text[start..=end])
+                    .context("parse JSON object from stdout");
             }
-        })
+        }
+    }
+    bail!(
+        "no JSON object in stdout: {}",
+        text.chars().take(200).collect::<String>()
+    );
 }
 
 fn run_live_windy_arm(
@@ -881,7 +1239,7 @@ fn anthropic_tool_loop(
             ],
             "messages": messages,
         });
-        // Do NOT set temperature/top_p/top_k — rejected on some models.
+        // Do NOT set temperature/top_p/top_k â€” rejected on some models.
         if !tools_json.is_empty() {
             body["tools"] = Value::Array(tools_json.to_vec());
         }
@@ -1133,7 +1491,7 @@ fn truncate_tool_output(s: &str) -> String {
         return s.to_string();
     }
     let mut out = s[..MAX_SHELL_OUTPUT].to_string();
-    out.push_str("\n…[truncated]");
+    out.push_str("\nâ€¦[truncated]");
     out
 }
 
@@ -1256,9 +1614,11 @@ fn build_report(cli: &Cli, root: &Path, tasks: &[Task], results: Vec<TaskResult>
         format!("{:x}", hasher.finalize())
     };
 
-    let synthetic = !cli.live;
+    let synthetic = !cli.live && !cli.local;
     Report {
-        harness: if synthetic {
+        harness: if cli.local {
+            "agent-bench-v1-local-tools".into()
+        } else if synthetic {
             "agent-bench-v1-wiring-check".into()
         } else {
             "agent-bench-v1".into()
@@ -1274,10 +1634,19 @@ fn build_report(cli: &Cli, root: &Path, tasks: &[Task], results: Vec<TaskResult>
             "profiles": cli.profile,
             "families": cli.family,
             "task_set_sha256": corpus_sha,
-            "note": if synthetic {
+            "mode": if cli.local {
+                "local_tools"
+            } else if cli.live {
+                "live_anthropic"
+            } else {
+                "offline_wiring"
+            },
+            "note": if cli.local {
+                "Free local tools: arm A windy agent-query; arm B python+pefile. No model tokens."
+            } else if synthetic {
                 "SYNTHETIC offline wiring: arm A returns gold by construction; B/C wrong by construction. Not a product measurement."
             } else {
-                "Live agent loop results."
+                "Live Anthropic agent loop results."
             },
         }),
     }
@@ -1301,8 +1670,11 @@ fn render_markdown(report: &Report) -> String {
         md.push_str("# Agent loop wiring check (SYNTHETIC - not a benchmark)\n\n");
         md.push_str(
             "> Offline mode returns gold for arm A and wrong answers for B/C by construction.\n\
-             > Do not cite these numbers as product evidence. Run `--live` for real A-vs-B.\n\n",
+             > Do not cite these numbers as product evidence. Run `--local` (free) or `--live` (paid).\n\n",
         );
+    } else if report.harness.contains("local") {
+        md.push_str("# Agent loop v1 (local tools â€” free, no Anthropic)\n\n");
+        md.push_str("> Arm A: `windy agent-query`. Arm B: python + pefile. Zero model tokens.\n\n");
     } else {
         md.push_str("# Agent loop v1\n\n");
     }

@@ -14,22 +14,37 @@ eval/agent-bench   # workspace crate (reqwest lives here, not in windy)
 ```
 
 ```bash
-# Offline scoring wiring only (synthetic answers — NOT a product measurement)
+# Offline scoring wiring only (synthetic answers - NOT a product measurement)
 cargo run -p agent-bench -- --root . --limit 12 --profile P0 --profile P1 \
   --output eval/agent-bench/fixtures/wiring-check-report.json \
   --markdown eval/agent-bench/fixtures/wiring-check-report.md
 
-# Live model loop (requires ANTHROPIC_API_KEY and a built windy binary)
-# Arm B gets bash + write_file + read_file in a scratch dir with a pefile/capstone venv.
+# FREE local tool agents (no Anthropic tokens): windy agent-query vs python+pefile
+cargo build -p windy -p agent-bench
+cargo run -p agent-bench -- --root . --local --balanced --limit 12 \
+  --arm a --arm b --profile P0 --profile P1 \
+  --output docs/benchmarks/agent-loop-v1-local-report.json \
+  --markdown docs/benchmarks/agent-loop-v1-local-report.md
+
+# Optional: free multi-agent orchestration (Grok workflows / subagents, still no Anthropic)
+# /workflow agent-bench-local  or  workflow tool on .grok/workflows/agent-bench-local.rhai
+
+# Live model loop (requires ANTHROPIC_API_KEY and a built windy binary) - PAID
 cargo build --release
 cargo run -p agent-bench -- --root . --live --limit 12 \
   --output docs/benchmarks/agent-loop-v1-report.json \
   --markdown docs/benchmarks/agent-loop-v1-report.md
 ```
 
-**`docs/benchmarks/` holds live reports only.** Offline wiring fixtures live under
-`eval/agent-bench/fixtures/wiring-check-*` and are labeled `synthetic: true`.
-Do not treat A=perfect / B=zero offline tables as evidence.
+**Report namespaces**
+
+| Path | What |
+|------|------|
+| `eval/agent-bench/fixtures/wiring-check-*` | Synthetic offline scorer wiring only |
+| `docs/benchmarks/agent-loop-v1-local-report.*` | Free local tools A-vs-B (no model tokens) |
+| `docs/benchmarks/agent-loop-v1-report.*` | Paid Anthropic live loop only |
+
+Do not treat wiring-check A=perfect / B=zero tables as product evidence.
 
 ## Arms
 

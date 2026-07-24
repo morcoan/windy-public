@@ -1,0 +1,487 @@
+{
+  "harness": "agent-bench-v1-local-tools",
+  "synthetic": false,
+  "commit": "01c8a7818600792a173f20e2646f18ed84dda47c",
+  "model": null,
+  "live": false,
+  "arms": [
+    {
+      "arm": "A",
+      "tasks": 12,
+      "successes": 1,
+      "abstentions": 1,
+      "abstention_correct": 0,
+      "total_tool_calls": 12,
+      "tokens": {
+        "input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 0
+      },
+      "wall_ms": 1889
+    },
+    {
+      "arm": "B",
+      "tasks": 12,
+      "successes": 6,
+      "abstentions": 8,
+      "abstention_correct": 6,
+      "total_tool_calls": 24,
+      "tokens": {
+        "input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 0
+      },
+      "wall_ms": 1996
+    }
+  ],
+  "results": [
+    {
+      "task_id": "locate:a01_signed_rel:P0:main",
+      "arm": "A",
+      "success": false,
+      "abstained": false,
+      "answer": "0x140001080",
+      "gold": "0x140001000",
+      "tool_calls": 1,
+      "tokens": {
+        "input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 0
+      },
+      "wall_ms": 162,
+      "mode": "local_tools",
+      "error": null
+    },
+    {
+      "task_id": "abstain:a01_signed_rel:P0:signed_lt",
+      "arm": "A",
+      "success": false,
+      "abstained": false,
+      "answer": "0x140001000",
+      "gold": "refuse",
+      "tool_calls": 1,
+      "tokens": {
+        "input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 0
+      },
+      "wall_ms": 164,
+      "mode": "local_tools",
+      "error": null
+    },
+    {
+      "task_id": "locate:a01_signed_rel:P1:main",
+      "arm": "A",
+      "success": false,
+      "abstained": false,
+      "answer": "0x140001000",
+      "gold": "0x1400012c8",
+      "tool_calls": 1,
+      "tokens": {
+        "input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 0
+      },
+      "wall_ms": 162,
+      "mode": "local_tools",
+      "error": null
+    },
+    {
+      "task_id": "abstain:a01_signed_rel:P0:unsigned_lt",
+      "arm": "A",
+      "success": false,
+      "abstained": false,
+      "answer": "0x140001040",
+      "gold": "refuse",
+      "tool_calls": 1,
+      "tokens": {
+        "input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 0
+      },
+      "wall_ms": 154,
+      "mode": "local_tools",
+      "error": null
+    },
+    {
+      "task_id": "locate:a02_narrow_promo:P0:main",
+      "arm": "A",
+      "success": false,
+      "abstained": false,
+      "answer": "0x140001020",
+      "gold": "0x1400015ac",
+      "tool_calls": 1,
+      "tokens": {
+        "input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 0
+      },
+      "wall_ms": 164,
+      "mode": "local_tools",
+      "error": null
+    },
+    {
+      "task_id": "abstain:a01_signed_rel:P1:signed_lt",
+      "arm": "A",
+      "success": false,
+      "abstained": false,
+      "answer": "0x140001044",
+      "gold": "refuse",
+      "tool_calls": 1,
+      "tokens": {
+        "input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 0
+      },
+      "wall_ms": 155,
+      "mode": "local_tools",
+      "error": null
+    },
+    {
+      "task_id": "locate:a02_narrow_promo:P0:narrow_add",
+      "arm": "A",
+      "success": true,
+      "abstained": false,
+      "answer": "0x140001000",
+      "gold": "0x140001000",
+      "tool_calls": 1,
+      "tokens": {
+        "input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 0
+      },
+      "wall_ms": 155,
+      "mode": "local_tools",
+      "error": null
+    },
+    {
+      "task_id": "abstain:a01_signed_rel:P1:unsigned_lt",
+      "arm": "A",
+      "success": false,
+      "abstained": false,
+      "answer": "0x14000104c",
+      "gold": "refuse",
+      "tool_calls": 1,
+      "tokens": {
+        "input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 0
+      },
+      "wall_ms": 153,
+      "mode": "local_tools",
+      "error": null
+    },
+    {
+      "task_id": "locate:a02_narrow_promo:P1:main",
+      "arm": "A",
+      "success": false,
+      "abstained": false,
+      "answer": "0x140001000",
+      "gold": "0x140001594",
+      "tool_calls": 1,
+      "tokens": {
+        "input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 0
+      },
+      "wall_ms": 153,
+      "mode": "local_tools",
+      "error": null
+    },
+    {
+      "task_id": "abstain:a03_minmax_abs:P0:iabs",
+      "arm": "A",
+      "success": false,
+      "abstained": false,
+      "answer": "0x140001040",
+      "gold": "refuse",
+      "tool_calls": 1,
+      "tokens": {
+        "input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 0
+      },
+      "wall_ms": 155,
+      "mode": "local_tools",
+      "error": null
+    },
+    {
+      "task_id": "locate:a02_narrow_promo:P1:narrow_add",
+      "arm": "A",
+      "success": false,
+      "abstained": true,
+      "answer": "refuse",
+      "gold": "0x1400015c4",
+      "tool_calls": 1,
+      "tokens": {
+        "input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 0
+      },
+      "wall_ms": 158,
+      "mode": "local_tools",
+      "error": null
+    },
+    {
+      "task_id": "abstain:a03_minmax_abs:P0:imin",
+      "arm": "A",
+      "success": false,
+      "abstained": false,
+      "answer": "0x140001000",
+      "gold": "refuse",
+      "tool_calls": 1,
+      "tokens": {
+        "input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 0
+      },
+      "wall_ms": 154,
+      "mode": "local_tools",
+      "error": null
+    },
+    {
+      "task_id": "locate:a01_signed_rel:P0:main",
+      "arm": "B",
+      "success": false,
+      "abstained": false,
+      "answer": "0x14000132c",
+      "gold": "0x140001000",
+      "tool_calls": 2,
+      "tokens": {
+        "input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 0
+      },
+      "wall_ms": 174,
+      "mode": "local_tools",
+      "error": null
+    },
+    {
+      "task_id": "abstain:a01_signed_rel:P0:signed_lt",
+      "arm": "B",
+      "success": true,
+      "abstained": true,
+      "answer": "refuse",
+      "gold": "refuse",
+      "tool_calls": 2,
+      "tokens": {
+        "input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 0
+      },
+      "wall_ms": 167,
+      "mode": "local_tools",
+      "error": null
+    },
+    {
+      "task_id": "locate:a01_signed_rel:P1:main",
+      "arm": "B",
+      "success": false,
+      "abstained": false,
+      "answer": "0x1400012b4",
+      "gold": "0x1400012c8",
+      "tool_calls": 2,
+      "tokens": {
+        "input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 0
+      },
+      "wall_ms": 167,
+      "mode": "local_tools",
+      "error": null
+    },
+    {
+      "task_id": "abstain:a01_signed_rel:P0:unsigned_lt",
+      "arm": "B",
+      "success": true,
+      "abstained": true,
+      "answer": "refuse",
+      "gold": "refuse",
+      "tool_calls": 2,
+      "tokens": {
+        "input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 0
+      },
+      "wall_ms": 161,
+      "mode": "local_tools",
+      "error": null
+    },
+    {
+      "task_id": "locate:a02_narrow_promo:P0:main",
+      "arm": "B",
+      "success": false,
+      "abstained": false,
+      "answer": "0x1400012a4",
+      "gold": "0x1400015ac",
+      "tool_calls": 2,
+      "tokens": {
+        "input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 0
+      },
+      "wall_ms": 160,
+      "mode": "local_tools",
+      "error": null
+    },
+    {
+      "task_id": "abstain:a01_signed_rel:P1:signed_lt",
+      "arm": "B",
+      "success": true,
+      "abstained": true,
+      "answer": "refuse",
+      "gold": "refuse",
+      "tool_calls": 2,
+      "tokens": {
+        "input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 0
+      },
+      "wall_ms": 165,
+      "mode": "local_tools",
+      "error": null
+    },
+    {
+      "task_id": "locate:a02_narrow_promo:P0:narrow_add",
+      "arm": "B",
+      "success": false,
+      "abstained": true,
+      "answer": "refuse",
+      "gold": "0x140001000",
+      "tool_calls": 2,
+      "tokens": {
+        "input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 0
+      },
+      "wall_ms": 170,
+      "mode": "local_tools",
+      "error": null
+    },
+    {
+      "task_id": "abstain:a01_signed_rel:P1:unsigned_lt",
+      "arm": "B",
+      "success": true,
+      "abstained": true,
+      "answer": "refuse",
+      "gold": "refuse",
+      "tool_calls": 2,
+      "tokens": {
+        "input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 0
+      },
+      "wall_ms": 172,
+      "mode": "local_tools",
+      "error": null
+    },
+    {
+      "task_id": "locate:a02_narrow_promo:P1:main",
+      "arm": "B",
+      "success": false,
+      "abstained": false,
+      "answer": "0x140001284",
+      "gold": "0x140001594",
+      "tool_calls": 2,
+      "tokens": {
+        "input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 0
+      },
+      "wall_ms": 165,
+      "mode": "local_tools",
+      "error": null
+    },
+    {
+      "task_id": "abstain:a03_minmax_abs:P0:iabs",
+      "arm": "B",
+      "success": true,
+      "abstained": true,
+      "answer": "refuse",
+      "gold": "refuse",
+      "tool_calls": 2,
+      "tokens": {
+        "input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 0
+      },
+      "wall_ms": 164,
+      "mode": "local_tools",
+      "error": null
+    },
+    {
+      "task_id": "locate:a02_narrow_promo:P1:narrow_add",
+      "arm": "B",
+      "success": false,
+      "abstained": true,
+      "answer": "refuse",
+      "gold": "0x1400015c4",
+      "tool_calls": 2,
+      "tokens": {
+        "input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 0
+      },
+      "wall_ms": 167,
+      "mode": "local_tools",
+      "error": null
+    },
+    {
+      "task_id": "abstain:a03_minmax_abs:P0:imin",
+      "arm": "B",
+      "success": true,
+      "abstained": true,
+      "answer": "refuse",
+      "gold": "refuse",
+      "tool_calls": 2,
+      "tokens": {
+        "input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 0
+      },
+      "wall_ms": 164,
+      "mode": "local_tools",
+      "error": null
+    }
+  ],
+  "corpus": {
+    "families": [
+      "locate",
+      "abstain"
+    ],
+    "mode": "local_tools",
+    "note": "Free local tools: arm A windy agent-query; arm B python+pefile. No model tokens.",
+    "profiles": [
+      "P0",
+      "P1"
+    ],
+    "task_count": 12,
+    "task_set_sha256": "ebd520d3545981ffa2710b8c461332c59f548bf6fa3dfb1ec7ce3562e2542b49"
+  }
+}

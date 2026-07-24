@@ -105,6 +105,19 @@ enum Commands {
         #[arg(long, default_value_t = 16)]
         limit: usize,
     },
+    /// Headless name/symbol lookup for free agent-bench local mode (no LLM).
+    #[command(hide = true)]
+    AgentQuery {
+        /// Path to PE.
+        #[arg(long)]
+        pe: PathBuf,
+        /// Substring match against recovered function names (case-insensitive).
+        #[arg(long)]
+        functions_named: Option<String>,
+        /// Max hits (default 32).
+        #[arg(long, default_value_t = 32)]
+        limit: usize,
+    },
     #[command(hide = true)]
     /// Compatibility alias for `bench scorecard`.
     DecompScorecard {
@@ -230,6 +243,11 @@ fn main() -> anyhow::Result<()> {
         #[cfg(feature = "gclsd-archive")]
         Some(Commands::EmitContract { output }) => run_emit_contract(output),
         Some(Commands::EvalAgentLoop { pe, limit }) => run_eval_agent_loop(pe, limit),
+        Some(Commands::AgentQuery {
+            pe,
+            functions_named,
+            limit,
+        }) => run_agent_query(pe, functions_named, limit),
         Some(Commands::DecompScorecard { gold, output }) => run_decomp_scorecard(gold, output),
         Some(Commands::GrandBench {
             manifest,
@@ -625,6 +643,54 @@ fn run_eval_agent_loop(pe: PathBuf, limit: usize) -> anyhow::Result<()> {
         "evidence_smoke": smoke,
         "note": "Full agent-loop benchmark is eval/agent-bench (workspace crate). This CLI path only smokes evidence cards.",
         "north_star": "agent_task_success_and_tokens (see docs/benchmarks/agent-loop-v1.md)",
+    });
+    println!("{}", serde_json::to_string_pretty(&out)?);
+    Ok(())
+}
+
+/// Token-free locate helper for `agent-bench --local` (arm A substrate, no LLM).
+fn run_agent_query(
+    pe: PathBuf,
+    functions_named: Option<String>,
+    limit: usize,
+) -> anyhow::Result<()> {
+    let project =
+        crate::project::Project::open(&pe).with_context(|| format!("open PE {}", pe.display()))?;
+    let limit = limit.clamp(1, 128);
+    let mut matches = Vec::new();
+    if let Some(pattern) = functions_named.as_deref() {
+        let needle = pattern.to_ascii_lowercase();
+        for (va, name) in crate::llm::query::functions_named(&project, pattern) {
+            matches.push(serde_json::json!({
+                "va": format!("{va:#x}"),
+                "name": name,
+            }));
+            if matches.len() >= limit {
+                break;
+            }
+        }
+        // functions_named already caps; if empty, scan full table for exact-ish hits.
+        if matches.is_empty() {
+            for f in project.functions().iter() {
+                let name = f.name(&project.symbols);
+                if name.to_ascii_lowercase().contains(&needle) {
+                    matches.push(serde_json::json!({
+                        "va": format!("{:#x}", f.entry_va),
+                        "name": name,
+                    }));
+                    if matches.len() >= limit {
+                        break;
+                    }
+                }
+            }
+        }
+    }
+    let out = serde_json::json!({
+        "pe": pe.display().to_string(),
+        "query": { "functions_named": functions_named },
+        "matches": matches,
+        "count": matches.len(),
+        "entry_focus": project.focus.map(|va| format!("{va:#x}")),
     });
     println!("{}", serde_json::to_string_pretty(&out)?);
     Ok(())
