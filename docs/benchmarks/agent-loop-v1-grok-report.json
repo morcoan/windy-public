@@ -1,0 +1,489 @@
+{
+  "harness": "agent-bench-v1-grok-subagents",
+  "synthetic": false,
+  "commit": "3ee4ad8d8ffc579012e47fa3a95f2b1585ddbe00",
+  "model": "grok (session subagents)",
+  "live": false,
+  "arms": [
+    {
+      "arm": "A",
+      "tasks": 12,
+      "successes": 1,
+      "abstentions": 1,
+      "abstention_correct": 0,
+      "total_tool_calls": 12,
+      "tokens": {
+        "input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 0
+      },
+      "wall_ms": 0
+    },
+    {
+      "arm": "B",
+      "tasks": 12,
+      "successes": 6,
+      "abstentions": 12,
+      "abstention_correct": 6,
+      "total_tool_calls": 37,
+      "tokens": {
+        "input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 0
+      },
+      "wall_ms": 0
+    }
+  ],
+  "results": [
+    {
+      "task_id": "locate:a01_signed_rel:P0:main",
+      "arm": "A",
+      "success": false,
+      "abstained": false,
+      "answer": "0x140001080",
+      "gold": "0x140001000",
+      "tool_calls": 1,
+      "tokens": {
+        "input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 0
+      },
+      "wall_ms": 0,
+      "mode": "grok_workflow",
+      "error": null
+    },
+    {
+      "task_id": "locate:a01_signed_rel:P1:main",
+      "arm": "A",
+      "success": false,
+      "abstained": false,
+      "answer": "0x140001000",
+      "gold": "0x1400012c8",
+      "tool_calls": 1,
+      "tokens": {
+        "input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 0
+      },
+      "wall_ms": 0,
+      "mode": "grok_workflow",
+      "error": null
+    },
+    {
+      "task_id": "locate:a02_narrow_promo:P0:narrow_add",
+      "arm": "A",
+      "success": true,
+      "abstained": false,
+      "answer": "0x140001000",
+      "gold": "0x140001000",
+      "tool_calls": 1,
+      "tokens": {
+        "input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 0
+      },
+      "wall_ms": 0,
+      "mode": "grok_workflow",
+      "error": null
+    },
+    {
+      "task_id": "locate:a02_narrow_promo:P0:main",
+      "arm": "A",
+      "success": false,
+      "abstained": false,
+      "answer": "0x140001020",
+      "gold": "0x1400015ac",
+      "tool_calls": 1,
+      "tokens": {
+        "input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 0
+      },
+      "wall_ms": 0,
+      "mode": "grok_workflow",
+      "error": null
+    },
+    {
+      "task_id": "locate:a02_narrow_promo:P1:narrow_add",
+      "arm": "A",
+      "success": false,
+      "abstained": true,
+      "answer": "refuse",
+      "gold": "0x1400015c4",
+      "tool_calls": 1,
+      "tokens": {
+        "input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 0
+      },
+      "wall_ms": 0,
+      "mode": "grok_workflow",
+      "error": null
+    },
+    {
+      "task_id": "locate:a02_narrow_promo:P1:main",
+      "arm": "A",
+      "success": false,
+      "abstained": false,
+      "answer": "0x140001000",
+      "gold": "0x140001594",
+      "tool_calls": 1,
+      "tokens": {
+        "input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 0
+      },
+      "wall_ms": 0,
+      "mode": "grok_workflow",
+      "error": null
+    },
+    {
+      "task_id": "abstain:a01_signed_rel:P0:signed_lt",
+      "arm": "A",
+      "success": false,
+      "abstained": false,
+      "answer": "0x140001000",
+      "gold": "refuse",
+      "tool_calls": 1,
+      "tokens": {
+        "input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 0
+      },
+      "wall_ms": 0,
+      "mode": "grok_workflow",
+      "error": null
+    },
+    {
+      "task_id": "abstain:a01_signed_rel:P0:unsigned_lt",
+      "arm": "A",
+      "success": false,
+      "abstained": false,
+      "answer": "0x140001040",
+      "gold": "refuse",
+      "tool_calls": 1,
+      "tokens": {
+        "input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 0
+      },
+      "wall_ms": 0,
+      "mode": "grok_workflow",
+      "error": null
+    },
+    {
+      "task_id": "abstain:a01_signed_rel:P1:signed_lt",
+      "arm": "A",
+      "success": false,
+      "abstained": false,
+      "answer": "0x140001044",
+      "gold": "refuse",
+      "tool_calls": 1,
+      "tokens": {
+        "input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 0
+      },
+      "wall_ms": 0,
+      "mode": "grok_workflow",
+      "error": null
+    },
+    {
+      "task_id": "abstain:a01_signed_rel:P1:unsigned_lt",
+      "arm": "A",
+      "success": false,
+      "abstained": false,
+      "answer": "0x14000104c",
+      "gold": "refuse",
+      "tool_calls": 1,
+      "tokens": {
+        "input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 0
+      },
+      "wall_ms": 0,
+      "mode": "grok_workflow",
+      "error": null
+    },
+    {
+      "task_id": "abstain:a03_minmax_abs:P0:iabs",
+      "arm": "A",
+      "success": false,
+      "abstained": false,
+      "answer": "0x140001040",
+      "gold": "refuse",
+      "tool_calls": 1,
+      "tokens": {
+        "input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 0
+      },
+      "wall_ms": 0,
+      "mode": "grok_workflow",
+      "error": null
+    },
+    {
+      "task_id": "abstain:a03_minmax_abs:P0:imin",
+      "arm": "A",
+      "success": false,
+      "abstained": false,
+      "answer": "0x140001000",
+      "gold": "refuse",
+      "tool_calls": 1,
+      "tokens": {
+        "input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 0
+      },
+      "wall_ms": 0,
+      "mode": "grok_workflow",
+      "error": null
+    },
+    {
+      "task_id": "locate:a01_signed_rel:P0:main",
+      "arm": "B",
+      "success": false,
+      "abstained": true,
+      "answer": "refuse",
+      "gold": "0x140001000",
+      "tool_calls": 4,
+      "tokens": {
+        "input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 0
+      },
+      "wall_ms": 0,
+      "mode": "grok_workflow",
+      "error": null
+    },
+    {
+      "task_id": "locate:a01_signed_rel:P1:main",
+      "arm": "B",
+      "success": false,
+      "abstained": true,
+      "answer": "refuse",
+      "gold": "0x1400012c8",
+      "tool_calls": 3,
+      "tokens": {
+        "input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 0
+      },
+      "wall_ms": 0,
+      "mode": "grok_workflow",
+      "error": null
+    },
+    {
+      "task_id": "locate:a02_narrow_promo:P0:narrow_add",
+      "arm": "B",
+      "success": false,
+      "abstained": true,
+      "answer": "refuse",
+      "gold": "0x140001000",
+      "tool_calls": 1,
+      "tokens": {
+        "input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 0
+      },
+      "wall_ms": 0,
+      "mode": "grok_workflow",
+      "error": null
+    },
+    {
+      "task_id": "locate:a02_narrow_promo:P0:main",
+      "arm": "B",
+      "success": false,
+      "abstained": true,
+      "answer": "refuse",
+      "gold": "0x1400015ac",
+      "tool_calls": 3,
+      "tokens": {
+        "input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 0
+      },
+      "wall_ms": 0,
+      "mode": "grok_workflow",
+      "error": null
+    },
+    {
+      "task_id": "locate:a02_narrow_promo:P1:narrow_add",
+      "arm": "B",
+      "success": false,
+      "abstained": true,
+      "answer": "refuse",
+      "gold": "0x1400015c4",
+      "tool_calls": 3,
+      "tokens": {
+        "input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 0
+      },
+      "wall_ms": 0,
+      "mode": "grok_workflow",
+      "error": null
+    },
+    {
+      "task_id": "locate:a02_narrow_promo:P1:main",
+      "arm": "B",
+      "success": false,
+      "abstained": true,
+      "answer": "refuse",
+      "gold": "0x140001594",
+      "tool_calls": 3,
+      "tokens": {
+        "input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 0
+      },
+      "wall_ms": 0,
+      "mode": "grok_workflow",
+      "error": null
+    },
+    {
+      "task_id": "abstain:a01_signed_rel:P0:signed_lt",
+      "arm": "B",
+      "success": true,
+      "abstained": true,
+      "answer": "refuse",
+      "gold": "refuse",
+      "tool_calls": 3,
+      "tokens": {
+        "input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 0
+      },
+      "wall_ms": 0,
+      "mode": "grok_workflow",
+      "error": null
+    },
+    {
+      "task_id": "abstain:a01_signed_rel:P0:unsigned_lt",
+      "arm": "B",
+      "success": true,
+      "abstained": true,
+      "answer": "refuse",
+      "gold": "refuse",
+      "tool_calls": 3,
+      "tokens": {
+        "input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 0
+      },
+      "wall_ms": 0,
+      "mode": "grok_workflow",
+      "error": null
+    },
+    {
+      "task_id": "abstain:a01_signed_rel:P1:signed_lt",
+      "arm": "B",
+      "success": true,
+      "abstained": true,
+      "answer": "refuse",
+      "gold": "refuse",
+      "tool_calls": 4,
+      "tokens": {
+        "input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 0
+      },
+      "wall_ms": 0,
+      "mode": "grok_workflow",
+      "error": null
+    },
+    {
+      "task_id": "abstain:a01_signed_rel:P1:unsigned_lt",
+      "arm": "B",
+      "success": true,
+      "abstained": true,
+      "answer": "refuse",
+      "gold": "refuse",
+      "tool_calls": 3,
+      "tokens": {
+        "input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 0
+      },
+      "wall_ms": 0,
+      "mode": "grok_workflow",
+      "error": null
+    },
+    {
+      "task_id": "abstain:a03_minmax_abs:P0:iabs",
+      "arm": "B",
+      "success": true,
+      "abstained": true,
+      "answer": "refuse",
+      "gold": "refuse",
+      "tool_calls": 3,
+      "tokens": {
+        "input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 0
+      },
+      "wall_ms": 0,
+      "mode": "grok_workflow",
+      "error": null
+    },
+    {
+      "task_id": "abstain:a03_minmax_abs:P0:imin",
+      "arm": "B",
+      "success": true,
+      "abstained": true,
+      "answer": "refuse",
+      "gold": "refuse",
+      "tool_calls": 4,
+      "tokens": {
+        "input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 0
+      },
+      "wall_ms": 0,
+      "mode": "grok_workflow",
+      "error": null
+    }
+  ],
+  "corpus": {
+    "task_count": 12,
+    "profiles": [
+      "P0",
+      "P1"
+    ],
+    "families": [
+      "locate",
+      "abstain"
+    ],
+    "mode": "grok_workflow",
+    "note": "Grok session subagents (workflow agent-bench-grok-ab). No Anthropic. Grok tokens used in-session.",
+    "workflow": "agent-bench-grok-ab",
+    "agents_used": 26
+  },
+  "mode": "grok_workflow"
+}
