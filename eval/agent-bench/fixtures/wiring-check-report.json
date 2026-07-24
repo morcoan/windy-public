@@ -1,6 +1,7 @@
 {
-  "harness": "agent-bench-v1",
-  "commit": "996961a855e48b30f9aaaa3179fcbd8b13b7d7fe",
+  "harness": "agent-bench-v1-wiring-check",
+  "synthetic": true,
+  "commit": "321371c1a2eb62186e1c7bf3838e2e51543a2274",
   "model": null,
   "live": false,
   "arms": [
@@ -51,7 +52,7 @@
         "output_tokens": 80
       },
       "wall_ms": 0,
-      "mode": "offline_oracle",
+      "mode": "offline_wiring",
       "error": null
     },
     {
@@ -69,7 +70,7 @@
         "output_tokens": 80
       },
       "wall_ms": 0,
-      "mode": "offline_oracle",
+      "mode": "offline_wiring",
       "error": null
     },
     {
@@ -87,7 +88,7 @@
         "output_tokens": 80
       },
       "wall_ms": 0,
-      "mode": "offline_oracle",
+      "mode": "offline_wiring",
       "error": null
     },
     {
@@ -105,7 +106,7 @@
         "output_tokens": 80
       },
       "wall_ms": 0,
-      "mode": "offline_oracle",
+      "mode": "offline_wiring",
       "error": null
     },
     {
@@ -123,7 +124,7 @@
         "output_tokens": 80
       },
       "wall_ms": 0,
-      "mode": "offline_oracle",
+      "mode": "offline_wiring",
       "error": null
     },
     {
@@ -141,7 +142,7 @@
         "output_tokens": 80
       },
       "wall_ms": 0,
-      "mode": "offline_oracle",
+      "mode": "offline_wiring",
       "error": null
     },
     {
@@ -159,7 +160,7 @@
         "output_tokens": 80
       },
       "wall_ms": 0,
-      "mode": "offline_oracle",
+      "mode": "offline_wiring",
       "error": null
     },
     {
@@ -177,7 +178,7 @@
         "output_tokens": 80
       },
       "wall_ms": 0,
-      "mode": "offline_oracle",
+      "mode": "offline_wiring",
       "error": null
     },
     {
@@ -195,7 +196,7 @@
         "output_tokens": 80
       },
       "wall_ms": 0,
-      "mode": "offline_oracle",
+      "mode": "offline_wiring",
       "error": null
     },
     {
@@ -213,7 +214,7 @@
         "output_tokens": 80
       },
       "wall_ms": 0,
-      "mode": "offline_oracle",
+      "mode": "offline_wiring",
       "error": null
     },
     {
@@ -231,7 +232,7 @@
         "output_tokens": 80
       },
       "wall_ms": 0,
-      "mode": "offline_oracle",
+      "mode": "offline_wiring",
       "error": null
     },
     {
@@ -249,7 +250,7 @@
         "output_tokens": 80
       },
       "wall_ms": 0,
-      "mode": "offline_oracle",
+      "mode": "offline_wiring",
       "error": null
     },
     {
@@ -267,7 +268,7 @@
         "output_tokens": 80
       },
       "wall_ms": 0,
-      "mode": "offline_oracle",
+      "mode": "offline_wiring",
       "error": null
     },
     {
@@ -285,7 +286,7 @@
         "output_tokens": 80
       },
       "wall_ms": 0,
-      "mode": "offline_oracle",
+      "mode": "offline_wiring",
       "error": null
     },
     {
@@ -303,7 +304,7 @@
         "output_tokens": 80
       },
       "wall_ms": 0,
-      "mode": "offline_oracle",
+      "mode": "offline_wiring",
       "error": null
     },
     {
@@ -321,7 +322,7 @@
         "output_tokens": 80
       },
       "wall_ms": 0,
-      "mode": "offline_oracle",
+      "mode": "offline_wiring",
       "error": null
     }
   ],
@@ -330,6 +331,7 @@
       "locate",
       "abstain"
     ],
+    "note": "SYNTHETIC offline wiring: arm A returns gold by construction; B/C wrong by construction. Not a product measurement.",
     "profiles": [
       "P0",
       "P1"

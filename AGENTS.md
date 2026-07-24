@@ -70,8 +70,9 @@ Agent-loop task success + honest abstention vs python/pefile baseline
 `eval/agent-bench` (raw HTTP Anthropic client; **not** inside the windy binary).
 
 ```bash
-# Offline task load + report shape (no API key)
-cargo run -p agent-bench -- --root . --limit 12 --profile P0 --profile P1
+# Offline scoring-wiring only (synthetic; write under fixtures/, not docs/benchmarks/)
+cargo run -p agent-bench -- --root . --limit 12 --profile P0 --profile P1 \
+  --output eval/agent-bench/fixtures/wiring-check-report.json
 # Evidence-card smoke (not the full agent loop)
 windy bench agent-loop --pe gclsd/bench/sample.exe --limit 16
 cargo test eval_metrics

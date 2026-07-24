@@ -2,16 +2,18 @@
 //!
 //! Arms:
 //! - A: windy-evidence (MCP tools: get_function_evidence, search_bel, get_triage, …)
-//! - B: python-tools (bash + pefile/capstone scratch; no Windy)
+//! - B: python-tools (bash + scratch dir with pefile/capstone; no Windy)
 //! - C: windy-dump (agent_text + read_va only)
 //!
 //! Token accounting sums input_tokens + cache_creation_input_tokens +
 //! cache_read_input_tokens (Anthropic usage fields). Never report
 //! input_tokens alone.
 //!
-//! Default mode is offline scoring of gold tasks (no API key required).
+//! Default mode is offline **scoring-wiring** only (synthetic answers, no
+//! binary analysis). It is not a benchmark result — write fixtures under
+//! `eval/agent-bench/fixtures/`, never under `docs/benchmarks/`.
 //! Pass `--live` with ANTHROPIC_API_KEY and a built `windy` binary for a
-//! real model loop.
+//! real model loop; live reports may land in `docs/benchmarks/`.
 
 use std::collections::BTreeMap;
 use std::fs;
@@ -25,6 +27,20 @@ use clap::{Parser, ValueEnum};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
+
+/// Shared abstention vocabulary for scoring success **and** abstention rate.
+/// Keep `score_answer` and `is_abstain` on this single list.
+const ABSTAIN_MARKERS: &[&str] = &[
+    "refuse",
+    "unknown",
+    "inlined",
+    "missing",
+    "not present",
+    "eliminated",
+];
+
+const MAX_SHELL_OUTPUT: usize = 32 * 1024;
+const SHELL_TIMEOUT_SECS: u64 = 45;
 
 #[derive(Clone, Copy, Debug, ValueEnum)]
 enum Arm {
@@ -65,6 +81,8 @@ struct Cli {
     #[arg(long, default_value = "claude-opus-4-20250514")]
     model: String,
     /// Write machine-readable report JSON here.
+    /// Offline wiring: prefer `eval/agent-bench/fixtures/wiring-check-*.json`.
+    /// Live results: prefer `docs/benchmarks/agent-loop-v1-report.json`.
     #[arg(long)]
     output: Option<PathBuf>,
     /// Also write markdown summary here.
@@ -155,12 +173,26 @@ struct ArmSummary {
 #[derive(Clone, Debug, Serialize)]
 struct Report {
     harness: String,
+    /// Explicit: offline wiring is synthetic; only live reports are evidence.
+    synthetic: bool,
     commit: Option<String>,
     model: Option<String>,
     live: bool,
     arms: Vec<ArmSummary>,
     results: Vec<TaskResult>,
     corpus: Value,
+}
+
+/// How tool_use blocks are executed.
+enum ToolBackend {
+    Mcp {
+        endpoint: String,
+    },
+    /// Arm B: shell + files confined to `scratch`.
+    PythonScratch {
+        scratch: PathBuf,
+        pe_path: PathBuf,
+    },
 }
 
 fn main() -> Result<()> {
@@ -172,6 +204,13 @@ fn main() -> Result<()> {
             "no tasks matched filters (profiles={:?} families={:?})",
             cli.profile,
             cli.family
+        );
+    }
+
+    if !cli.live {
+        eprintln!(
+            "agent-bench: offline wiring-check mode (synthetic answers). \
+             Not a benchmark result. Use --live for A-vs-B measurement."
         );
     }
 
@@ -192,6 +231,7 @@ fn main() -> Result<()> {
     let report = build_report(&cli, &root, &tasks, results);
     let json = serde_json::to_string_pretty(&report)?;
     if let Some(path) = &cli.output {
+        warn_if_synthetic_in_benchmarks(&report, path);
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent)?;
         }
@@ -201,6 +241,7 @@ fn main() -> Result<()> {
     println!("{json}");
 
     if let Some(path) = &cli.markdown {
+        warn_if_synthetic_in_benchmarks(&report, path);
         let md = render_markdown(&report);
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent)?;
@@ -213,14 +254,25 @@ fn main() -> Result<()> {
     let a_fails = report
         .results
         .iter()
-        .filter(|r| r.arm == "A" && r.mode == "offline_oracle" && !r.success)
+        .filter(|r| r.arm == "A" && r.mode == "offline_wiring" && !r.success)
         .count();
     if a_fails > 0 && !cli.live {
         eprintln!(
-            "warning: {a_fails} offline arm-A oracle failures (unexpected for locate/abstain)"
+            "warning: {a_fails} offline arm-A wiring failures (unexpected for locate/abstain)"
         );
     }
     Ok(())
+}
+
+fn warn_if_synthetic_in_benchmarks(report: &Report, path: &Path) {
+    let p = path.to_string_lossy().replace('\\', "/");
+    if report.synthetic && p.contains("docs/benchmarks") {
+        eprintln!(
+            "warning: writing synthetic wiring-check report under docs/benchmarks/ ({}). \
+             Prefer eval/agent-bench/fixtures/wiring-check-*. Leave docs/benchmarks/ for live runs only.",
+            path.display()
+        );
+    }
 }
 
 fn resolve_windy(root: &Path, explicit: Option<&Path>) -> Result<PathBuf> {
@@ -262,7 +314,6 @@ fn load_tasks(
         if !name.ends_with(".json") {
             continue;
         }
-        // name like a01_signed_rel_P0.json
         let stem = name.trim_end_matches(".json");
         let Some((program_id, profile)) = stem.rsplit_once('_') else {
             continue;
@@ -317,22 +368,20 @@ fn load_tasks(
         }
     }
 
-    // Prefer a balanced mix: take locate then abstain.
     tasks.sort_by(|a, b| a.id.cmp(&b.id));
     tasks.truncate(limit);
     Ok(tasks)
 }
 
-/// Offline oracle: arm A "cheats" via gold identity (proves scoring wiring);
-/// arm B always fails locate (simulates confabulation risk without PE tools);
-/// arm C same as B for offline.
+/// Offline **wiring** oracle: proves scorer + report shape only.
+/// Arm A returns gold; B/C return wrong answers by construction.
+/// Do not publish these numbers as benchmark results.
 fn run_offline_task(arm: Arm, task: &Task) -> TaskResult {
     let started = Instant::now();
     let answer = match (arm, task.family.as_str()) {
         (Arm::A, "locate") => task.gold.clone(),
         (Arm::A, "abstain") => "refuse".into(),
         (Arm::A, _) => task.gold.clone(),
-        // Python baseline offline placeholder: wrong on locate, confabulates on abstain.
         (Arm::B | Arm::C, "abstain") => "0x140001000".into(),
         (Arm::B | Arm::C, _) => "0x0".into(),
     };
@@ -341,9 +390,7 @@ fn run_offline_task(arm: Arm, task: &Task) -> TaskResult {
         task_id: task.id.clone(),
         arm: arm_name(arm).into(),
         success,
-        abstained: answer.to_ascii_lowercase().contains("refuse")
-            || answer.to_ascii_lowercase().contains("unknown")
-            || answer.to_ascii_lowercase().contains("inlined"),
+        abstained: is_abstain(&answer),
         answer,
         gold: task.gold.clone(),
         tool_calls: match arm {
@@ -352,7 +399,7 @@ fn run_offline_task(arm: Arm, task: &Task) -> TaskResult {
             Arm::C => 2,
         },
         tokens: TokenUsage {
-            // Non-zero non-hardcoded placeholders that differ by arm (usage shape only).
+            // Distinct shapes only — not measured cost.
             input_tokens: match arm {
                 Arm::A => 1200,
                 Arm::B => 2400,
@@ -367,7 +414,7 @@ fn run_offline_task(arm: Arm, task: &Task) -> TaskResult {
             output_tokens: 80,
         },
         wall_ms: started.elapsed().as_millis(),
-        mode: "offline_oracle".into(),
+        mode: "offline_wiring".into(),
         error: None,
     }
 }
@@ -376,17 +423,16 @@ fn score_answer(task: &Task, answer: &str) -> bool {
     let a = answer.trim().to_ascii_lowercase();
     let g = task.gold.trim().to_ascii_lowercase();
     if g == "refuse" {
-        return a.contains("refuse")
-            || a.contains("unknown")
-            || a.contains("inlined")
-            || a.contains("missing")
-            || a.contains("not present")
-            || a.contains("eliminated");
+        return is_abstain(&a);
     }
-    // Normalize hex.
     let an = normalize_va(&a);
     let gn = normalize_va(&g);
     an.is_some() && an == gn
+}
+
+fn is_abstain(answer: &str) -> bool {
+    let a = answer.to_ascii_lowercase();
+    ABSTAIN_MARKERS.iter().any(|m| a.contains(m))
 }
 
 fn normalize_va(s: &str) -> Option<u64> {
@@ -395,7 +441,6 @@ fn normalize_va(s: &str) -> Option<u64> {
         .strip_prefix("0x")
         .or_else(|| t.strip_prefix("0X"))
         .unwrap_or(t);
-    // Pull first hex-looking token.
     let token = hex
         .split(|c: char| !c.is_ascii_hexdigit())
         .find(|p| !p.is_empty() && p.len() >= 4)?;
@@ -410,7 +455,7 @@ fn arm_name(arm: Arm) -> &'static str {
     }
 }
 
-fn arm_tools(arm: Arm) -> &'static [&'static str] {
+fn windy_tool_names(arm: Arm) -> &'static [&'static str] {
     match arm {
         Arm::A => &[
             "open_project",
@@ -429,7 +474,7 @@ fn arm_tools(arm: Arm) -> &'static [&'static str] {
             "list_imports",
             "list_strings",
         ],
-        Arm::B => &[], // python only
+        Arm::B => &[], // handled by python_scratch_tool_defs
         Arm::C => &[
             "open_project",
             "list_functions",
@@ -438,6 +483,67 @@ fn arm_tools(arm: Arm) -> &'static [&'static str] {
             "get_fragment",
         ],
     }
+}
+
+fn mcp_tool_defs(names: &[&str]) -> Vec<Value> {
+    names
+        .iter()
+        .map(|name| {
+            json!({
+                "name": name,
+                "description": format!("Windy MCP tool `{name}` (proxied by harness)"),
+                "input_schema": {
+                    "type": "object",
+                    "additionalProperties": true,
+                }
+            })
+        })
+        .collect()
+}
+
+/// Arm B tools: real ability to inspect the PE without Windy.
+fn python_scratch_tool_defs() -> Vec<Value> {
+    vec![
+        json!({
+            "name": "bash",
+            "description": "Run a shell command in the scratch directory (cwd is the scratch root). \
+                Python venv with pefile and capstone is on PATH. BINARY_PATH env var points at the PE. \
+                Use this to write/run throwaway scripts. Do not invent VAs — read them from the binary.",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "command": {
+                        "type": "string",
+                        "description": "Shell command to run (cmd.exe on Windows, sh -c elsewhere)."
+                    }
+                },
+                "required": ["command"]
+            }
+        }),
+        json!({
+            "name": "write_file",
+            "description": "Write a UTF-8 text file under the scratch directory (relative path only).",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "path": { "type": "string", "description": "Relative path under scratch, e.g. inspect.py" },
+                    "content": { "type": "string" }
+                },
+                "required": ["path", "content"]
+            }
+        }),
+        json!({
+            "name": "read_file",
+            "description": "Read a UTF-8 text file under the scratch directory (relative path only).",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "path": { "type": "string" }
+                },
+                "required": ["path"]
+            }
+        }),
+    ]
 }
 
 fn run_live_task(cli: &Cli, root: &Path, windy: &Path, arm: Arm, task: &Task) -> TaskResult {
@@ -474,49 +580,66 @@ fn run_live_python_arm(
     task: &Task,
     started: Instant,
 ) -> TaskResult {
-    let scratch = root.join("target/agent-bench-scratch").join(&task.id);
+    let scratch = root
+        .join("target/agent-bench-scratch")
+        .join(task.id.replace(':', "_"));
     let _ = fs::remove_dir_all(&scratch);
     if let Err(e) = fs::create_dir_all(&scratch) {
         return fail_result(task, "B", started, e.to_string());
     }
+
+    // Seed a helper the agent may edit; it is not product code.
     let helper = scratch.join("pe_inspect.py");
-    let script = r#"# Auto-generated scratch helper for agent-bench arm B.
-# The model may edit/extend this. Harness does not maintain Python product code.
+    let seed = format!(
+        r#"# Scratch helper (agent-bench arm B). Throwaway — not maintained product code.
 import sys
-try:
-    import pefile
-except ImportError:
-    print("pefile_missing", file=sys.stderr)
-    sys.exit(2)
-pe = pefile.PE(sys.argv[1])
+import pefile
+pe = pefile.PE(r"{pe}")
 print("image_base", hex(pe.OPTIONAL_HEADER.ImageBase))
 print("entry", hex(pe.OPTIONAL_HEADER.ImageBase + pe.OPTIONAL_HEADER.AddressOfEntryPoint))
-if hasattr(pe, "DIRECTORY_ENTRY_EXPORT"):
+if hasattr(pe, "DIRECTORY_ENTRY_EXPORT") and pe.DIRECTORY_ENTRY_EXPORT:
     for exp in pe.DIRECTORY_ENTRY_EXPORT.symbols:
         if exp.name:
             print("export", hex(pe.OPTIONAL_HEADER.ImageBase + exp.address), exp.name.decode(errors="replace"))
-"#;
-    let _ = fs::write(&helper, script);
+"#,
+        pe = task.pe_path.display().to_string().replace('\\', "\\\\")
+    );
+    let _ = fs::write(&helper, seed);
+
+    if let Err(e) = ensure_python_pe_tools(&scratch) {
+        return fail_result(
+            task,
+            "B",
+            started,
+            format!("failed to provision pefile/capstone in scratch: {e}"),
+        );
+    }
 
     let system = format!(
-        "You reverse Windows PE binaries using only Python in a scratch directory.\n\
-         Available: python, pefile, and optionally capstone if installed.\n\
-         Scratch dir: {}\n\
-         Helper seed: {}\n\
-         Binary: {}\n\
-         Answer with a single hex VA, or the word refuse if the function is gone.\n\
-         Do not invent VAs.",
-        scratch.display(),
-        helper.display(),
-        task.pe_path.display()
+        "You reverse Windows PE binaries using only a shell and Python in a scratch directory.\n\
+         You do NOT have Windy or any RE IDE.\n\
+         Scratch directory (cwd for bash): {scratch}\n\
+         Binary path: {pe}\n\
+         Environment: BINARY_PATH is set; a venv with pefile and capstone is on PATH.\n\
+         Tools: bash (run commands), write_file, read_file.\n\
+         Seed script: pe_inspect.py — you may edit or replace it.\n\
+         Answer with a single hex VA, or refuse if the function is gone/inlined/eliminated.\n\
+         Do not invent VAs. Inspect the binary with your tools first.",
+        scratch = scratch.display(),
+        pe = task.pe_path.display()
     );
+
+    let backend = ToolBackend::PythonScratch {
+        scratch: scratch.clone(),
+        pe_path: task.pe_path.clone(),
+    };
     match anthropic_tool_loop(
         api_key,
         &cli.model,
         &system,
         &task.question,
-        &[], // no MCP tools; model would need bash — simplified: single-shot text
-        None,
+        &python_scratch_tool_defs(),
+        &backend,
     ) {
         Ok((answer, tokens, tools)) => {
             let success = score_answer(task, &answer);
@@ -536,6 +659,71 @@ if hasattr(pe, "DIRECTORY_ENTRY_EXPORT"):
         }
         Err(e) => fail_result(task, "B", started, e.to_string()),
     }
+}
+
+/// Create a scratch venv and install pefile + capstone when missing.
+fn ensure_python_pe_tools(scratch: &Path) -> Result<()> {
+    let py = python_launcher();
+    let venv = scratch.join(".venv");
+    let marker = scratch.join(".venv_ready");
+    if marker.exists() {
+        return Ok(());
+    }
+
+    let status = Command::new(&py)
+        .args(["-m", "venv"])
+        .arg(&venv)
+        .current_dir(scratch)
+        .status()
+        .with_context(|| format!("spawn {py} -m venv"))?;
+    if !status.success() {
+        bail!("python -m venv failed with {status}");
+    }
+
+    let pip = if cfg!(windows) {
+        venv.join("Scripts").join("pip.exe")
+    } else {
+        venv.join("bin").join("pip")
+    };
+    let status = Command::new(&pip)
+        .args(["install", "--quiet", "pefile", "capstone"])
+        .current_dir(scratch)
+        .status()
+        .with_context(|| format!("spawn {}", pip.display()))?;
+    if !status.success() {
+        bail!("pip install pefile capstone failed with {status}");
+    }
+
+    // Quick import check via venv python.
+    let vpy = if cfg!(windows) {
+        venv.join("Scripts").join("python.exe")
+    } else {
+        venv.join("bin").join("python")
+    };
+    let status = Command::new(&vpy)
+        .args(["-c", "import pefile, capstone; print('ok')"])
+        .current_dir(scratch)
+        .status()
+        .with_context(|| format!("spawn {}", vpy.display()))?;
+    if !status.success() {
+        bail!("venv import check failed with {status}");
+    }
+
+    fs::write(&marker, b"ok")?;
+    Ok(())
+}
+
+fn python_launcher() -> String {
+    std::env::var("PYTHON")
+        .ok()
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| {
+            if cfg!(windows) {
+                "python".into()
+            } else {
+                "python3".into()
+            }
+        })
 }
 
 fn run_live_windy_arm(
@@ -568,11 +756,10 @@ fn run_live_windy_arm(
         Ok(c) => c,
         Err(e) => return fail_result(task, arm_name(arm), started, e.to_string()),
     };
-    // Give MCP a moment to bind.
     thread::sleep(Duration::from_millis(800));
 
     let endpoint = format!("http://{bind}/mcp");
-    let tools = arm_tools(arm);
+    let tools = windy_tool_names(arm);
     let system = format!(
         "You are a reverse engineer using Windy MCP tools only.\n\
          Endpoint: {endpoint}\n\
@@ -583,13 +770,16 @@ fn run_live_windy_arm(
         tools.join(", ")
     );
 
+    let backend = ToolBackend::Mcp {
+        endpoint: endpoint.clone(),
+    };
     let result = anthropic_tool_loop(
         api_key,
         &cli.model,
         &system,
         &task.question,
-        tools,
-        Some(&endpoint),
+        &mcp_tool_defs(tools),
+        &backend,
     );
 
     let _ = child.kill();
@@ -614,15 +804,6 @@ fn run_live_windy_arm(
         }
         Err(e) => fail_result(task, arm_name(arm), started, e.to_string()),
     }
-}
-
-fn is_abstain(answer: &str) -> bool {
-    let a = answer.to_ascii_lowercase();
-    a.contains("refuse")
-        || a.contains("unknown")
-        || a.contains("inlined")
-        || a.contains("missing")
-        || a.contains("not present")
 }
 
 fn fail_result(task: &Task, arm: &str, started: Instant, error: String) -> TaskResult {
@@ -669,43 +850,25 @@ fn spawn_windy(windy: &Path, bind: &str, pe: &Path, data_dir: &Path) -> Result<C
         .with_context(|| format!("spawn {}", windy.display()))
 }
 
-/// Minimal Anthropic Messages API loop. Tool results are sent in one user message.
+/// Anthropic Messages API loop. All tool_result blocks go in one user message.
 fn anthropic_tool_loop(
     api_key: &str,
     model: &str,
     system: &str,
     user: &str,
-    allowed_tools: &[&str],
-    mcp_endpoint: Option<&str>,
+    tools_json: &[Value],
+    backend: &ToolBackend,
 ) -> Result<(String, TokenUsage, usize)> {
     let client = reqwest::blocking::Client::builder()
         .timeout(Duration::from_secs(180))
         .build()?;
-
-    let tools_json: Vec<Value> = if allowed_tools.is_empty() {
-        vec![]
-    } else {
-        allowed_tools
-            .iter()
-            .map(|name| {
-                json!({
-                    "name": name,
-                    "description": format!("Windy MCP tool `{name}` (proxied by harness)"),
-                    "input_schema": {
-                        "type": "object",
-                        "additionalProperties": true,
-                    }
-                })
-            })
-            .collect()
-    };
 
     let mut messages = vec![json!({"role": "user", "content": user})];
     let mut usage = TokenUsage::default();
     let mut tool_calls = 0usize;
     let mut final_text = String::new();
 
-    for _turn in 0..12 {
+    for _turn in 0..16 {
         let mut body = json!({
             "model": model,
             "max_tokens": 4096,
@@ -720,7 +883,7 @@ fn anthropic_tool_loop(
         });
         // Do NOT set temperature/top_p/top_k — rejected on some models.
         if !tools_json.is_empty() {
-            body["tools"] = Value::Array(tools_json.clone());
+            body["tools"] = Value::Array(tools_json.to_vec());
         }
 
         let resp = client
@@ -750,7 +913,6 @@ fn anthropic_tool_loop(
             .and_then(|s| s.as_str())
             .unwrap_or("");
 
-        // Always append assistant content as-is.
         messages.push(json!({"role": "assistant", "content": content.clone()}));
 
         if stop == "tool_use" {
@@ -763,24 +925,18 @@ fn anthropic_tool_loop(
                 let id = block.get("id").and_then(|v| v.as_str()).unwrap_or("");
                 let name = block.get("name").and_then(|v| v.as_str()).unwrap_or("");
                 let input = block.get("input").cloned().unwrap_or(json!({}));
-                let result = if let Some(ep) = mcp_endpoint {
-                    proxy_mcp_tool(ep, name, &input)
-                        .unwrap_or_else(|e| json!({"error": e.to_string()}).to_string())
-                } else {
-                    json!({"error": "no MCP endpoint for this arm"}).to_string()
-                };
+                let result =
+                    execute_tool(backend, name, &input).unwrap_or_else(|e| format!("error: {e}"));
                 tool_results.push(json!({
                     "type": "tool_result",
                     "tool_use_id": id,
-                    "content": result,
+                    "content": truncate_tool_output(&result),
                 }));
             }
-            // All tool_result blocks in a single user message.
             messages.push(json!({"role": "user", "content": tool_results}));
             continue;
         }
 
-        // Collect text answer.
         for block in &content {
             if block.get("type").and_then(|t| t.as_str()) == Some("text")
                 && let Some(t) = block.get("text").and_then(|t| t.as_str())
@@ -794,37 +950,225 @@ fn anthropic_tool_loop(
     Ok((final_text, usage, tool_calls))
 }
 
+fn execute_tool(backend: &ToolBackend, name: &str, input: &Value) -> Result<String> {
+    match backend {
+        ToolBackend::Mcp { endpoint } => proxy_mcp_tool(endpoint, name, input),
+        ToolBackend::PythonScratch { scratch, pe_path } => {
+            execute_python_scratch_tool(scratch, pe_path, name, input)
+        }
+    }
+}
+
+fn execute_python_scratch_tool(
+    scratch: &Path,
+    pe_path: &Path,
+    name: &str,
+    input: &Value,
+) -> Result<String> {
+    match name {
+        "bash" => {
+            let command = input
+                .get("command")
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| anyhow::anyhow!("bash requires string field `command`"))?;
+            run_scratch_shell(scratch, pe_path, command)
+        }
+        "write_file" => {
+            let rel = input
+                .get("path")
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| anyhow::anyhow!("write_file requires `path`"))?;
+            let content = input
+                .get("content")
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| anyhow::anyhow!("write_file requires `content`"))?;
+            let path = resolve_scratch_path(scratch, rel)?;
+            if let Some(parent) = path.parent() {
+                fs::create_dir_all(parent)?;
+            }
+            fs::write(&path, content)?;
+            Ok(format!(
+                "wrote {} ({} bytes)",
+                path.display(),
+                content.len()
+            ))
+        }
+        "read_file" => {
+            let rel = input
+                .get("path")
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| anyhow::anyhow!("read_file requires `path`"))?;
+            let path = resolve_scratch_path(scratch, rel)?;
+            let data =
+                fs::read_to_string(&path).with_context(|| format!("read {}", path.display()))?;
+            Ok(truncate_tool_output(&data))
+        }
+        other => bail!("unknown arm-B tool `{other}` (allowed: bash, write_file, read_file)"),
+    }
+}
+
+fn resolve_scratch_path(scratch: &Path, rel: &str) -> Result<PathBuf> {
+    let rel = rel.trim();
+    if rel.is_empty() {
+        bail!("empty path");
+    }
+    if Path::new(rel).is_absolute() {
+        bail!("absolute paths rejected; use a path relative to scratch");
+    }
+    if rel.split(['/', '\\']).any(|p| p == "..") {
+        bail!("path traversal rejected");
+    }
+    let scratch = scratch
+        .canonicalize()
+        .with_context(|| format!("canonicalize {}", scratch.display()))?;
+    let joined = scratch.join(rel);
+    // If parent exists, ensure final path stays under scratch after normalize.
+    if let Ok(canon) = joined.canonicalize() {
+        if !canon.starts_with(&scratch) {
+            bail!("path escapes scratch");
+        }
+        return Ok(canon);
+    }
+    // File may not exist yet (write_file): check parent.
+    if let Some(parent) = joined.parent() {
+        if parent.exists() {
+            let parent = parent.canonicalize()?;
+            if !parent.starts_with(&scratch) {
+                bail!("path escapes scratch");
+            }
+        }
+    }
+    Ok(joined)
+}
+
+fn run_scratch_shell(scratch: &Path, pe_path: &Path, command: &str) -> Result<String> {
+    let scratch = scratch
+        .canonicalize()
+        .with_context(|| format!("canonicalize {}", scratch.display()))?;
+
+    let mut cmd = if cfg!(windows) {
+        let mut c = Command::new("cmd");
+        c.arg("/C").arg(command);
+        c
+    } else {
+        let mut c = Command::new("sh");
+        c.arg("-c").arg(command);
+        c
+    };
+
+    // Prefer venv python/scripts on PATH for this process.
+    let path_prepend = if cfg!(windows) {
+        scratch.join(".venv").join("Scripts")
+    } else {
+        scratch.join(".venv").join("bin")
+    };
+    let old_path = std::env::var_os("PATH").unwrap_or_default();
+    let mut new_path = path_prepend.into_os_string();
+    if cfg!(windows) {
+        new_path.push(";");
+    } else {
+        new_path.push(":");
+    }
+    new_path.push(&old_path);
+
+    cmd.current_dir(&scratch)
+        .env("PATH", new_path)
+        .env("BINARY_PATH", pe_path)
+        .env("PYTHONUTF8", "1")
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+
+    let mut child = cmd.spawn().context("spawn shell")?;
+    let start = Instant::now();
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => {
+                let mut stdout = String::new();
+                let mut stderr = String::new();
+                if let Some(mut out) = child.stdout.take() {
+                    use std::io::Read;
+                    let mut buf = Vec::new();
+                    let _ = out.read_to_end(&mut buf);
+                    stdout = String::from_utf8_lossy(&buf).into_owned();
+                }
+                if let Some(mut err) = child.stderr.take() {
+                    use std::io::Read;
+                    let mut buf = Vec::new();
+                    let _ = err.read_to_end(&mut buf);
+                    stderr = String::from_utf8_lossy(&buf).into_owned();
+                }
+                let mut combined = String::new();
+                if !stdout.is_empty() {
+                    combined.push_str(&stdout);
+                }
+                if !stderr.is_empty() {
+                    if !combined.is_empty() {
+                        combined.push_str("\n--- stderr ---\n");
+                    }
+                    combined.push_str(&stderr);
+                }
+                if combined.is_empty() {
+                    combined = format!("(exit {status}, no output)");
+                } else {
+                    combined.push_str(&format!("\n(exit {status})"));
+                }
+                return Ok(truncate_tool_output(&combined));
+            }
+            Ok(None) => {
+                if start.elapsed() > Duration::from_secs(SHELL_TIMEOUT_SECS) {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    bail!("command timed out after {SHELL_TIMEOUT_SECS}s");
+                }
+                thread::sleep(Duration::from_millis(50));
+            }
+            Err(e) => bail!("wait shell: {e}"),
+        }
+    }
+}
+
+fn truncate_tool_output(s: &str) -> String {
+    if s.len() <= MAX_SHELL_OUTPUT {
+        return s.to_string();
+    }
+    let mut out = s[..MAX_SHELL_OUTPUT].to_string();
+    out.push_str("\n…[truncated]");
+    out
+}
+
 fn accumulate_usage(usage: &mut TokenUsage, resp: &Value) {
     let u = match resp.get("usage") {
         Some(u) => u,
         None => return,
     };
-    usage.input_tokens = usage
-        .input_tokens
-        .saturating_add(u.get("input_tokens").and_then(|v| v.as_u64()).unwrap_or(0));
-    usage.output_tokens = usage
-        .output_tokens
-        .saturating_add(u.get("output_tokens").and_then(|v| v.as_u64()).unwrap_or(0));
+    usage.input_tokens = usage.input_tokens.saturating_add(
+        u.get("input_tokens")
+            .and_then(|v| v.as_u64())
+            .unwrap_or_default(),
+    );
+    usage.output_tokens = usage.output_tokens.saturating_add(
+        u.get("output_tokens")
+            .and_then(|v| v.as_u64())
+            .unwrap_or_default(),
+    );
     usage.cache_creation_input_tokens = usage.cache_creation_input_tokens.saturating_add(
         u.get("cache_creation_input_tokens")
             .and_then(|v| v.as_u64())
-            .unwrap_or(0),
+            .unwrap_or_default(),
     );
     usage.cache_read_input_tokens = usage.cache_read_input_tokens.saturating_add(
         u.get("cache_read_input_tokens")
             .and_then(|v| v.as_u64())
-            .unwrap_or(0),
+            .unwrap_or_default(),
     );
 }
 
 /// Best-effort JSON-RPC tools/call against streamable HTTP MCP.
-/// Windy's transport is streamable HTTP; for harness we try a simple POST body.
 fn proxy_mcp_tool(endpoint: &str, name: &str, input: &Value) -> Result<String> {
     let client = reqwest::blocking::Client::builder()
         .timeout(Duration::from_secs(60))
         .build()?;
-    // Streamable HTTP MCP typically needs session handshake. This is a best-effort
-    // initialize + tools/call sequence for local loopback harness use.
     let init = json!({
         "jsonrpc": "2.0",
         "id": 1,
@@ -912,8 +1256,14 @@ fn build_report(cli: &Cli, root: &Path, tasks: &[Task], results: Vec<TaskResult>
         format!("{:x}", hasher.finalize())
     };
 
+    let synthetic = !cli.live;
     Report {
-        harness: "agent-bench-v1".into(),
+        harness: if synthetic {
+            "agent-bench-v1-wiring-check".into()
+        } else {
+            "agent-bench-v1".into()
+        },
+        synthetic,
         commit: git_head(root),
         model: cli.live.then(|| cli.model.clone()),
         live: cli.live,
@@ -924,6 +1274,11 @@ fn build_report(cli: &Cli, root: &Path, tasks: &[Task], results: Vec<TaskResult>
             "profiles": cli.profile,
             "families": cli.family,
             "task_set_sha256": corpus_sha,
+            "note": if synthetic {
+                "SYNTHETIC offline wiring: arm A returns gold by construction; B/C wrong by construction. Not a product measurement."
+            } else {
+                "Live agent loop results."
+            },
         }),
     }
 }
@@ -942,10 +1297,19 @@ fn git_head(root: &Path) -> Option<String> {
 
 fn render_markdown(report: &Report) -> String {
     let mut md = String::new();
-    md.push_str("# Agent loop v1\n\n");
+    if report.synthetic {
+        md.push_str("# Agent loop wiring check (SYNTHETIC - not a benchmark)\n\n");
+        md.push_str(
+            "> Offline mode returns gold for arm A and wrong answers for B/C by construction.\n\
+             > Do not cite these numbers as product evidence. Run `--live` for real A-vs-B.\n\n",
+        );
+    } else {
+        md.push_str("# Agent loop v1\n\n");
+    }
     md.push_str(&format!(
-        "- harness: `{}`\n- live: {}\n- commit: {}\n\n",
+        "- harness: `{}`\n- synthetic: {}\n- live: {}\n- commit: {}\n\n",
         report.harness,
+        report.synthetic,
         report.live,
         report.commit.as_deref().unwrap_or("unknown")
     ));
@@ -968,4 +1332,46 @@ fn render_markdown(report: &Report) -> String {
         "\nPrompt tokens = input_tokens + cache_creation_input_tokens + cache_read_input_tokens.\n",
     );
     md
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn abstain_vocab_unified() {
+        assert!(is_abstain("eliminated by inlining"));
+        assert!(score_answer(
+            &Task {
+                id: "t".into(),
+                family: "abstain".into(),
+                program_id: "p".into(),
+                profile: "P0".into(),
+                pe_path: PathBuf::from("x.exe"),
+                question: String::new(),
+                gold: "refuse".into(),
+                source_name: None,
+            },
+            "eliminated by inlining"
+        ));
+        assert!(is_abstain("eliminated by inlining"));
+    }
+
+    #[test]
+    fn scratch_path_rejects_traversal() {
+        let dir = std::env::temp_dir().join("agent-bench-path-test");
+        let _ = fs::create_dir_all(&dir);
+        let err = resolve_scratch_path(&dir, "../escape.txt").unwrap_err();
+        assert!(err.to_string().contains("traversal") || err.to_string().contains("escape"));
+    }
+
+    #[test]
+    fn bash_tool_defs_present() {
+        let defs = python_scratch_tool_defs();
+        let names: Vec<_> = defs
+            .iter()
+            .filter_map(|d| d.get("name").and_then(|n| n.as_str()))
+            .collect();
+        assert_eq!(names, ["bash", "write_file", "read_file"]);
+    }
 }
