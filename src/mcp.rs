@@ -4026,7 +4026,12 @@ mod http_tests {
         assert!(
             empty_projects["result"]["content"][0]["text"]
                 .as_str()
-                .is_some_and(|message| message.contains("no PE is open"))
+                .is_some_and(|message| {
+                    // Dump-aware wording: PE or .dmp; still "nothing is open".
+                    message.contains("nothing is open")
+                        || message.contains("no PE is open")
+                        || message.contains(".dmp")
+                })
         );
 
         let listed = client.request("tools/list", json!({}));
