@@ -8,6 +8,22 @@ The executable is `windy-beta.exe`. It uses the same durable project format as
 Windy v0.1.1, but identifies itself and its MCP server as `windy-beta` on the
 `private-beta` channel.
 
+## What this beta actually is
+
+Not a small dump patch on top of 0.1.1. Relative to pre-beta public main this
+channel is a **full agent substrate**:
+
+| Layer | What agents get |
+|---|---|
+| **Identity** | `windy-beta` / `private-beta` / `0.1.1-beta.local` |
+| **MCP** | Single loopback server (`serve-mcp` / `agent` → `:8765/mcp`) |
+| **BEL** | Evidence lattice search (`search_bel`) with provenance |
+| **PE RE** | Triage, evidence packs, structured reads, `trace_value`, memory cards |
+| **Dumps** | User-mode MDMP sessions + `open_dump_module` PE pipeline on the **same** server |
+| **Harness** | `eval/agent-bench` + free local / Grok A-vs-B reports |
+
+See `CHANGELOG.md` section **0.1.1-beta** for the full public-main drop notes.
+
 ## Start for agents
 
 ```powershell

@@ -2,6 +2,95 @@
 
 All notable changes will be documented here.
 
+## 0.1.1-beta — agent substrate + BEL + Windows dumps (public main)
+
+**This is the big jump past 0.1.1-as-decompiler-only.** Public `main` tip
+`16adf42` is not “just minidumps.” Relative to `996961a` (pre-beta) it is
+**~15.6k lines / 52 files** across five commits: a pure-MCP reverse-engineering
+substrate for external agents, then multi‑GB user-mode dump analysis on the
+**same** headless server.
+
+Identity when built with `--features beta`:
+
+| field | value |
+|---|---|
+| MCP / product name | `windy-beta` |
+| channel | `private-beta` |
+| version string | `0.1.1-beta.local` |
+| endpoint | `http://127.0.0.1:8765/mcp` (`serve-mcp` / `agent`) |
+
+### From “PE workbench” → “agent substrate”
+
+Before this drop, Windy was already a PE reverse-engineering workbench with
+MCP and native decompile. This beta makes external agents (Cursor, Claude,
+Grok, OpenCode, …) first-class operators:
+
+- **Binary Evidence Lattice (BEL)** — first-class searchable evidence index
+  (`search_bel`): exact / prefix / substring / numeric / regex / token /
+  relationship / motif / ontology / multi-evidence, with provenance and stable
+  cursors. Eager build on beta open; deadline-bound lazy on public builds.
+  Docs: `docs/BEL.md`.
+- **Evidence-first tool ladder** — `get_triage` (deterministic fixed-point
+  ranking), `get_function_evidence` one-shot packs, claims / consistency /
+  function memory cards, reversible `Op` journals.
+- **Structured memory reads** — `read_pointers`, `walk_list`,
+  `read_struct_array`, `describe_address` (resolved, not raw hex walls).
+- **Provenance** — interprocedural `trace_value` with honest `died` reasons
+  (depth cap, indirect, …).
+- **Beta packaging** — `scripts/package-beta.ps1`, `docs/BETA_README.md`,
+  product split via `build_info` (`windy` vs `windy-beta`).
+- **Agent-loop harness** — workspace crate `eval/agent-bench` (raw Anthropic
+  HTTP; not inside the windy binary), free `--local` P0/P1 A-vs-B vs
+  pefile/capstone, Grok multi-agent workflows, reports under
+  `docs/benchmarks/agent-loop-v1*`.
+
+Commits in this stack: `321371c` (substrate/BEL/beta), `01c8a78` /
+`3ee4ad8` / `9f250bc` (agent-bench realism + free local + Grok A/B).
+
+### Windows user-mode `.dmp` on the same MCP
+
+Then dumps land as first-class citizens **without a second server**:
+
+- **MDMP only** (user minidumps / full-memory user dumps). Kernel dumps hard-reject.
+- **Dump sessions** — open `.dmp` via `open_project` → `kind=dump_session`
+  (modules, threads, exception if any, sparse Memory64 map, GB-scale mmap).
+- **Crash / hang triage** — `get_dump_triage`, `list_dump_modules`,
+  `list_dump_threads`, `list_memory_regions`, `describe_dump`,
+  `get_thread_stack` (FP chain + RSP scan; works without Exception stream).
+- **Hybrid RE** — `open_dump_module` extracts a runtime-base PE image, runs the
+  full PE analysis pipeline (functions, evidence, decompile, BEL on the
+  **module only** — never process-wide BEL on a 10 GiB dump).
+- **Cross-module IAT** — resolved absolute IAT slots → `module!export` via dump
+  memory + auto-workspace / cross-project index.
+- **CLI** — `windy dump-info path.dmp`; local `*.dmp` fixtures gitignored.
+
+Commit: `16adf42` (builds on the substrate above).
+
+### Agent ladder (one port)
+
+```text
+serve-mcp / agent          →  http://127.0.0.1:8765/mcp
+open_project  (.exe|.dll|.dmp)
+  PE / dump_module:  get_triage → get_function_evidence → …
+  dump_session:      get_dump_triage → open_dump_module → (same PE tools)
+search_bel                 →  prefer over naive string greps on large images
+```
+
+### What this is not
+
+- Not a rewrite of the decompiler emit pipeline (local emit_fold splits remain
+  unpublished WIP).
+- Not kernel dump / WinDbg parity.
+- Not an installer or public auto-update feed — private beta packaging stays
+  local ZIP + loopback MCP.
+
+### Start
+
+```powershell
+cargo run --features beta -- serve-mcp
+# agents open PE or .dmp themselves via open_project
+```
+
 ## 0.1.1 - decompiler quality update
 
 Post-0.1.0 native decompiler ratchet. Product path is still **checked V2 with
