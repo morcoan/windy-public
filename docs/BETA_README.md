@@ -1,28 +1,29 @@
-# windy-beta 0.1.1-beta.local
+# windy-beta (edge build of **0.1.2**)
 
 This archive is the private, local-only Windy edge channel for trusted
 development teams. It is not a GitHub release and is not connected to a tag,
 push, pull request, Actions check, or public update feed.
 
-The executable is `windy-beta.exe`. It uses the same durable project format as
-Windy v0.1.1, but identifies itself and its MCP server as `windy-beta` on the
-`private-beta` channel.
+The executable is `windy-beta.exe`. Feature set matches public **v0.1.2**
+(agent substrate, BEL, dumps). Edge packaging only changes product identity:
+MCP name `windy-beta`, channel `private-beta`, version string
+`0.1.2-beta.local`.
 
-## What this beta actually is
+## What’s in 0.1.2 (this drop)
 
-Not a small dump patch on top of 0.1.1. Relative to pre-beta public main this
-channel is a **full agent substrate**:
+Not a small dump patch. Relative to pre-0.1.2 public main this is a **full
+agent substrate**:
 
 | Layer | What agents get |
 |---|---|
-| **Identity** | `windy-beta` / `private-beta` / `0.1.1-beta.local` |
+| **Version** | **`0.1.2`** (edge: `0.1.2-beta.local`) |
 | **MCP** | Single loopback server (`serve-mcp` / `agent` → `:8765/mcp`) |
 | **BEL** | Evidence lattice search (`search_bel`) with provenance |
 | **PE RE** | Triage, evidence packs, structured reads, `trace_value`, memory cards |
 | **Dumps** | User-mode MDMP sessions + `open_dump_module` PE pipeline on the **same** server |
 | **Harness** | `eval/agent-bench` + free local / Grok A-vs-B reports |
 
-See `CHANGELOG.md` section **0.1.1-beta** for the full public-main drop notes.
+See `CHANGELOG.md` section **0.1.2** for the full notes.
 
 ## Start for agents
 

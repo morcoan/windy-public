@@ -1,11 +1,12 @@
-# Windy v0.1.1 for Windows x64
+# Windy v0.1.2 for Windows x64
 
-Windy is a portable static PE reverse-engineering GUI and local MCP server. No installer or external decompiler service is required.
+Windy is a portable static PE reverse-engineering GUI and local MCP server. No installer or external decompiler service is required. v0.1.2 adds the agent evidence substrate (BEL), structured reads, and user-mode Windows dump analysis on the same MCP endpoint.
 
 ```powershell
 .\windy.exe doctor
 .\windy.exe C:\path\to\target.exe
 .\windy.exe serve-mcp --open C:\path\to\target.exe
+.\windy.exe serve-mcp --open C:\path\to\crash.dmp
 ```
 
 Configure your MCP client for `http://127.0.0.1:8765/mcp`. The server is intentionally loopback-only. Full setup and usage documentation is available in the project README at https://github.com/morcoan/windy.

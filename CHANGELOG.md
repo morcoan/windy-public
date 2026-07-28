@@ -2,22 +2,24 @@
 
 All notable changes will be documented here.
 
-## 0.1.1-beta — agent substrate + BEL + Windows dumps (public main)
+## 0.1.2 — agent substrate + BEL + Windows dumps
 
-**This is the big jump past 0.1.1-as-decompiler-only.** Public `main` tip
-`16adf42` is not “just minidumps.” Relative to `996961a` (pre-beta) it is
-**~15.6k lines / 52 files** across five commits: a pure-MCP reverse-engineering
-substrate for external agents, then multi‑GB user-mode dump analysis on the
-**same** headless server.
+**Version of this public-main drop: `0.1.2`.** Not a 0.1.1 patch and not a
+“0.1.1-beta” label — this is the next release after 0.1.1’s decompiler-quality
+work.
 
-Identity when built with `--features beta`:
+Public `main` tip after this stack is not “just minidumps.” Relative to
+`996961a` (pre-substrate) it is **~15.6k lines / 52 files** across the
+substrate + dump commits: a pure-MCP reverse-engineering substrate for
+external agents, then multi‑GB user-mode dump analysis on the **same**
+headless server.
 
-| field | value |
-|---|---|
-| MCP / product name | `windy-beta` |
-| channel | `private-beta` |
-| version string | `0.1.1-beta.local` |
-| endpoint | `http://127.0.0.1:8765/mcp` (`serve-mcp` / `agent`) |
+| field | public build | `--features beta` edge build |
+|---|---|---|
+| product / MCP name | `windy` | `windy-beta` |
+| channel | `public` | `private-beta` |
+| version string | **`0.1.2`** | `0.1.2-beta.local` |
+| endpoint | `http://127.0.0.1:8765/mcp` (`serve-mcp` / `agent`) | same |
 
 ### From “PE workbench” → “agent substrate”
 
