@@ -1086,7 +1086,9 @@ impl WindyMcp {
         let limit = params.limit.clamp(1, 128);
         if let Some(va_s) = &params.contains_va {
             let va = parse_va(va_s)?;
-            let page = dump.memory_map.regions_page(0, dump.memory_map.region_count());
+            let page = dump
+                .memory_map
+                .regions_page(0, dump.memory_map.region_count());
             let hit: Vec<_> = page
                 .into_iter()
                 .filter(|r| va >= r.va_start && va < r.va_start.saturating_add(r.size))
@@ -1153,9 +1155,7 @@ impl WindyMcp {
         let id = parse_project_id(&params.project_id)?;
         let session = get_dump_session(&self.manager, id)?;
         let max_frames = params.max_frames.unwrap_or(32);
-        let stack = session
-            .dump
-            .walk_thread_stack(params.thread_id, max_frames);
+        let stack = session.dump.walk_thread_stack(params.thread_id, max_frames);
         Ok(success_json(&json!({
             "project_id": id.to_string(),
             "kind": "dump_session",

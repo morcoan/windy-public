@@ -516,22 +516,22 @@ impl Project {
                 || old_name.starts_with("_imp_")
                 || old_name.contains("ordinal")
             {
-                self.symbols
-                    .insert(iat_va, imp_name, SymbolKind::Import);
+                self.symbols.insert(iat_va, imp_name, SymbolKind::Import);
                 resolved += 1;
             }
             // Also name the target function VA if it lands in *this* module.
             if let Some(o) = &self.dump_origin {
                 if target >= o.module_base
-                    && target < o.module_base.saturating_add(
-                        self.address_space
-                            .sections
-                            .iter()
-                            .map(|s| u64::from(s.vsize))
-                            .max()
-                            .unwrap_or(0)
-                            .max(0x1000),
-                    )
+                    && target
+                        < o.module_base.saturating_add(
+                            self.address_space
+                                .sections
+                                .iter()
+                                .map(|s| u64::from(s.vsize))
+                                .max()
+                                .unwrap_or(0)
+                                .max(0x1000),
+                        )
                 {
                     // leave local FUN_ discovery names; PE pipeline owns them
                 } else if let Some(bang) = sym.find('!') {

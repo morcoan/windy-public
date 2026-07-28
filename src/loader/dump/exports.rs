@@ -49,9 +49,13 @@ fn export_name_from_dir(
     pe_hdr: &[u8],
     export_dir_off: usize,
 ) -> Option<String> {
-    let export_rva = u32::from_le_bytes(pe_hdr[export_dir_off..export_dir_off + 4].try_into().ok()?);
-    let export_size =
-        u32::from_le_bytes(pe_hdr[export_dir_off + 4..export_dir_off + 8].try_into().ok()?);
+    let export_rva =
+        u32::from_le_bytes(pe_hdr[export_dir_off..export_dir_off + 4].try_into().ok()?);
+    let export_size = u32::from_le_bytes(
+        pe_hdr[export_dir_off + 4..export_dir_off + 8]
+            .try_into()
+            .ok()?,
+    );
     if export_rva == 0 || export_size < 40 {
         return None;
     }
@@ -75,20 +79,13 @@ fn export_name_from_dir(
     // Scan name table: ordinal -> function index -> function RVA.
     let nnames = num_names.min(50_000);
     for i in 0..nnames {
-        let name_rva_bytes = read_bytes(
-            dump,
-            base + u64::from(name_ptr_rva) + u64::from(i) * 4,
-            4,
-        )?;
+        let name_rva_bytes =
+            read_bytes(dump, base + u64::from(name_ptr_rva) + u64::from(i) * 4, 4)?;
         if name_rva_bytes.len() < 4 {
             continue;
         }
         let name_rva = u32::from_le_bytes(name_rva_bytes[0..4].try_into().ok()?);
-        let ord_bytes = read_bytes(
-            dump,
-            base + u64::from(ord_table_rva) + u64::from(i) * 2,
-            2,
-        )?;
+        let ord_bytes = read_bytes(dump, base + u64::from(ord_table_rva) + u64::from(i) * 2, 2)?;
         if ord_bytes.len() < 2 {
             continue;
         }
@@ -110,7 +107,10 @@ fn export_name_from_dir(
         }
         // Read ASCII name.
         let name_bytes = read_bytes(dump, base + u64::from(name_rva), 128)?;
-        let len = name_bytes.iter().position(|&b| b == 0).unwrap_or(name_bytes.len());
+        let len = name_bytes
+            .iter()
+            .position(|&b| b == 0)
+            .unwrap_or(name_bytes.len());
         if len == 0 {
             return None;
         }

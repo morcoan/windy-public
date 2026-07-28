@@ -453,11 +453,7 @@ impl ProjectManager {
     /// Lazy-open a dump module as a PE project at its runtime base.
     ///
     /// `module` is a name substring, exact name, or `0x` base address.
-    pub fn open_dump_module(
-        &self,
-        dump_session_id: ProjectId,
-        module: &str,
-    ) -> Result<ProjectId> {
+    pub fn open_dump_module(&self, dump_session_id: ProjectId, module: &str) -> Result<ProjectId> {
         let session = self
             .get_dump(dump_session_id)
             .context("dump session not found")?;
@@ -493,13 +489,8 @@ impl ProjectManager {
         // Open through normal PE pipeline (analysis, BEL-ready, evidence tools).
         // Extracted PE content is deterministic for a given dump module, so the
         // PE file hash is a stable IDB key.
-        let mut project =
-            Project::open_with_data_dir(&extracted.path, &self.home_dir).with_context(|| {
-                format!(
-                    "analyze extracted module PE {}",
-                    extracted.path.display()
-                )
-            })?;
+        let mut project = Project::open_with_data_dir(&extracted.path, &self.home_dir)
+            .with_context(|| format!("analyze extracted module PE {}", extracted.path.display()))?;
 
         project.attach_dump_origin_and_resolve_iat(crate::project::DumpModuleOrigin {
             dump_session_id,
@@ -990,9 +981,7 @@ fn resolve_module_spec<'a>(
 ) -> Result<&'a crate::loader::dump::DumpModule> {
     let spec_trim = spec.trim();
     if spec_trim.is_empty() {
-        return dump
-            .primary_module()
-            .context("dump has no modules");
+        return dump.primary_module().context("dump has no modules");
     }
     // Hex base address.
     if let Some(hex) = spec_trim
@@ -1584,10 +1573,7 @@ mod tests {
         assert_eq!(project.kind_label(), "dump_module");
         assert!(project.dump_origin.is_some());
         // read_bytes at module base should see MZ
-        let mz = project.read_bytes(
-            project.dump_origin.as_ref().unwrap().module_base,
-            2,
-        );
+        let mz = project.read_bytes(project.dump_origin.as_ref().unwrap().module_base, 2);
         assert_eq!(mz.as_deref(), Some(&[0x4D, 0x5A][..]));
 
         fs::remove_dir_all(&tmp).ok();

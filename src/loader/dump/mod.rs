@@ -150,8 +150,8 @@ impl LoadedDump {
         let path = path.as_ref();
         let started = Instant::now();
 
-        let meta = std::fs::metadata(path)
-            .with_context(|| format!("stat dump {}", path.display()))?;
+        let meta =
+            std::fs::metadata(path).with_context(|| format!("stat dump {}", path.display()))?;
         let file_len = meta.len();
         let mtime_secs = meta
             .modified()
@@ -186,10 +186,7 @@ impl LoadedDump {
 
         let mut inventory = StreamInventory {
             stream_count: dump.header.stream_count,
-            known_stream_types: dump
-                .all_streams()
-                .map(|d| d.stream_type)
-                .collect(),
+            known_stream_types: dump.all_streams().map(|d| d.stream_type).collect(),
             ..StreamInventory::default()
         };
 
@@ -296,9 +293,10 @@ impl LoadedDump {
 
         // Ensure at least one main candidate when name hint fails.
         if !modules.iter().any(|m| m.is_main) {
-            if let Some(m) = modules.iter_mut().find(|m| {
-                m.name.to_ascii_lowercase().ends_with(".exe") && m.has_pe_headers
-            }) {
+            if let Some(m) = modules
+                .iter_mut()
+                .find(|m| m.name.to_ascii_lowercase().ends_with(".exe") && m.has_pe_headers)
+            {
                 m.is_main = true;
             } else if let Some(m) = modules.first_mut() {
                 m.is_main = true;
@@ -472,9 +470,7 @@ impl LoadedDump {
         if self.memory_map.region_count() == 0 {
             w.push("No Memory/Memory64 stream — process reads will fail.".into());
         }
-        w.push(
-            "Dump files contain live process secrets; keep local and never upload.".into(),
-        );
+        w.push("Dump files contain live process secrets; keep local and never upload.".into());
         w
     }
 }

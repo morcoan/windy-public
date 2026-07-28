@@ -35,11 +35,7 @@ pub struct ThreadStack {
 
 impl LoadedDump {
     /// Walk `thread_id` (or the exception thread, or first with IP).
-    pub fn walk_thread_stack(
-        &self,
-        thread_id: Option<u32>,
-        max_frames: usize,
-    ) -> ThreadStack {
+    pub fn walk_thread_stack(&self, thread_id: Option<u32>, max_frames: usize) -> ThreadStack {
         let max_frames = max_frames.clamp(1, MAX_FRAMES_HARD);
         let thread = select_thread(self, thread_id);
         let Some(thread) = thread else {
@@ -55,7 +51,14 @@ impl LoadedDump {
 
         // Frame 0: thread context IP.
         if let Some(ip) = thread.instruction_pointer {
-            frames.push(frame_for_ip(self, 0, ip, thread.stack_pointer, "thread_context", "high"));
+            frames.push(frame_for_ip(
+                self,
+                0,
+                ip,
+                thread.stack_pointer,
+                "thread_context",
+                "high",
+            ));
         } else {
             return ThreadStack {
                 thread_id: thread.thread_id,
@@ -70,10 +73,7 @@ impl LoadedDump {
             if fp >= sp && looks_like_stack_ptr(self, fp) {
                 let (more, reason) = walk_fp_chain(self, fp, max_frames.saturating_sub(1));
                 for (i, f) in more.into_iter().enumerate() {
-                    frames.push(StackFrame {
-                        index: i + 1,
-                        ..f
-                    });
+                    frames.push(StackFrame { index: i + 1, ..f });
                 }
                 return ThreadStack {
                     thread_id: thread.thread_id,
@@ -88,10 +88,7 @@ impl LoadedDump {
         let died = if let Some(sp) = thread.stack_pointer {
             let (more, reason) = walk_sp_scan(self, sp, max_frames.saturating_sub(1));
             for (i, f) in more.into_iter().enumerate() {
-                frames.push(StackFrame {
-                    index: i + 1,
-                    ..f
-                });
+                frames.push(StackFrame { index: i + 1, ..f });
             }
             reason
         } else {
@@ -119,18 +116,22 @@ fn select_thread(dump: &LoadedDump, thread_id: Option<u32>) -> Option<&DumpThrea
     dump.threads
         .iter()
         .find(|t| t.is_exception_thread)
-        .or_else(|| dump.threads.iter().find(|t| t.instruction_pointer.is_some()))
+        .or_else(|| {
+            dump.threads
+                .iter()
+                .find(|t| t.instruction_pointer.is_some())
+        })
         .or_else(|| dump.threads.first())
 }
 
-fn walk_fp_chain(
-    dump: &LoadedDump,
-    mut fp: u64,
-    max_more: usize,
-) -> (Vec<StackFrame>, String) {
+fn walk_fp_chain(dump: &LoadedDump, mut fp: u64, max_more: usize) -> (Vec<StackFrame>, String) {
     let mut frames = Vec::new();
     let mut seen = std::collections::HashSet::new();
-    let ptr_size = if dump.system.bitness == 32 { 4usize } else { 8usize };
+    let ptr_size = if dump.system.bitness == 32 {
+        4usize
+    } else {
+        8usize
+    };
 
     for _ in 0..max_more {
         if !seen.insert(fp) {
@@ -167,13 +168,13 @@ fn walk_fp_chain(
     (frames, "depth_cap".into())
 }
 
-fn walk_sp_scan(
-    dump: &LoadedDump,
-    sp: u64,
-    max_more: usize,
-) -> (Vec<StackFrame>, String) {
+fn walk_sp_scan(dump: &LoadedDump, sp: u64, max_more: usize) -> (Vec<StackFrame>, String) {
     let mut frames = Vec::new();
-    let ptr_size = if dump.system.bitness == 32 { 4usize } else { 8usize };
+    let ptr_size = if dump.system.bitness == 32 {
+        4usize
+    } else {
+        8usize
+    };
     let mut slots = 0usize;
     let mut addr = sp;
 
@@ -231,7 +232,10 @@ fn read_ptr(dump: &LoadedDump, va: u64, ptr_size: usize) -> Option<u64> {
 
 fn looks_like_stack_ptr(dump: &LoadedDump, va: u64) -> bool {
     // Stack pointers should be readable and typically in high user space on x64.
-    matches!(dump.read_at(va, 8), ReadStatus::Ok(_) | ReadStatus::Partial(_))
+    matches!(
+        dump.read_at(va, 8),
+        ReadStatus::Ok(_) | ReadStatus::Partial(_)
+    )
 }
 
 fn frame_for_ip(

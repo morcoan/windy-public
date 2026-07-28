@@ -61,7 +61,9 @@ impl LoadedDump {
         let mut present = 0u64;
 
         // Copy mapped ranges that intersect [base, base+size).
-        let page = self.memory_map.regions_page(0, self.memory_map.region_count());
+        let page = self
+            .memory_map
+            .regions_page(0, self.memory_map.region_count());
         let mod_end = module.base.saturating_add(module.size);
         for region in page {
             let r_end = region.va_start.saturating_add(region.size);
@@ -172,8 +174,7 @@ fn patch_memory_image_as_pe(image: &mut [u8], runtime_base: u64) -> Result<()> {
         bail!("missing PE signature");
     }
     let coff = e_lfanew + 4;
-    let num_sections =
-        u16::from_le_bytes(image[coff + 2..coff + 4].try_into().unwrap()) as usize;
+    let num_sections = u16::from_le_bytes(image[coff + 2..coff + 4].try_into().unwrap()) as usize;
     let size_of_optional_header =
         u16::from_le_bytes(image[coff + 16..coff + 18].try_into().unwrap()) as usize;
     let opt = coff + 20;
@@ -205,8 +206,7 @@ fn patch_memory_image_as_pe(image: &mut [u8], runtime_base: u64) -> Result<()> {
     match image_base_size {
         4 => {
             let v = (runtime_base & 0xffff_ffff) as u32;
-            image[opt + image_base_off..opt + image_base_off + 4]
-                .copy_from_slice(&v.to_le_bytes());
+            image[opt + image_base_off..opt + image_base_off + 4].copy_from_slice(&v.to_le_bytes());
         }
         8 => {
             image[opt + image_base_off..opt + image_base_off + 8]
@@ -222,12 +222,9 @@ fn patch_memory_image_as_pe(image: &mut [u8], runtime_base: u64) -> Result<()> {
         if sh + SECTION_SIZE > image.len() {
             break;
         }
-        let virtual_size =
-            u32::from_le_bytes(image[sh + 8..sh + 12].try_into().unwrap());
-        let virtual_address =
-            u32::from_le_bytes(image[sh + 12..sh + 16].try_into().unwrap());
-        let mut size_of_raw =
-            u32::from_le_bytes(image[sh + 16..sh + 20].try_into().unwrap());
+        let virtual_size = u32::from_le_bytes(image[sh + 8..sh + 12].try_into().unwrap());
+        let virtual_address = u32::from_le_bytes(image[sh + 12..sh + 16].try_into().unwrap());
+        let mut size_of_raw = u32::from_le_bytes(image[sh + 16..sh + 20].try_into().unwrap());
         // Prefer virtual size for memory images (covers BSS-like tails present as zero).
         if virtual_size > size_of_raw {
             size_of_raw = virtual_size;
