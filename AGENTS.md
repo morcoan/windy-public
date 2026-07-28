@@ -23,9 +23,11 @@ All three must pass. No exceptions, no skipped smoke tests.
 ## Headless MCP (primary attach path)
 
 ```bash
-# Bind default 127.0.0.1:8765; optional PE open on start
+# Bind default 127.0.0.1:8765; optional PE or user-mode .dmp open on start
 windy serve-mcp
 windy serve-mcp --bind 127.0.0.1:8765 --open path\to\binary.exe
+windy serve-mcp --open path\to\process.dmp
+windy dump-info path\to\process.dmp
 ```
 
 MCP endpoint: `http://127.0.0.1:8765/mcp` (streamable HTTP).
@@ -37,13 +39,15 @@ Prefer headless `serve-mcp` for agent sessions.
 
 Point your MCP client at the streamable HTTP URL above. Recommended tool ladder:
 
-1. `list_projects` / `open_project`
-2. **`get_triage`** — first-minute ranked functions (exports, call degree, imports, BEL)
-3. Triage: `list_imports`, `list_exports`, `list_strings`, `list_sections`, **`search_bel`** (`search_summary` is the compatibility view)
-4. `list_functions` (paginated: `offset` + `limit`)
-5. **`get_function_evidence`** — one-shot pack (summary, APIs, strings w/ encoding,
-   call sites with optional string `value`, points-to, constants, entities, callers,
-   callees, **memory**). Prefer this over 5+ separate tools.
+1. `list_projects` / `open_project` (PE **or** user-mode MDMP `.dmp`)
+2. **If `kind=dump_session`:** `get_dump_triage` → `list_dump_modules` /
+   `list_dump_threads` / `get_thread_stack` / `list_memory_regions` /
+   `describe_dump` → **`open_dump_module`** (name or `0x` base) → continue as PE
+   with returned `project_id` (`kind=dump_module`). Never BEL the whole process.
+3. **If `kind=pe` or `dump_module`:** **`get_triage`** — first-minute ranked functions
+4. Triage: `list_imports`, `list_exports`, `list_strings`, `list_sections`, **`search_bel`**
+5. `list_functions` (paginated: `offset` + `limit`)
+6. **`get_function_evidence`** — one-shot pack. Prefer this over 5+ separate tools.
 6. Structured data: **`read_pointers`**, **`walk_list`**, **`read_struct_array`**,
    **`describe_address`** (resolved — not raw hex). Prefer over `read_va`.
 7. Provenance: **`trace_value`** (backward/forward; reports `died` reason)

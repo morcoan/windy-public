@@ -7,6 +7,7 @@ use memmap2::Mmap;
 
 pub mod address_space;
 pub mod debug_dir;
+pub mod dump;
 pub mod imports;
 pub mod pe;
 

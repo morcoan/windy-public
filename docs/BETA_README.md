@@ -13,6 +13,9 @@ Windy v0.1.1, but identifies itself and its MCP server as `windy-beta` on the
 ```powershell
 .\windy-beta.exe doctor
 .\windy-beta.exe agent --open C:\path\target.exe
+# User-mode crash dumps (MDMP), including multi-GB full-memory dumps:
+.\windy-beta.exe agent --open C:\path\process_2026-07-26_22-08-20.dmp
+.\windy-beta.exe dump-info C:\path\process.dmp
 ```
 
 `agent` is an alias for `serve-mcp`. The stable endpoint is:
@@ -40,7 +43,7 @@ an arriving search shares the same single-flight build. Broad work has a hard
 cooperative deadline, and a partial result is labeled as a lower bound. No
 query work survives a deadline return.
 
-Recommended first minute:
+Recommended first minute (PE):
 
 1. `get_server_status`
 2. `list_projects` or `open_project`
@@ -48,6 +51,18 @@ Recommended first minute:
 4. `search_bel` with an exact/token/selective substring query
 5. `list_functions`, then `get_function_evidence`
 
+Recommended first minute (**user-mode `.dmp`** — same MCP port `8765`):
+
+1. `open_project` on the `.dmp` → `kind: dump_session`
+2. `get_dump_triage` — exception (if any), primary module, top threads
+3. `list_dump_modules` / `list_dump_threads` / `get_thread_stack` / `list_memory_regions`
+4. `open_dump_module` with module name or `0x` base → `kind: dump_module` project_id
+5. Same PE tools: `get_triage` → `list_functions` → `get_function_evidence` / decompile
+
+All dump tools share the single headless `serve-mcp` / `agent` server. Do **not**
+BEL or linear-decode the whole multi-GB process — only modules you open.
+
+Treat dumps like live process memory (secrets). Kernel dumps are rejected.
 Avoid one-character searches on a huge PE. BEL will enter safety mode, but a
 specific API, field name, string fragment, motif, or two-clause evidence query
 is both faster and more useful.

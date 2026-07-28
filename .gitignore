@@ -20,6 +20,9 @@ debug/
 /eval/grand/bin/**/*.map
 /eval/grand/bin/**/*_ghidra_targets.txt
 
+# Local crash dumps (often multi-GB; never pack or commit)
+*.dmp
+
 # Secrets / credentials — never commit
 *_key.txt
 *_secret*

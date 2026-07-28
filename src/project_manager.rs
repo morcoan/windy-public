@@ -11,12 +11,13 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail};
 use arc_swap::ArcSwap;
 use tokio::runtime::Runtime;
 use tokio::sync::{mpsc, oneshot};
 use uuid::Uuid;
 
+use crate::loader::dump::LoadedDump;
 use crate::project::Project;
 pub use crate::project::activity_log::ActivityEvent;
 use crate::project::activity_log::ActivityJournal;
@@ -100,6 +101,17 @@ impl ProjectHandle {
     }
 }
 
+/// Open user-mode dump session (process-level; not a PE project).
+pub struct DumpSessionHandle {
+    pub id: ProjectId,
+    pub path: PathBuf,
+    pub dump: Arc<LoadedDump>,
+    /// Workspace auto-created for this dump (hybrid module projects join later).
+    pub workspace_id: Option<WorkspaceId>,
+    /// module identity_key → PE project id (lazy open_dump_module cache).
+    pub module_projects: std::sync::Mutex<BTreeMap<String, ProjectId>>,
+}
+
 pub enum WriteRequest {
     Apply {
         client_id: String,
@@ -127,6 +139,8 @@ struct UndoRedoStack {
 pub struct ProjectManager {
     runtime: Runtime,
     projects: Arc<std::sync::Mutex<BTreeMap<ProjectId, Arc<ProjectHandle>>>>,
+    /// Process-level dump sessions (hybrid model; module projects are PE projects).
+    dump_sessions: Arc<std::sync::Mutex<BTreeMap<ProjectId, Arc<DumpSessionHandle>>>>,
     workspaces: Arc<std::sync::Mutex<BTreeMap<WorkspaceId, Workspace>>>,
     activity_log: Arc<std::sync::Mutex<VecDeque<ActivityEvent>>>,
     server_activity: Arc<std::sync::Mutex<ServerActivity>>,
@@ -167,6 +181,7 @@ impl ProjectManager {
         Ok(Self {
             runtime,
             projects: Arc::new(std::sync::Mutex::new(BTreeMap::new())),
+            dump_sessions: Arc::new(std::sync::Mutex::new(BTreeMap::new())),
             workspaces: Arc::new(std::sync::Mutex::new(workspaces)),
             activity_log: Arc::new(std::sync::Mutex::new(VecDeque::new())),
             server_activity: Arc::new(std::sync::Mutex::new(ServerActivity::default())),
@@ -177,10 +192,18 @@ impl ProjectManager {
         })
     }
 
-    /// Open a PE file, build a project, and start its write task.
+    /// Open a PE or user-mode MDMP dump. Dumps become dump-session ids.
     pub fn open(&self, path: impl AsRef<Path>) -> Result<ProjectId> {
         let requested_path = path.as_ref();
         let normalized_path = normalize_local_path(requested_path);
+
+        // Route MDMP dumps before PE parse so multi-GB dumps never hit petriage.
+        if crate::loader::dump::path_looks_like_dump(&normalized_path)
+            || crate::loader::dump::is_mdmp_file(&normalized_path).unwrap_or(false)
+        {
+            return self.open_dump(&normalized_path);
+        }
+
         if let Some(existing) = self
             .projects
             .lock()
@@ -361,6 +384,217 @@ impl ProjectManager {
         self.projects.lock().unwrap().get(&id).map(|h| h.get())
     }
 
+    /// Open a user-mode MDMP dump as a process-level session (no PE analysis).
+    pub fn open_dump(&self, path: impl AsRef<Path>) -> Result<ProjectId> {
+        let normalized_path = normalize_local_path(path.as_ref());
+        if let Some(existing) = self
+            .dump_sessions
+            .lock()
+            .unwrap()
+            .values()
+            .find(|h| paths_match(&h.path, &normalized_path))
+            .cloned()
+        {
+            self.record_recent_project(existing.path.clone(), existing.id);
+            return Ok(existing.id);
+        }
+
+        let dump = LoadedDump::open(&normalized_path)?;
+        let id = ProjectId::new_v4();
+        let dump_path = dump.path.clone();
+
+        // Auto-workspace named after dump stem for future module projects.
+        let ws_name = dump_path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .map(|s| s.to_string());
+        let workspace_id = match self.create_workspace(ws_name) {
+            Ok(ws_id) => {
+                // Member uses session key as stand-in sha until content hash lands.
+                let mut workspaces = self.workspaces.lock().unwrap();
+                if let Some(ws) = workspaces.get_mut(&ws_id) {
+                    ws.members.push(WorkspaceMember {
+                        sha256: dump.identity.session_key.clone(),
+                        path: dump_path.clone(),
+                    });
+                    ws.updated_at = SystemTime::now();
+                    let _ = WorkspaceStore::save(&self.home_dir, ws);
+                }
+                Some(ws_id)
+            }
+            Err(e) => {
+                tracing::warn!("dump workspace create failed: {e}");
+                None
+            }
+        };
+
+        let handle = Arc::new(DumpSessionHandle {
+            id,
+            path: dump_path.clone(),
+            dump: Arc::new(dump),
+            workspace_id,
+            module_projects: std::sync::Mutex::new(BTreeMap::new()),
+        });
+        self.dump_sessions.lock().unwrap().insert(id, handle);
+        self.record_recent_project(dump_path, id);
+        Ok(id)
+    }
+
+    /// Process dump session, if `id` refers to an open dump.
+    pub fn get_dump(&self, id: ProjectId) -> Option<Arc<DumpSessionHandle>> {
+        self.dump_sessions.lock().unwrap().get(&id).cloned()
+    }
+
+    /// True when `id` is a dump session (not a PE project).
+    pub fn is_dump_session(&self, id: ProjectId) -> bool {
+        self.dump_sessions.lock().unwrap().contains_key(&id)
+    }
+
+    /// Lazy-open a dump module as a PE project at its runtime base.
+    ///
+    /// `module` is a name substring, exact name, or `0x` base address.
+    pub fn open_dump_module(
+        &self,
+        dump_session_id: ProjectId,
+        module: &str,
+    ) -> Result<ProjectId> {
+        let session = self
+            .get_dump(dump_session_id)
+            .context("dump session not found")?;
+        let dump = &session.dump;
+
+        let mod_info = resolve_module_spec(dump, module)
+            .with_context(|| format!("module not found: {module}"))?;
+
+        // Cache hit?
+        {
+            let cache = session.module_projects.lock().unwrap();
+            let key_hint = format!(
+                "{}:{:x}:{:x}",
+                mod_info.name.to_ascii_lowercase(),
+                mod_info.timestamp,
+                mod_info.size
+            );
+            for (k, pid) in cache.iter() {
+                if (k.contains(&key_hint) || k.contains(&mod_info.name.to_ascii_lowercase()))
+                    && self.get(*pid).is_some()
+                {
+                    return Ok(*pid);
+                }
+            }
+        }
+
+        let out_dir = self
+            .home_dir
+            .join("dump-modules")
+            .join(sanitize_dir(&dump.identity.session_key));
+        let extracted = dump.extract_module_pe(mod_info, &out_dir)?;
+
+        // Open through normal PE pipeline (analysis, BEL-ready, evidence tools).
+        // Extracted PE content is deterministic for a given dump module, so the
+        // PE file hash is a stable IDB key.
+        let mut project =
+            Project::open_with_data_dir(&extracted.path, &self.home_dir).with_context(|| {
+                format!(
+                    "analyze extracted module PE {}",
+                    extracted.path.display()
+                )
+            })?;
+
+        project.attach_dump_origin_and_resolve_iat(crate::project::DumpModuleOrigin {
+            dump_session_id,
+            module_base: extracted.runtime_base,
+            module_name: extracted.module_name.clone(),
+            identity_key: extracted.identity_key.clone(),
+            dump: Arc::clone(dump),
+        });
+
+        // Install as a normal ProjectHandle (same MCP PE tools work).
+        let id = ProjectId::new_v4();
+        let path = project.pe.path.clone();
+        let sha256 = project.image_sha256.clone();
+        let read_state = Arc::new(ArcSwap::from(Arc::new(project)));
+        let journal = Journal::open_in(&self.home_dir, &sha256);
+        let activity_journal = ActivityJournal::open(&self.home_dir, &sha256);
+        let (write_tx, write_rx) = mpsc::unbounded_channel();
+
+        let backfill = activity_journal.read_tail(ACTIVITY_CAPACITY);
+        if !backfill.is_empty() {
+            let mut log = self.activity_log.lock().unwrap();
+            merge_events(&mut log, backfill);
+        }
+
+        let activity_log = self.activity_log.clone();
+        self.runtime.spawn(writer_loop(
+            id,
+            read_state.clone(),
+            journal,
+            activity_journal,
+            write_rx,
+            activity_log,
+        ));
+
+        let handle = Arc::new(ProjectHandle {
+            id,
+            path: path.clone(),
+            read_state,
+            write_tx,
+        });
+        self.projects.lock().unwrap().insert(id, handle);
+        self.record_recent_project(path, id);
+
+        // Join dump workspace.
+        if let Some(ws_id) = session.workspace_id {
+            let mut workspaces = self.workspaces.lock().unwrap();
+            if let Some(ws) = workspaces.get_mut(&ws_id) {
+                let member = WorkspaceMember {
+                    sha256: sha256.clone(),
+                    path: extracted.path.clone(),
+                };
+                if !ws.members.iter().any(|m| m.sha256 == member.sha256) {
+                    ws.members.push(member);
+                    ws.updated_at = SystemTime::now();
+                    let _ = WorkspaceStore::save(&self.home_dir, ws);
+                }
+            }
+            // Rebuild cross-project index for resolved imports across modules.
+            drop(workspaces);
+            self.rebuild_cross_project_index(ws_id);
+        }
+
+        session
+            .module_projects
+            .lock()
+            .unwrap()
+            .insert(extracted.identity_key, id);
+
+        // Optional beta BEL for the module only (never the whole dump).
+        if cfg!(feature = "beta") {
+            if let Some(project) = self.get(id) {
+                let operation = self.begin_operation(format!(
+                    "building BEL for dump module {}",
+                    extracted.module_name
+                ));
+                let cancel = self.bel_cancel.clone();
+                self.runtime.spawn_blocking(move || {
+                    let control = crate::analysis::bel::BelBuildControl {
+                        cancel: &cancel,
+                        deadline: None,
+                        progress: None,
+                    };
+                    let _ = crate::analysis::bel::get_or_build(
+                        &project,
+                        crate::analysis::bel::BelConfig::default(),
+                        &control,
+                    );
+                    drop(operation);
+                });
+            }
+        }
+
+        Ok(id)
+    }
+
     /// Start the MCP HTTP server bound to `addr`. Returns the actual port.
     pub fn start_http_server(
         self: &Arc<Self>,
@@ -373,8 +607,12 @@ impl ProjectManager {
     }
 
     /// List currently open projects with lightweight metadata.
+    ///
+    /// Dump sessions are included with `functions=0`, `instructions=0` and
+    /// should be distinguished via [`Self::is_dump_session`] / list_projects kind.
     pub fn list(&self) -> Vec<(ProjectId, PathBuf, usize, usize)> {
-        self.projects
+        let mut out: Vec<(ProjectId, PathBuf, usize, usize)> = self
+            .projects
             .lock()
             .unwrap()
             .values()
@@ -387,6 +625,21 @@ impl ProjectManager {
                     p.analysis.code_index.len(),
                 )
             })
+            .collect();
+        for h in self.dump_sessions.lock().unwrap().values() {
+            out.push((h.id, h.path.clone(), 0, 0));
+        }
+        out
+    }
+
+    /// Open dump sessions for MCP list enrichment.
+    #[allow(dead_code)] // MCP/UI enrichment
+    pub fn list_dumps(&self) -> Vec<Arc<DumpSessionHandle>> {
+        self.dump_sessions
+            .lock()
+            .unwrap()
+            .values()
+            .cloned()
             .collect()
     }
 
@@ -716,6 +969,81 @@ fn paths_match(left: &Path, right: &Path) -> bool {
 
 fn normalize_local_path(path: &Path) -> PathBuf {
     user_visible_path(std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf()))
+}
+
+fn sanitize_dir(s: &str) -> String {
+    // Windows paths cannot contain ':' (except drive letter) — strip session key punctuation.
+    s.chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect()
+}
+
+fn resolve_module_spec<'a>(
+    dump: &'a LoadedDump,
+    spec: &str,
+) -> Result<&'a crate::loader::dump::DumpModule> {
+    let spec_trim = spec.trim();
+    if spec_trim.is_empty() {
+        return dump
+            .primary_module()
+            .context("dump has no modules");
+    }
+    // Hex base address.
+    if let Some(hex) = spec_trim
+        .strip_prefix("0x")
+        .or_else(|| spec_trim.strip_prefix("0X"))
+    {
+        if let Ok(base) = u64::from_str_radix(hex, 16) {
+            return dump
+                .modules
+                .iter()
+                .find(|m| m.base == base)
+                .with_context(|| format!("no module at base {base:#x}"));
+        }
+    }
+    if let Ok(base) = spec_trim.parse::<u64>() {
+        return dump
+            .modules
+            .iter()
+            .find(|m| m.base == base)
+            .with_context(|| format!("no module at base {base:#x}"));
+    }
+
+    let needle = spec_trim.to_ascii_lowercase();
+    // Exact name match first.
+    if let Some(m) = dump
+        .modules
+        .iter()
+        .find(|m| m.name.eq_ignore_ascii_case(spec_trim))
+    {
+        return Ok(m);
+    }
+    // Substring; prefer main/exception then longest presence.
+    let mut hits: Vec<_> = dump
+        .modules
+        .iter()
+        .filter(|m| {
+            m.name.to_ascii_lowercase().contains(&needle)
+                || m.path.to_ascii_lowercase().contains(&needle)
+        })
+        .collect();
+    if hits.is_empty() {
+        bail!("no module matching '{spec_trim}'");
+    }
+    hits.sort_by_key(|m| {
+        (
+            !m.is_exception_module,
+            !m.is_main,
+            -((m.presence * 1000.0) as i32),
+        )
+    });
+    Ok(hits[0])
 }
 
 #[cfg(windows)]
@@ -1212,6 +1540,55 @@ mod tests {
             let ws = manager.get_workspace(ws_id).unwrap();
             assert_eq!(ws.members.len(), 1);
         }
+
+        fs::remove_dir_all(&tmp).ok();
+    }
+
+    #[test]
+    fn open_sample_dump_module_if_present() {
+        let path = Path::new(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/sample_process.dmp"
+        ));
+        if !path.exists() {
+            eprintln!("skipping open_dump_module: sample dump not present");
+            return;
+        }
+        let tmp = std::env::temp_dir().join(format!(
+            "windy-dmp-mod-{}-{}",
+            std::process::id(),
+            Uuid::new_v4()
+        ));
+        let manager = ProjectManager::with_home_dir(&tmp).unwrap();
+        let dump_id = manager.open(path).expect("open dump session");
+        assert!(manager.is_dump_session(dump_id));
+
+        let mod_id = manager
+            .open_dump_module(dump_id, "sample_process.exe")
+            .expect("open_dump_module");
+        let project = manager.get(mod_id).expect("module project");
+        eprintln!(
+            "dump_module functions={} insns={} kind={} base={:?}",
+            project.functions().len(),
+            project.analysis.code_index.len(),
+            project.kind_label(),
+            project
+                .dump_origin
+                .as_ref()
+                .map(|o| format!("{:#x}", o.module_base))
+        );
+        assert!(
+            project.functions().len() > 0,
+            "expected recovered functions from dump module"
+        );
+        assert_eq!(project.kind_label(), "dump_module");
+        assert!(project.dump_origin.is_some());
+        // read_bytes at module base should see MZ
+        let mz = project.read_bytes(
+            project.dump_origin.as_ref().unwrap().module_base,
+            2,
+        );
+        assert_eq!(mz.as_deref(), Some(&[0x4D, 0x5A][..]));
 
         fs::remove_dir_all(&tmp).ok();
     }

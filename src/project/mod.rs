@@ -128,6 +128,18 @@ fn win64_integer_call_contract(signature: &FunctionSignature) -> bool {
     })
 }
 
+/// Set when this PE project was opened from a dump module (hybrid model).
+#[derive(Clone)]
+pub struct DumpModuleOrigin {
+    pub dump_session_id: uuid::Uuid,
+    pub module_base: u64,
+    pub module_name: String,
+    #[allow(dead_code)] // stable module identity for workspace / logs
+    pub identity_key: String,
+    /// Parent process dump for out-of-module VA reads / stack context.
+    pub dump: Arc<crate::loader::dump::LoadedDump>,
+}
+
 #[derive(Clone)]
 pub struct Project {
     /// The loaded PE image and surface analysis.
@@ -168,6 +180,8 @@ pub struct Project {
     pub function_memory: BTreeMap<u64, memory::FunctionMemoryCard>,
     /// Rename lineage for symbols (old → new), agent-queryable.
     pub alias_history: Vec<crate::project::symbols::AliasEvent>,
+    /// Hybrid dump origin (None for normal PE opens).
+    pub dump_origin: Option<DumpModuleOrigin>,
     /// Per-function optimized SSA session cache (shared across ArcSwap clones).
     /// Invalidated when stack frames or analysis inputs that affect SSA change.
     #[allow(clippy::type_complexity)]
@@ -373,6 +387,7 @@ impl Project {
             op_seq: 0,
             function_memory: BTreeMap::new(),
             alias_history: Vec::new(),
+            dump_origin: None,
             ssa_cache: Arc::new(Mutex::new(HashMap::new())),
         };
 
@@ -413,6 +428,127 @@ impl Project {
 
     pub fn data_dir(&self) -> &Path {
         self.data_dir.as_ref()
+    }
+
+    /// Kind string for MCP: `pe` | `dump_module`.
+    pub fn kind_label(&self) -> &'static str {
+        if self.dump_origin.is_some() {
+            "dump_module"
+        } else {
+            "pe"
+        }
+    }
+
+    /// Read up to `len` bytes at process/image VA.
+    ///
+    /// Prefer the PE address space; for dump modules, fall through to the
+    /// parent process memory map for out-of-module pointers (IAT targets, etc.).
+    pub fn read_bytes(&self, va: u64, len: usize) -> Option<Vec<u8>> {
+        if len == 0 {
+            return Some(Vec::new());
+        }
+        if let Some(slice) = self.address_space.slice_for_va(&self.pe.image, va, len) {
+            if slice.len() == len {
+                return Some(slice.to_vec());
+            }
+            // Partial PE mapping — still useful.
+            if !slice.is_empty() && self.dump_origin.is_none() {
+                return Some(slice.to_vec());
+            }
+        }
+        if let Some(origin) = &self.dump_origin {
+            match origin.dump.read_at(va, len) {
+                crate::loader::dump::ReadStatus::Ok(b) => Some(b.to_vec()),
+                crate::loader::dump::ReadStatus::Partial(b) if !b.is_empty() => Some(b.to_vec()),
+                _ => None,
+            }
+        } else {
+            None
+        }
+    }
+
+    /// Apply dump-origin metadata and resolve runtime IAT slots to cross-module names.
+    pub fn attach_dump_origin_and_resolve_iat(&mut self, origin: DumpModuleOrigin) {
+        let dump = Arc::clone(&origin.dump);
+        self.dump_origin = Some(origin);
+
+        // Resolved IAT: absolute pointers at IAT slots → module!export names.
+        let ptr_size = (self.bitness / 8) as usize;
+        let import_slots: Vec<(u64, String)> = self
+            .symbols
+            .iter()
+            .filter(|(_, s)| {
+                s.kind == SymbolKind::Import
+                    || s.name.starts_with("__imp_")
+                    || s.name.starts_with("_imp_")
+            })
+            .map(|(va, s)| (va, s.name.clone()))
+            .collect();
+
+        let mut resolved = 0usize;
+        for (iat_va, old_name) in import_slots {
+            let Some(bytes) = self.read_bytes(iat_va, ptr_size) else {
+                continue;
+            };
+            if bytes.len() < ptr_size {
+                continue;
+            }
+            let target = if ptr_size == 8 {
+                u64::from_le_bytes(bytes.as_slice().try_into().unwrap_or([0; 8]))
+            } else {
+                u32::from_le_bytes(bytes[..4].try_into().unwrap_or([0; 4])) as u64
+            };
+            if target < 0x10000 {
+                continue;
+            }
+            let Some(sym) = crate::loader::dump::resolve_va_symbol(&dump, target) else {
+                continue;
+            };
+            // Name the IAT slot and the thunk target when useful.
+            let imp_name = if let Some(bang) = sym.find('!') {
+                format!("__imp_{}", &sym[bang + 1..])
+            } else {
+                format!("__imp_{sym}")
+            };
+            if old_name.starts_with("FUN_")
+                || old_name.starts_with("sub_")
+                || old_name.starts_with("__imp_")
+                || old_name.starts_with("_imp_")
+                || old_name.contains("ordinal")
+            {
+                self.symbols
+                    .insert(iat_va, imp_name, SymbolKind::Import);
+                resolved += 1;
+            }
+            // Also name the target function VA if it lands in *this* module.
+            if let Some(o) = &self.dump_origin {
+                if target >= o.module_base
+                    && target < o.module_base.saturating_add(
+                        self.address_space
+                            .sections
+                            .iter()
+                            .map(|s| u64::from(s.vsize))
+                            .max()
+                            .unwrap_or(0)
+                            .max(0x1000),
+                    )
+                {
+                    // leave local FUN_ discovery names; PE pipeline owns them
+                } else if let Some(bang) = sym.find('!') {
+                    // External: record address comment-style symbol when no local function.
+                    let api = &sym[bang + 1..];
+                    if self.symbols.name(target).is_none() {
+                        self.symbols
+                            .insert(target, api.to_string(), SymbolKind::Import);
+                    }
+                }
+            }
+        }
+        if resolved > 0 {
+            tracing::info!(
+                "Dump module IAT: resolved {resolved} import slot(s) via process memory"
+            );
+        }
     }
 
     /// LLM/programmatic read API ------------------------------------------------

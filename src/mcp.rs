@@ -156,6 +156,57 @@ struct ProjectOnlyParams {
 }
 
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
+struct ListDumpModulesParams {
+    project_id: String,
+    #[serde(default)]
+    pattern: String,
+    #[serde(default)]
+    offset: usize,
+    #[serde(default = "default_list_limit")]
+    limit: usize,
+}
+
+#[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
+struct ListDumpThreadsParams {
+    project_id: String,
+    #[serde(default)]
+    offset: usize,
+    #[serde(default = "default_list_limit")]
+    limit: usize,
+}
+
+#[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
+struct ListMemoryRegionsParams {
+    project_id: String,
+    #[serde(default)]
+    offset: usize,
+    #[serde(default = "default_list_limit")]
+    limit: usize,
+    /// If set, return only the region containing this VA.
+    #[serde(default)]
+    contains_va: Option<String>,
+}
+
+#[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
+struct GetThreadStackParams {
+    project_id: String,
+    /// OS thread id; omit for exception thread / first with IP.
+    #[serde(default)]
+    thread_id: Option<u32>,
+    #[serde(default)]
+    max_frames: Option<usize>,
+}
+
+#[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
+struct OpenDumpModuleParams {
+    /// Dump session project_id from open_project on a .dmp.
+    project_id: String,
+    /// Module name, substring, or 0x base. Empty = primary module.
+    #[serde(default)]
+    module: String,
+}
+
+#[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
 struct ListStringsParams {
     project_id: String,
     #[serde(default = "default_min_len")]
@@ -712,19 +763,35 @@ impl WindyMcp {
     }
 
     #[tool(
-        description = "List all currently open projects with their ids, paths, function count and instruction count"
+        description = "List all currently open projects and dump sessions with ids, paths, kind, function/instruction counts"
     )]
     async fn list_projects(&self) -> Result<CallToolResult, rmcp::ErrorData> {
         let projects = self.manager.list();
         let arr: Vec<_> = projects
             .into_iter()
             .map(|(id, path, fns, insns)| {
-                json!({
+                let kind = if self.manager.is_dump_session(id) {
+                    "dump_session".to_string()
+                } else if let Some(p) = self.manager.get(id) {
+                    p.kind_label().to_string()
+                } else {
+                    "pe".to_string()
+                };
+                let mut obj = json!({
                     "project_id": id.to_string(),
                     "path": path.to_string_lossy(),
+                    "kind": kind,
                     "functions": fns,
                     "instructions": insns,
-                })
+                });
+                if let Some(p) = self.manager.get(id) {
+                    if let Some(o) = &p.dump_origin {
+                        obj["dump_session_id"] = json!(o.dump_session_id.to_string());
+                        obj["module_name"] = json!(o.module_name);
+                        obj["module_base"] = json!(format!("{:#x}", o.module_base));
+                    }
+                }
+                obj
             })
             .collect();
         let mut result = success_json(&arr);
@@ -732,12 +799,12 @@ impl WindyMcp {
             let recent = self.manager.recent_projects(1);
             let message = recent.first().map_or_else(
                 || {
-                    "Server is up, but no PE is open. Call open_project with an absolute PE path or start Windy with --open."
+                    "Server is up, but nothing is open. Call open_project with an absolute PE or .dmp path, or start Windy with --open."
                         .to_string()
                 },
                 |entry| {
                     format!(
-                        "Server is up, but no PE is open. Last used: {}. Reopen it with open_project.",
+                        "Server is up, but nothing is open. Last used: {}. Reopen it with open_project.",
                         entry.path.display()
                     )
                 },
@@ -747,7 +814,9 @@ impl WindyMcp {
         Ok(result)
     }
 
-    #[tool(description = "Open a PE file (exe/dll/sys) and return the new project_id")]
+    #[tool(
+        description = "Open a PE (exe/dll/sys) or user-mode Windows minidump (.dmp). Dumps return kind=dump_session; use get_dump_triage / list_dump_modules next. PE returns kind=pe."
+    )]
     async fn open_project(
         &self,
         Parameters(params): Parameters<OpenProjectParams>,
@@ -757,6 +826,56 @@ impl WindyMcp {
             .manager
             .open(&params.path)
             .map_err(|e| invalid_params(e.to_string()))?;
+
+        if let Some(session) = self.manager.get_dump(id) {
+            let dump = &session.dump;
+            let primary = dump.primary_module();
+            let notice = if dump.identity.file_len >= 1024 * 1024 * 1024 {
+                Some(format!(
+                    "Large dump ({:.2} GiB). Use get_dump_triage then open_dump_module; do not BEL the whole process.",
+                    dump.identity.file_len as f64 / (1024.0 * 1024.0 * 1024.0)
+                ))
+            } else {
+                None
+            };
+            return Ok(success_json(&json!({
+                "project_id": id.to_string(),
+                "kind": "dump_session",
+                "path": session.path,
+                "elapsed_ms": started.elapsed().as_millis(),
+                "workspace_id": session.workspace_id.map(|w| w.to_string()),
+                "system": dump.system,
+                "exception": dump.exception,
+                "module_count": dump.modules.len(),
+                "thread_count": dump.threads.len(),
+                "memory_regions": dump.memory_map.region_count(),
+                "memory_bytes": dump.memory_map.total_bytes(),
+                "primary_module": primary.map(|m| json!({
+                    "name": m.name,
+                    "base": format!("{:#x}", m.base),
+                    "size": m.size,
+                    "presence": m.presence,
+                    "has_pe_headers": m.has_pe_headers,
+                })),
+                "warnings": dump.open_warnings(),
+                "next": [
+                    "get_dump_triage",
+                    "list_dump_modules",
+                    "list_dump_threads",
+                    "get_thread_stack",
+                    "list_memory_regions",
+                    "open_dump_module",
+                    "get_function_evidence (on module project_id)"
+                ],
+                "message": notice.unwrap_or_else(|| format!(
+                    "Opened dump session {} ({} modules, {} threads).",
+                    session.path.display(),
+                    dump.modules.len(),
+                    dump.threads.len()
+                )),
+            })));
+        }
+
         let project = get_project(&self.manager, id)?;
         let scale = project_scale(&project);
         let pdb = if project.pdb_info.loaded {
@@ -774,6 +893,7 @@ impl WindyMcp {
         };
         Ok(success_json(&json!({
             "project_id": id.to_string(),
+            "kind": "pe",
             "path": project.pe.path,
             "elapsed_ms": started.elapsed().as_millis(),
             "scale": scale,
@@ -783,6 +903,316 @@ impl WindyMcp {
                 project.pe.path.display(),
                 started.elapsed().as_secs_f64()
             )),
+        })))
+    }
+
+    #[tool(
+        description = "Dump-session triage: exception (if any), primary/faulting module, module/thread counts, memory coverage, top threads with IP/SP. Prefer this after open_project on a .dmp."
+    )]
+    async fn get_dump_triage(
+        &self,
+        Parameters(params): Parameters<ProjectOnlyParams>,
+    ) -> Result<CallToolResult, rmcp::ErrorData> {
+        let id = parse_project_id(&params.project_id)?;
+        let session = get_dump_session(&self.manager, id)?;
+        let dump = &session.dump;
+        let primary = dump.primary_module();
+        let top_threads: Vec<_> = dump
+            .threads
+            .iter()
+            .filter(|t| t.is_exception_thread || t.instruction_pointer.is_some())
+            .take(16)
+            .map(|t| {
+                let module = t
+                    .instruction_pointer
+                    .and_then(|ip| dump.module_at(ip))
+                    .map(|m| m.name.clone());
+                json!({
+                    "thread_id": t.thread_id,
+                    "ip": t.instruction_pointer.map(|v| format!("{v:#x}")),
+                    "sp": t.stack_pointer.map(|v| format!("{v:#x}")),
+                    "fp": t.frame_pointer.map(|v| format!("{v:#x}")),
+                    "module": module,
+                    "is_exception_thread": t.is_exception_thread,
+                })
+            })
+            .collect();
+        Ok(success_json(&json!({
+            "project_id": id.to_string(),
+            "kind": "dump_session",
+            "path": session.path,
+            "system": dump.system,
+            "exception": dump.exception,
+            "primary_module": primary.map(|m| json!({
+                "name": m.name,
+                "base": format!("{:#x}", m.base),
+                "size": m.size,
+                "presence": m.presence,
+                "has_pe_headers": m.has_pe_headers,
+                "is_main": m.is_main,
+                "is_exception_module": m.is_exception_module,
+                "path": m.path,
+            })),
+            "module_count": dump.modules.len(),
+            "thread_count": dump.threads.len(),
+            "memory": {
+                "region_count": dump.memory_map.region_count(),
+                "total_bytes": dump.memory_map.total_bytes(),
+                "source": dump.memory_map.source_label(),
+            },
+            "top_threads": top_threads,
+            "warnings": dump.open_warnings(),
+            "inventory": dump.inventory,
+        })))
+    }
+
+    #[tool(
+        description = "List modules in a dump session. Paginate with offset+limit (default 32, max 128). Optional pattern filters name/path."
+    )]
+    async fn list_dump_modules(
+        &self,
+        Parameters(params): Parameters<ListDumpModulesParams>,
+    ) -> Result<CallToolResult, rmcp::ErrorData> {
+        let id = parse_project_id(&params.project_id)?;
+        let session = get_dump_session(&self.manager, id)?;
+        let dump = &session.dump;
+        let needle = params.pattern.to_ascii_lowercase();
+        let limit = params.limit.clamp(1, 128);
+        let mut filtered: Vec<_> = dump
+            .modules
+            .iter()
+            .filter(|m| {
+                needle.is_empty()
+                    || m.name.to_ascii_lowercase().contains(&needle)
+                    || m.path.to_ascii_lowercase().contains(&needle)
+            })
+            .collect();
+        // Exception/main modules first for agent convenience.
+        filtered.sort_by_key(|m| {
+            (
+                !m.is_exception_module,
+                !m.is_main,
+                m.name.to_ascii_lowercase(),
+            )
+        });
+        let total = filtered.len();
+        let page: Vec<_> = filtered
+            .into_iter()
+            .skip(params.offset)
+            .take(limit)
+            .map(|m| {
+                json!({
+                    "index": m.index,
+                    "name": m.name,
+                    "path": m.path,
+                    "base": format!("{:#x}", m.base),
+                    "size": m.size,
+                    "presence": m.presence,
+                    "has_pe_headers": m.has_pe_headers,
+                    "is_main": m.is_main,
+                    "is_exception_module": m.is_exception_module,
+                    "timestamp": m.timestamp,
+                    "checksum": m.checksum,
+                })
+            })
+            .collect();
+        let next_offset = params.offset.saturating_add(page.len());
+        Ok(success_json(&json!({
+            "project_id": id.to_string(),
+            "total": total,
+            "offset": params.offset,
+            "next_offset": next_offset,
+            "has_more": next_offset < total,
+            "modules": page,
+        })))
+    }
+
+    #[tool(
+        description = "List threads in a dump session. Paginate with offset+limit (default 32, max 128)."
+    )]
+    async fn list_dump_threads(
+        &self,
+        Parameters(params): Parameters<ListDumpThreadsParams>,
+    ) -> Result<CallToolResult, rmcp::ErrorData> {
+        let id = parse_project_id(&params.project_id)?;
+        let session = get_dump_session(&self.manager, id)?;
+        let dump = &session.dump;
+        let limit = params.limit.clamp(1, 128);
+        let total = dump.threads.len();
+        let page: Vec<_> = dump
+            .threads
+            .iter()
+            .skip(params.offset)
+            .take(limit)
+            .map(|t| {
+                let module = t
+                    .instruction_pointer
+                    .and_then(|ip| dump.module_at(ip))
+                    .map(|m| m.name.clone());
+                json!({
+                    "thread_id": t.thread_id,
+                    "ip": t.instruction_pointer.map(|v| format!("{v:#x}")),
+                    "sp": t.stack_pointer.map(|v| format!("{v:#x}")),
+                    "fp": t.frame_pointer.map(|v| format!("{v:#x}")),
+                    "teb": format!("{:#x}", t.teb),
+                    "module": module,
+                    "stack_start": t.stack_start.map(|v| format!("{v:#x}")),
+                    "stack_size": t.stack_size,
+                    "is_exception_thread": t.is_exception_thread,
+                })
+            })
+            .collect();
+        let next_offset = params.offset.saturating_add(page.len());
+        Ok(success_json(&json!({
+            "project_id": id.to_string(),
+            "total": total,
+            "offset": params.offset,
+            "next_offset": next_offset,
+            "has_more": next_offset < total,
+            "threads": page,
+        })))
+    }
+
+    #[tool(
+        description = "List sparse process memory regions in a dump session. Paginate with offset+limit (default 32, max 128). Optional contains_va filters to the region covering that address."
+    )]
+    async fn list_memory_regions(
+        &self,
+        Parameters(params): Parameters<ListMemoryRegionsParams>,
+    ) -> Result<CallToolResult, rmcp::ErrorData> {
+        let id = parse_project_id(&params.project_id)?;
+        let session = get_dump_session(&self.manager, id)?;
+        let dump = &session.dump;
+        let limit = params.limit.clamp(1, 128);
+        if let Some(va_s) = &params.contains_va {
+            let va = parse_va(va_s)?;
+            let page = dump.memory_map.regions_page(0, dump.memory_map.region_count());
+            let hit: Vec<_> = page
+                .into_iter()
+                .filter(|r| va >= r.va_start && va < r.va_start.saturating_add(r.size))
+                .map(|r| {
+                    json!({
+                        "va_start": format!("{:#x}", r.va_start),
+                        "size": r.size,
+                        "va_end": format!("{:#x}", r.va_start.saturating_add(r.size)),
+                    })
+                })
+                .collect();
+            return Ok(success_json(&json!({
+                "project_id": id.to_string(),
+                "contains_va": format!("{va:#x}"),
+                "total": hit.len(),
+                "regions": hit,
+                "source": dump.memory_map.source_label(),
+            })));
+        }
+        let total = dump.memory_map.region_count();
+        let page = dump.memory_map.regions_page(params.offset, limit);
+        let regions: Vec<_> = page
+            .into_iter()
+            .map(|r| {
+                json!({
+                    "va_start": format!("{:#x}", r.va_start),
+                    "size": r.size,
+                    "va_end": format!("{:#x}", r.va_start.saturating_add(r.size)),
+                })
+            })
+            .collect();
+        let next_offset = params.offset.saturating_add(regions.len());
+        Ok(success_json(&json!({
+            "project_id": id.to_string(),
+            "total": total,
+            "offset": params.offset,
+            "next_offset": next_offset,
+            "has_more": next_offset < total,
+            "total_bytes": dump.memory_map.total_bytes(),
+            "source": dump.memory_map.source_label(),
+            "regions": regions,
+        })))
+    }
+
+    #[tool(
+        description = "Describe a dump session: stream inventory, OS/arch, size, warnings. Use after open_project on a .dmp."
+    )]
+    async fn describe_dump(
+        &self,
+        Parameters(params): Parameters<ProjectOnlyParams>,
+    ) -> Result<CallToolResult, rmcp::ErrorData> {
+        let id = parse_project_id(&params.project_id)?;
+        let session = get_dump_session(&self.manager, id)?;
+        Ok(success_json(&session.dump.summary_json()))
+    }
+
+    #[tool(
+        description = "Stackwalk a dump-session thread (frame-pointer chain, else RSP scan). Omit thread_id for exception thread or first with IP. Hang dumps without Exception stream still walk. max_frames default 32, max 256."
+    )]
+    async fn get_thread_stack(
+        &self,
+        Parameters(params): Parameters<GetThreadStackParams>,
+    ) -> Result<CallToolResult, rmcp::ErrorData> {
+        let id = parse_project_id(&params.project_id)?;
+        let session = get_dump_session(&self.manager, id)?;
+        let max_frames = params.max_frames.unwrap_or(32);
+        let stack = session
+            .dump
+            .walk_thread_stack(params.thread_id, max_frames);
+        Ok(success_json(&json!({
+            "project_id": id.to_string(),
+            "kind": "dump_session",
+            "stack": stack,
+        })))
+    }
+
+    #[tool(
+        description = "Lazy-open a dump module as a PE-style project (functions, evidence, decompile, BEL). module: name substring, exact name, or 0x base. Returns module project_id (kind=dump_module). Same MCP tools as PE thereafter."
+    )]
+    async fn open_dump_module(
+        &self,
+        Parameters(params): Parameters<OpenDumpModuleParams>,
+    ) -> Result<CallToolResult, rmcp::ErrorData> {
+        let dump_id = parse_project_id(&params.project_id)?;
+        let started = Instant::now();
+        let module_spec = if params.module.trim().is_empty() {
+            // Default to primary module name.
+            let session = get_dump_session(&self.manager, dump_id)?;
+            session
+                .dump
+                .primary_module()
+                .map(|m| m.name.clone())
+                .unwrap_or_default()
+        } else {
+            params.module.clone()
+        };
+        let module_id = self
+            .manager
+            .open_dump_module(dump_id, &module_spec)
+            .map_err(|e| invalid_params(e.to_string()))?;
+        let project = get_project(&self.manager, module_id)?;
+        let origin = project.dump_origin.as_ref();
+        Ok(success_json(&json!({
+            "project_id": module_id.to_string(),
+            "kind": "dump_module",
+            "dump_session_id": dump_id.to_string(),
+            "module_name": origin.map(|o| o.module_name.clone()),
+            "module_base": origin.map(|o| format!("{:#x}", o.module_base)),
+            "path": project.pe.path,
+            "functions": project.functions().len(),
+            "instructions": project.analysis.code_index.len(),
+            "bitness": project.bitness,
+            "elapsed_ms": started.elapsed().as_millis(),
+            "next": [
+                "get_triage",
+                "list_functions",
+                "get_function_evidence",
+                "get_function_agent_text / decompile_function_native"
+            ],
+            "message": format!(
+                "Opened dump module {} ({} functions, {} instructions) in {:.2}s.",
+                origin.map(|o| o.module_name.as_str()).unwrap_or("?"),
+                project.functions().len(),
+                project.analysis.code_index.len(),
+                started.elapsed().as_secs_f64()
+            ),
         })))
     }
 
@@ -2991,9 +3421,30 @@ fn get_project(
     manager: &ProjectManager,
     id: ProjectId,
 ) -> Result<Arc<crate::project::Project>, rmcp::ErrorData> {
+    if manager.is_dump_session(id) {
+        return Err(invalid_params(
+            "project_id is a dump_session. Use get_dump_triage / list_dump_modules / list_dump_threads, \
+             or open_dump_module for PE-style RE (module projects).",
+        ));
+    }
     manager
         .get(id)
         .ok_or_else(|| invalid_params("project not found"))
+}
+
+fn get_dump_session(
+    manager: &ProjectManager,
+    id: ProjectId,
+) -> Result<Arc<crate::project_manager::DumpSessionHandle>, rmcp::ErrorData> {
+    manager.get_dump(id).ok_or_else(|| {
+        if manager.get(id).is_some() {
+            invalid_params(
+                "project_id is a PE project, not a dump_session. Open a .dmp with open_project first.",
+            )
+        } else {
+            invalid_params("dump session not found")
+        }
+    })
 }
 
 async fn apply_and_report(

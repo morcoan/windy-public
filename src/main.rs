@@ -144,6 +144,23 @@ enum Commands {
         #[arg(long, default_value = "v1")]
         suite: String,
     },
+    /// Inspect a user-mode Windows minidump (.dmp) without full project open.
+    DumpInfo {
+        /// Path to an MDMP crash dump.
+        path: PathBuf,
+        /// Print full module list (default: summary + primary only).
+        #[arg(long)]
+        modules: bool,
+        /// Print thread list.
+        #[arg(long)]
+        threads: bool,
+        /// Compute full content SHA-256 (slow on multi-GB dumps).
+        #[arg(long)]
+        hash: bool,
+        /// Emit JSON instead of human text.
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 #[derive(Subcommand)]
@@ -255,8 +272,165 @@ fn main() -> anyhow::Result<()> {
             table,
             suite,
         }) => run_grand_bench(manifest, output, table, suite),
+        Some(Commands::DumpInfo {
+            path,
+            modules,
+            threads,
+            hash,
+            json,
+        }) => run_dump_info(path, modules, threads, hash, json),
         None => run_gui(data_dir, cli.path),
     }
+}
+
+fn run_dump_info(
+    path: PathBuf,
+    show_modules: bool,
+    show_threads: bool,
+    do_hash: bool,
+    as_json: bool,
+) -> anyhow::Result<()> {
+    use crate::loader::dump::LoadedDump;
+
+    let mut dump =
+        LoadedDump::open(&path).with_context(|| format!("open dump {}", path.display()))?;
+    if do_hash {
+        dump.ensure_content_hash()?;
+    }
+
+    if as_json {
+        let mut value = dump.summary_json();
+        if show_modules {
+            value["modules"] = serde_json::json!(
+                dump.modules
+                    .iter()
+                    .map(|m| serde_json::json!({
+                        "index": m.index,
+                        "name": m.name,
+                        "base": format!("{:#x}", m.base),
+                        "size": m.size,
+                        "presence": m.presence,
+                        "has_pe_headers": m.has_pe_headers,
+                        "is_main": m.is_main,
+                        "is_exception_module": m.is_exception_module,
+                        "path": m.path,
+                    }))
+                    .collect::<Vec<_>>()
+            );
+        }
+        if show_threads {
+            value["threads"] = serde_json::json!(
+                dump.threads
+                    .iter()
+                    .map(|t| serde_json::json!({
+                        "thread_id": t.thread_id,
+                        "ip": t.instruction_pointer.map(|v| format!("{v:#x}")),
+                        "sp": t.stack_pointer.map(|v| format!("{v:#x}")),
+                        "fp": t.frame_pointer.map(|v| format!("{v:#x}")),
+                        "teb": format!("{:#x}", t.teb),
+                        "is_exception_thread": t.is_exception_thread,
+                    }))
+                    .collect::<Vec<_>>()
+            );
+        }
+        println!("{}", serde_json::to_string_pretty(&value)?);
+        return Ok(());
+    }
+
+    println!("Dump: {}", dump.path.display());
+    println!(
+        "  size: {:.2} GiB  key: {}",
+        dump.identity.file_len as f64 / (1024.0 * 1024.0 * 1024.0),
+        dump.identity
+            .content_hash
+            .as_deref()
+            .unwrap_or(&dump.identity.session_key)
+    );
+    println!(
+        "  system: {} {}  cpu: {} ({}-bit)  cpus: {}",
+        dump.system.os,
+        dump.system.os_version,
+        dump.system.cpu,
+        dump.system.bitness,
+        dump.system.cpu_count
+    );
+    println!(
+        "  memory: {} regions, {:.2} GiB mapped ({})",
+        dump.memory_map.region_count(),
+        dump.memory_map.total_bytes() as f64 / (1024.0 * 1024.0 * 1024.0),
+        dump.memory_map.source_label()
+    );
+    println!(
+        "  modules: {}  threads: {}",
+        dump.modules.len(),
+        dump.threads.len()
+    );
+    if let Some(exc) = &dump.exception {
+        println!(
+            "  exception: thread={} code={:#x} addr={:#x} reason={}",
+            exc.thread_id, exc.exception_code, exc.exception_address, exc.crash_reason
+        );
+        if let Some(ip) = exc.crashing_instruction_address {
+            println!("    crashing_ip: {ip:#x}");
+        }
+    } else {
+        println!("  exception: (none)");
+    }
+    if let Some(m) = dump.primary_module() {
+        println!(
+            "  primary: {} @ {:#x} size={:#x} presence={:.0}% pe_headers={}",
+            m.name,
+            m.base,
+            m.size,
+            m.presence * 100.0,
+            m.has_pe_headers
+        );
+    }
+    for w in dump.open_warnings() {
+        println!("  warning: {w}");
+    }
+    if show_modules {
+        println!("modules:");
+        for m in &dump.modules {
+            println!(
+                "  [{:>3}] {:#014x} {:>10}  {:>5.1}%  {}{}",
+                m.index,
+                m.base,
+                m.size,
+                m.presence * 100.0,
+                m.name,
+                if m.is_exception_module {
+                    "  [exception]"
+                } else if m.is_main {
+                    "  [main]"
+                } else {
+                    ""
+                }
+            );
+        }
+    }
+    if show_threads {
+        println!("threads:");
+        for t in &dump.threads {
+            println!(
+                "  tid={:<6} ip={} sp={} teb={:#x}{}",
+                t.thread_id,
+                t.instruction_pointer
+                    .map(|v| format!("{v:#x}"))
+                    .unwrap_or_else(|| "-".into()),
+                t.stack_pointer
+                    .map(|v| format!("{v:#x}"))
+                    .unwrap_or_else(|| "-".into()),
+                t.teb,
+                if t.is_exception_thread {
+                    "  [exception]"
+                } else {
+                    ""
+                }
+            );
+        }
+    }
+    Ok(())
 }
 
 fn run_bel_bench(pe: PathBuf, iterations: usize, queries: Vec<String>) -> anyhow::Result<()> {
