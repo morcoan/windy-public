@@ -60,6 +60,9 @@ jobs:
       - name: Test
         run: cargo test
 
+      - name: Agent bench harness tests
+        run: cargo test -p agent-bench
+
       - name: Decompile scorecard smoke
         run: cargo run --quiet -- bench scorecard
 

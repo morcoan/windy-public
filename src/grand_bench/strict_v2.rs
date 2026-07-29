@@ -79,6 +79,7 @@ fn parse_va(s: &str) -> Option<u64> {
 #[cfg(test)]
 mod graph_scoring_integration {
     use super::score_lane;
+    use crate::decompiler::v2::ast::{Expr, Stmt};
     use crate::decompiler::v2::{DecompileEngine, DecompileOptions};
     use crate::grand_bench::graph_gold::{
         find_function_graph, generate_graph_from_c_source, load_program_graph_gold,
@@ -86,6 +87,64 @@ mod graph_scoring_integration {
     use crate::grand_bench::sfg::SfgFunctionGold;
     use crate::project::Project;
     use std::path::PathBuf;
+
+    fn find_call_in_expr(expr: &Expr) -> Option<(&str, usize)> {
+        match expr {
+            Expr::Call { target, args } => Some((target, args.len())),
+            Expr::BinOp { lhs, rhs, .. } | Expr::Compare { lhs, rhs, .. } => {
+                find_call_in_expr(lhs).or_else(|| find_call_in_expr(rhs))
+            }
+            Expr::UnaryOp { arg, .. } | Expr::Cast { arg, .. } | Expr::Load { addr: arg } => {
+                find_call_in_expr(arg)
+            }
+            Expr::Select {
+                cond,
+                then_e,
+                else_e,
+            } => find_call_in_expr(cond)
+                .or_else(|| find_call_in_expr(then_e))
+                .or_else(|| find_call_in_expr(else_e)),
+            Expr::Name { .. } | Expr::Int { .. } | Expr::UInt { .. } => None,
+        }
+    }
+
+    fn find_call_in_stmts(stmts: &[Stmt]) -> Option<(&str, usize)> {
+        for stmt in stmts {
+            let found = match stmt {
+                Stmt::Return { expr: Some(expr) }
+                | Stmt::Assign { expr, .. }
+                | Stmt::Expr { expr } => find_call_in_expr(expr),
+                Stmt::If {
+                    cond,
+                    then_body,
+                    else_body,
+                } => find_call_in_expr(cond)
+                    .or_else(|| find_call_in_stmts(then_body))
+                    .or_else(|| find_call_in_stmts(else_body)),
+                Stmt::While { cond, body } => {
+                    find_call_in_expr(cond).or_else(|| find_call_in_stmts(body))
+                }
+                Stmt::Switch {
+                    scrutinee,
+                    cases,
+                    default_body,
+                } => find_call_in_expr(scrutinee)
+                    .or_else(|| cases.iter().find_map(|case| find_call_in_stmts(&case.body)))
+                    .or_else(|| find_call_in_stmts(default_body)),
+                Stmt::Return { expr: None }
+                | Stmt::Label { .. }
+                | Stmt::Goto { .. }
+                | Stmt::Break
+                | Stmt::Continue
+                | Stmt::Comment { .. }
+                | Stmt::RawBlock { .. } => None,
+            };
+            if found.is_some() {
+                return found;
+            }
+        }
+        None
+    }
 
     #[test]
     fn strict_score_lane_uses_graph_gold_not_must_match() {
@@ -141,6 +200,253 @@ mod graph_scoring_integration {
 
         drop(project);
         let _ = std::fs::remove_dir_all(state);
+    }
+
+    /// Phase 3: product must ship pure-quality V2 for P3 `main` that used to
+    /// fall back on `invented_call_arguments` (a02_narrow_promo).
+    #[test]
+    fn p3_a02_main_product_no_legacy_fallback() {
+        let pe = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("eval/grand/bin/P3/a02_narrow_promo.exe");
+        if !pe.is_file() {
+            return;
+        }
+        let dir = std::env::temp_dir().join("p3-a02-main-product");
+        let _ = std::fs::create_dir_all(&dir);
+        let va = 0x1400_01010u64;
+        let project = Project::open_with_data_dir_and_entry_hints(&pe, &dir, &[va]).expect("open");
+        let prod = project
+            .function_decompile_artifact(va, DecompileOptions::production())
+            .expect("prod");
+        assert!(
+            prod.fallback_reason.is_none(),
+            "must not legacy-fallback: {:?}",
+            prod.fallback_reason
+        );
+        assert_eq!(prod.engine, DecompileEngine::V2);
+        let ast = prod
+            .typed_ast
+            .as_ref()
+            .expect("V2 production artifact must retain its typed AST");
+        let (target, arg_count) =
+            find_call_in_stmts(&ast.body).expect("typed AST must contain the direct leaf call");
+        assert!(
+            target == "narrow_add" || target.to_ascii_lowercase().contains("140001000"),
+            "expected source name or direct target 0x140001000, got {target:?}\n{}",
+            prod.text
+        );
+        assert!(
+            arg_count > 0,
+            "the Win64 argument recovery must populate the leaf call"
+        );
+        assert!(
+            !prod
+                .check_report
+                .rejects
+                .iter()
+                .any(|r| r == "invented_call_arguments"),
+            "{:?}",
+            prod.check_report.rejects
+        );
+    }
+
+    /// Phase 3 diagnostic: product vs pure on P3 packs A/D/G.
+    /// Writes JSON when `WINDY_P3_HITLIST` is set to an output path.
+    #[test]
+    fn p3_product_hitlist_sample() {
+        use crate::grand_bench::graph_gold::load_program_graph_gold;
+        use crate::grand_bench::suite::{load_manifest, load_program_gold};
+        use std::collections::BTreeMap;
+        use std::fs;
+
+        let out = match std::env::var("WINDY_P3_HITLIST") {
+            Ok(p) if !p.is_empty() => PathBuf::from(p),
+            _ => {
+                eprintln!("skip p3_product_hitlist_sample (set WINDY_P3_HITLIST=path)");
+                return;
+            }
+        };
+        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        let manifest = load_manifest(&root.join("eval/grand/manifest.json")).expect("manifest");
+        let want = ["A", "D", "G"];
+        let data = std::env::temp_dir().join("windy-p3-hitlist-state");
+        let _ = fs::create_dir_all(&data);
+
+        #[derive(serde::Serialize)]
+        struct Row {
+            program_id: String,
+            function_id: String,
+            pack_tags: Vec<String>,
+            entry_va: String,
+            pure_score: f64,
+            product_score: f64,
+            pure_engine: String,
+            product_engine: String,
+            product_fallback: Option<String>,
+            pure_accepted: bool,
+            product_check_accepted: bool,
+            pure_rejects: Vec<String>,
+            product_rejects: Vec<String>,
+            pure_residuals: Vec<String>,
+            product_residuals: Vec<String>,
+        }
+
+        let mut rows = Vec::new();
+        let mut fallback_hist: BTreeMap<String, usize> = BTreeMap::new();
+        let mut reject_hist: BTreeMap<String, usize> = BTreeMap::new();
+
+        for bin in &manifest.binaries {
+            if bin.profile != "P3" {
+                continue;
+            }
+            if !bin.pack_tags.iter().any(|p| want.contains(&p.as_str())) {
+                continue;
+            }
+            let pe = root.join(&bin.pe_path);
+            if !pe.is_file() {
+                continue;
+            }
+            let gold = match load_program_gold(&root.join(&bin.gold_path)) {
+                Ok(g) => g,
+                Err(_) => continue,
+            };
+            let graph = load_program_graph_gold(
+                &root
+                    .join("eval/grand/graph_gold")
+                    .join(format!("{}.json", bin.program_id)),
+            );
+            let mut hints: Vec<u64> = bin
+                .function_map
+                .iter()
+                .filter(|f| {
+                    matches!(
+                        f.status,
+                        crate::grand_bench::suite::FunctionPresence::Present
+                    )
+                })
+                .filter_map(|f| f.entry_va.as_deref().and_then(super::parse_va))
+                .collect();
+            hints.sort_unstable();
+            hints.dedup();
+            let project = match Project::open_with_data_dir_and_entry_hints(&pe, &data, &hints) {
+                Ok(p) => p,
+                Err(e) => {
+                    eprintln!("open {} failed: {e}", bin.program_id);
+                    continue;
+                }
+            };
+
+            for mf in &bin.function_map {
+                if !matches!(
+                    mf.status,
+                    crate::grand_bench::suite::FunctionPresence::Present
+                ) {
+                    continue;
+                }
+                let Some(va) = mf.entry_va.as_deref().and_then(super::parse_va) else {
+                    continue;
+                };
+                let Some(gf) = gold.functions.iter().find(|g| g.id == mf.function_id) else {
+                    continue;
+                };
+                let pure =
+                    project.function_decompile_artifact(va, DecompileOptions::pure_no_fallback());
+                let prod = project.function_decompile_artifact(va, DecompileOptions::production());
+
+                let (pure_text, pure_eng, pure_rej, pure_acc) = match &pure {
+                    Some(a) => (
+                        a.text.clone(),
+                        format!(
+                            "{}{}",
+                            match a.engine {
+                                DecompileEngine::V2 => "V2",
+                                DecompileEngine::Legacy => "Legacy",
+                            },
+                            a.fallback_reason
+                                .as_ref()
+                                .map(|r| format!(":{r}"))
+                                .unwrap_or_default()
+                        ),
+                        a.check_report.rejects.clone(),
+                        a.check_report.accepted,
+                    ),
+                    None => (String::new(), "missing".into(), vec![], false),
+                };
+                let (prod_text, prod_eng, prod_fb, prod_rej, prod_acc) = match &prod {
+                    Some(a) => (
+                        a.text.clone(),
+                        format!(
+                            "{}{}",
+                            match a.engine {
+                                DecompileEngine::V2 => "V2",
+                                DecompileEngine::Legacy => "Legacy",
+                            },
+                            a.fallback_reason
+                                .as_ref()
+                                .map(|r| format!(":{r}"))
+                                .unwrap_or_default()
+                        ),
+                        a.fallback_reason.clone(),
+                        a.check_report.rejects.clone(),
+                        a.check_report.accepted,
+                    ),
+                    None => (
+                        String::new(),
+                        "missing".into(),
+                        Some("no_artifact".into()),
+                        vec![],
+                        false,
+                    ),
+                };
+
+                *fallback_hist
+                    .entry(prod_fb.clone().unwrap_or_else(|| "(none)".into()))
+                    .or_default() += 1;
+                for r in &prod_rej {
+                    *reject_hist.entry(r.clone()).or_default() += 1;
+                }
+
+                let pure_sc = score_lane("windy_pure_v2", &pure_text, gf, graph.as_ref());
+                let prod_sc = score_lane("windy_product", &prod_text, gf, graph.as_ref());
+                rows.push(Row {
+                    program_id: bin.program_id.clone(),
+                    function_id: mf.function_id.clone(),
+                    pack_tags: bin.pack_tags.clone(),
+                    entry_va: format!("{va:#x}"),
+                    pure_score: pure_sc.composite,
+                    product_score: prod_sc.composite,
+                    pure_engine: pure_eng,
+                    product_engine: prod_eng,
+                    product_fallback: prod_fb,
+                    pure_accepted: pure_acc,
+                    product_check_accepted: prod_acc,
+                    pure_rejects: pure_rej,
+                    product_rejects: prod_rej,
+                    pure_residuals: pure_sc.residuals.iter().map(|r| format!("{r:?}")).collect(),
+                    product_residuals: prod_sc.residuals.iter().map(|r| format!("{r:?}")).collect(),
+                });
+            }
+            eprintln!("hitlist: {} P3 done ({} rows)", bin.program_id, rows.len());
+        }
+
+        rows.sort_by(|a, b| {
+            a.product_score
+                .partial_cmp(&b.product_score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+        let report = serde_json::json!({
+            "n": rows.len(),
+            "fallback_hist": fallback_hist,
+            "product_reject_hist": reject_hist,
+            "worst": rows.iter().take(40).collect::<Vec<_>>(),
+            "all": rows,
+        });
+        if let Some(parent) = out.parent() {
+            let _ = fs::create_dir_all(parent);
+        }
+        fs::write(&out, serde_json::to_string_pretty(&report).unwrap()).expect("write hitlist");
+        eprintln!("wrote {} n={}", out.display(), report["n"]);
+        assert!(report["n"].as_u64().unwrap_or(0) > 0, "expected some rows");
     }
 }
 

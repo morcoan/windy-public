@@ -12,14 +12,16 @@ let meta = #{
 // args: limit (default 12), profiles default P0+P1
 let limit = 12;
 let profiles = "P0 P1";
+let root = ".";
 if args != () {
     if args.limit != () { limit = args.limit; }
     if args.profiles != () { profiles = args.profiles; }
+    if args.root != () { root = args.root; }
 }
 
 phase("Build");
 let build = agent(
-    "In current repository root run: cargo build -p windy -p agent-bench 2>&1 | Select-Object -Last 30. "
+    "In " + root + " run: cargo build -p windy -p agent-bench 2>&1 | Select-Object -Last 30. "
         + "Report only whether build succeeded.",
     #{
         label: "build-bins",
@@ -35,7 +37,7 @@ phase("Run");
 // Two free shards in parallel: arm A-only and arm B-only (halves wall time, still no paid tokens).
 let jobs = [];
 jobs.push(#{
-    prompt: "Working directory MUST be current repository root. "
+    prompt: "Working directory MUST be " + root + ". "
         + "Run free local agent-bench for arms A and B on P0/P1 (no Anthropic):\n"
         + "cargo run -q -p agent-bench -- --root . --local --balanced --limit "
         + limit.to_string()
@@ -50,7 +52,7 @@ jobs.push(#{
 });
 // Second agent cross-checks fixture task list exists (cheap verify, no paid API).
 jobs.push(#{
-    prompt: "In current repository root verify these exist and report sizes: "
+    prompt: "In " + root + " verify these exist and report sizes: "
         + "eval/agent-bench/fixtures/p0p1_tasks_12.json, target/debug/windy.exe or target/debug/windy, "
         + "and that `cargo run -q -p agent-bench -- --help` mentions --local. "
         + "Return ok=true only if --local is documented in help.",
@@ -62,8 +64,8 @@ let results = parallel(jobs);
 
 phase("Report");
 let summary = agent(
-    "Read current repository root\\docs\\benchmarks\\agent-loop-v1-local-report.md if present "
-        + "and current repository root\\docs\\benchmarks\\agent-loop-v1-local-report.json. "
+    "Read " + root + "\\docs\\benchmarks\\agent-loop-v1-local-report.md if present "
+        + "and " + root + "\\docs\\benchmarks\\agent-loop-v1-local-report.json. "
         + "Summarize: synthetic flag, harness name, per-arm success, abstentions, and that tokens are zero. "
         + "If files missing, say so.",
     #{

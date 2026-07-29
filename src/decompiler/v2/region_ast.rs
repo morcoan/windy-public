@@ -585,7 +585,7 @@ fn emit_block_stmts(
     out: &mut Vec<Stmt>,
     effects: &mut Vec<String>,
 ) {
-    for op in &block.ops {
+    for (op_index, op) in block.ops.iter().enumerate() {
         if crate::decompiler::normalize::is_frame_pointer_adjust(op)
             || crate::decompiler::normalize::is_param_home_store(op)
             || crate::decompiler::normalize::is_noise_stack_reload(op)
@@ -607,10 +607,16 @@ fn emit_block_stmts(
                 } else {
                     format!("call_{:x}", op.va)
                 };
+                // Recover Win64 integer args in lockstep with HIR
+                // (`lift_same_block_win64_arguments`): only GPRs listed on the
+                // Call's ABI uses, via same-block reaching defs. Empty args here
+                // while HIR has args triggers `dropped_call_arguments` (dogfood
+                // Source2Main class).
+                let args = win64_direct_call_args(block, op_index, op, env);
                 out.push(Stmt::Expr {
                     expr: Expr::Call {
                         target: tgt.clone(),
-                        args: vec![],
+                        args,
                     },
                 });
                 effects.push(format!("call:{tgt}"));
@@ -894,6 +900,74 @@ fn mid_tail_call_args(
     vec![Expr::Name {
         name: "arg1".into(),
     }]
+}
+
+/// Windows x64 integer argument register container bases (RCX, RDX, R8, R9).
+/// Order matches `hir::WIN64_GPR_ARGUMENT_REGISTERS` / ABI position.
+const WIN64_GPR_ARG_BASES: [u64; 4] = [0x08, 0x10, 0x80, 0x88];
+
+/// Recover direct-call argument expressions for pure V2 AST emission.
+///
+/// Mirrors HIR `lift_same_block_win64_arguments` policy so the typed AST checker
+/// does not see fewer args than HIR (`dropped_call_arguments`).
+fn win64_direct_call_args(
+    block: &crate::decompiler::ssa::SsaBlock,
+    call_index: usize,
+    call_op: &crate::decompiler::ssa::SsaOp,
+    env: &HashMap<crate::decompiler::ssa::SsaVar, Expr>,
+) -> Vec<Expr> {
+    let mut args = Vec::new();
+    for base in WIN64_GPR_ARG_BASES {
+        let required_by_contract = call_op.uses.iter().any(|use_var| {
+            matches!(
+                use_var.location,
+                Location::Register { base_offset } if base_offset == base
+            )
+        });
+        if !required_by_contract {
+            continue;
+        }
+        let Some(var) = same_block_reaching_register(block, call_index, base) else {
+            // HIR skips missing reaching defs rather than inventing values.
+            continue;
+        };
+        // Only emit args with a real recovered expression. Placeholder `argN`
+        // names inflate AST arg count above HIR and trip
+        // `invented_call_arguments` → product legacy fallback (Phase 3 hitlist:
+        // main on several P3 pack-A binaries scores ~0.22 vs pure ~0.97).
+        if let Some(e) = env.get(&var) {
+            args.push(e.clone());
+        }
+    }
+    args
+}
+
+/// Same-block reaching register def, stopping at an earlier call (no cross-call).
+fn same_block_reaching_register(
+    block: &crate::decompiler::ssa::SsaBlock,
+    call_index: usize,
+    base_offset: u64,
+) -> Option<crate::decompiler::ssa::SsaVar> {
+    let end = call_index.min(block.ops.len());
+    for prior in block.ops[..end].iter().rev() {
+        if matches!(
+            &prior.kind,
+            SsaOpKind::Pcode(PcodeOp::Call { .. } | PcodeOp::CallInd { .. })
+        ) {
+            return None;
+        }
+        if let Some(def) = &prior.def
+            && matches!(
+                def.location,
+                Location::Register {
+                    base_offset: base
+                } if base == base_offset
+            )
+        {
+            return Some(def.clone());
+        }
+    }
+    None
 }
 
 fn branchind_is_reg_tail(dest: &rsleigh_api::Varnode) -> bool {
@@ -1229,5 +1303,113 @@ mod tests {
         assert!(classes.contains("const:0x80004003"), "{cand:#?}");
         assert!(classes.contains("const:0"), "{cand:#?}");
         assert_eq!(classes.len(), 2, "{cand:#?}");
+    }
+
+    /// Source2Main-class: direct Call must emit Win64 args that HIR recovered,
+    /// not `Call(args=[])` which triggers `dropped_call_arguments`.
+    #[test]
+    fn direct_call_emits_win64_args_matching_abi_uses() {
+        use crate::decompiler::v2::check_ast::check_typed_candidate_with_hir;
+
+        let rcx = SsaVar {
+            location: Location::Register { base_offset: 0x08 },
+            version: 1,
+        };
+        let rdx = SsaVar {
+            location: Location::Register { base_offset: 0x10 },
+            version: 1,
+        };
+        let ssa = SsaFunction {
+            entry_va: 0x140001000,
+            bitness: 64,
+            blocks: vec![SsaBlock {
+                id: 0,
+                entry_va: 0x140001000,
+                ops: vec![
+                    SsaOp {
+                        va: 0x140001000,
+                        kind: SsaOpKind::Pcode(PcodeOp::Copy {
+                            out: Varnode::register(0x08, 8),
+                            input: Varnode::constant(1, 8),
+                        }),
+                        def: Some(rcx.clone()),
+                        uses: vec![],
+                    },
+                    SsaOp {
+                        va: 0x140001001,
+                        kind: SsaOpKind::Pcode(PcodeOp::Copy {
+                            out: Varnode::register(0x10, 8),
+                            input: Varnode::constant(2, 8),
+                        }),
+                        def: Some(rdx.clone()),
+                        uses: vec![],
+                    },
+                    SsaOp {
+                        va: 0x140001010,
+                        kind: SsaOpKind::Pcode(PcodeOp::Call {
+                            dest: Varnode::constant(0x140002000, 8),
+                        }),
+                        def: None,
+                        uses: vec![rcx.clone(), rdx.clone()],
+                    },
+                    SsaOp {
+                        va: 0x140001018,
+                        kind: SsaOpKind::Pcode(PcodeOp::Return {
+                            dest: Varnode::constant(0, 8),
+                        }),
+                        def: None,
+                        uses: vec![],
+                    },
+                ],
+                successor_ids: vec![],
+                predecessor_ids: vec![],
+            }],
+            image_base: 0x140000000,
+        };
+
+        let sem = SemanticModel::from_raw_pcode(&ssa);
+        let contracts = ContractBundle::from_semantic(&ssa, &sem, &[]);
+        let empty = HashMap::new();
+        let cand = extract_region_ast(&ssa, &sem, &contracts, &[], "caller", &[], &empty);
+
+        fn first_call_args(stmts: &[Stmt]) -> Option<usize> {
+            for stmt in stmts {
+                match stmt {
+                    Stmt::Expr {
+                        expr: Expr::Call { args, .. },
+                    } => return Some(args.len()),
+                    Stmt::Return {
+                        expr: Some(Expr::Call { args, .. }),
+                    } => return Some(args.len()),
+                    Stmt::If {
+                        then_body,
+                        else_body,
+                        ..
+                    } => {
+                        if let Some(n) =
+                            first_call_args(then_body).or_else(|| first_call_args(else_body))
+                        {
+                            return Some(n);
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            None
+        }
+        let n_args = first_call_args(&cand.ast.body).expect("expected a Call in AST");
+        assert!(
+            n_args >= 2,
+            "direct Call must surface ≥2 Win64 args, got {n_args}: {cand:#?}"
+        );
+
+        // HIR + checker: must not reject for dropped_call_arguments.
+        let mut lowering = crate::decompiler::hir::HirFunction::lower_from_ssa(&ssa);
+        let _ = lowering.lift_win64_calls(&ssa);
+        let report = check_typed_candidate_with_hir(&sem, &contracts, &cand, Some(&lowering.hir));
+        assert!(
+            !report.rejects.iter().any(|r| r == "dropped_call_arguments"),
+            "Source2Main-class reject must not fire: {report:?}"
+        );
     }
 }

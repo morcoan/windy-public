@@ -19,7 +19,9 @@ cargo run -p agent-bench -- --root . --limit 12 --profile P0 --profile P1 \
   --output eval/agent-bench/fixtures/wiring-check-report.json \
   --markdown eval/agent-bench/fixtures/wiring-check-report.md
 
-# FREE local tool agents (no Anthropic tokens): windy agent-query vs python+pefile
+# FREE local tool agents (no Anthropic tokens):
+# Arm A = deterministic Windy MCP evidence ladder (not a single agent-query)
+# Arm B = python + pefile
 cargo build -p windy -p agent-bench
 cargo run -p agent-bench -- --root . --local --balanced --limit 12 \
   --arm a --arm b --profile P0 --profile P1 \
@@ -27,7 +29,8 @@ cargo run -p agent-bench -- --root . --local --balanced --limit 12 \
   --markdown docs/benchmarks/agent-loop-v1-local-report.md
 
 # Optional: free multi-agent orchestration (Grok workflows / subagents, still no Anthropic)
-# /workflow agent-bench-local  or  workflow tool on .grok/workflows/agent-bench-local.rhai
+# /workflow agent-bench-grok-ab  — Arm A prompt requires AGENTS.md MCP ladder
+# (get_triage / search_bel / functions_named / get_function_evidence), not agent-query only
 
 # Live model loop (requires ANTHROPIC_API_KEY and a built windy binary) - PAID
 cargo build --release
@@ -58,12 +61,17 @@ Do not treat wiring-check A=perfect / B=zero tables as product evidence.
 
 | Family | Question | Gold |
 |--------|----------|------|
-| **Locate** | VA for source name? | `identity_maps[*].entry_va` when `status=present` |
-| **Abstain** | Same for inlined/missing | Correct answer is **refusal** |
-| Enumerate / triage / provenance | Structured list / ranking / value origin | C source + identity maps (live only) |
+| **Locate** | VA for source name? | Tracked manifest `function_map` entry with `status=present` |
+| **Abstain** | Same for optimized-away or foreign names | **refuse** for `folded`/`inlined_only`/`missing`, plus names absent from the target program |
+| Enumerate / triage / provenance | Structured list / ranking / value origin | C source + tracked manifest (live only) |
 
-Identity `status` labels (`present` / `folded` / `inlined-only` / `missing`) make
-honest abstention scoreable — especially at P3 `/O2 /GL /LTCG`.
+`eval/grand/manifest.json` is the clean-checkout ground truth. Its
+`function_map` is frozen from MSVC linker MAP callable symbols, but the ignored
+adjacent `.map` files are neither required nor opened by the harness.
+`eval/grand/identity_maps` is **not** ground truth (known wrong). Because true
+P0/P1 inlining is rare, the abstain family deterministically adds real function
+names borrowed from other programs and proven absent from the target program.
+The committed `p0p1_tasks_12.json` fixture is checked against this loader.
 
 ## Token accounting
 
@@ -78,9 +86,29 @@ prompt_tokens = input_tokens
 Each arm has a different tool set (cache prefix). Comparing `input_tokens`
 alone manufactures cost differences that are pure caching artifacts.
 
+## Local Arm A policy (Phase 1)
+
+`--local` Arm A no longer shells out to a single
+`windy agent-query --functions-named`. It spawns `windy serve-mcp`, then runs a
+deterministic MCP ladder over HTTP:
+
+1. `list_projects`
+2. `get_triage`
+3. `search_bel` (substring)
+4. `functions_named`
+5. `get_function_evidence` on the best name-ranked candidate (if any)
+
+PEs are staged **without** adjacent `.map`, `.pdb`, `.obj`, or JSON files so name
+recovery is not reading the answer key. On this corpus that means Arm A
+typically **refuses** locate when no recovered symbol matches — honest
+measurement, not a harness bug. Product
+`functions_named` unranked-substring ranking was **not** confirmed as causing wrong
+VAs under this ladder (empty name lists when the map is stripped).
+
 ## Expected headline
 
-- **P0**: both arms often look fine on locate.
+- **P0 (staged, no map)**: locate is hard for both arms without symbols; Arm A should
+  multi-tool and refuse rather than invent VAs; Arm B may confabulate entry for `main`.
 - **P3**: python-fed agents confabulate VAs for functions LTCG deleted; evidence-fed
   agents abstain when identity says `inlined-only` / `missing`.
 

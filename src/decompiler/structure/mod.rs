@@ -5,6 +5,9 @@
 
 pub mod cfg_norm;
 pub mod emit;
+pub mod emit_fold;
+pub mod emit_polish;
+pub mod emit_region;
 pub mod pdom;
 pub mod presentation;
 pub mod rd_model;

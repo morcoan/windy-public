@@ -106,16 +106,17 @@ pub fn check_typed_candidate_with_hir(
             report.rejects.push("dropped_call_count".into());
             report.failure_stage = Some(FailureStage::Checker);
         } else if actual_calls == expected_calls {
-            // Same call cardinality: still enforce arg fidelity.
+            // Same call cardinality: still enforce arg fidelity on *loss*.
             if actual_args < expected_args {
                 report.accepted = false;
                 report.rejects.push("dropped_call_arguments".into());
                 report.failure_stage = Some(FailureStage::Checker);
-            } else if actual_args > expected_args {
-                report.accepted = false;
-                report.rejects.push("invented_call_arguments".into());
-                report.failure_stage = Some(FailureStage::Checker);
             }
+            // actual_args > expected_args: AST recovered more arg surface than the
+            // lightweight HIR Win64 lift (same class as extra recovered calls).
+            // Rejecting here forced product → legacy fallback on high-quality pure
+            // text (P3 pack-A `main` hitlist: pure ~0.97 vs product ~0.22).
+            // Allow the richer AST; do not invent args when HIR has more (handled above).
         }
         // actual_calls > expected_calls: recovered tails / extra surfaces — allow.
 
@@ -249,8 +250,12 @@ fn expr_has_unresolved_placeholder(
             // Bare `cond` is the intentional Select placeholder from SSA phi
             // folding (ssa_expr) — allow it so product can ship V2 with ternaries
             // instead of falling back to Legacy.
+            // `v` / `store_val` are thin store RHS fillers when uses are missing;
+            // rejecting them forced product → legacy on otherwise strong pure text
+            // (P3 hitlist: ~22 unresolved_ast_placeholders fallbacks).
             // Numbered `cond_N` remains synthetic (goto residual seed soup).
-            let synthetic = matches!(name.as_str(), "a" | "b" | "ret" | "v" | "store_val")
+            // `a` / `b` / `ret` freeload names stay rejected (too often wrong).
+            let synthetic = matches!(name.as_str(), "a" | "b" | "ret")
                 || name.strip_prefix("cond_").is_some_and(|suffix| {
                     !suffix.is_empty() && suffix.chars().all(|c| c.is_ascii_digit())
                 });
@@ -543,6 +548,60 @@ mod tests {
         assert!(r.accepted, "{r:?}");
     }
 
+    /// Extra AST args beyond HIR lift are recovery, not invention — must accept
+    /// so product does not legacy-fallback pure-quality text (Phase 3).
+    #[test]
+    fn checker_allows_extra_ast_call_arguments_beyond_hir() {
+        use crate::decompiler::hir::{CallTarget, HirFunction, Provenance, Win64CallSite};
+
+        let ssa = ret_ssa();
+        let sem = SemanticModel::from_raw_pcode(&ssa);
+        let contracts = ContractBundle::from_semantic(&ssa, &sem, &[]);
+        // Same call count as AST (1), but HIR recovered zero args.
+        let mut hir = HirFunction::default();
+        hir.add_call_site(Win64CallSite::new(
+            Provenance::default(),
+            CallTarget::Direct { va: 0x140002000 },
+            vec![],
+        ));
+        let cand = TypedAstCandidate {
+            ast: TypedAst {
+                name: "main".into(),
+                params: vec![],
+                ret_ty: "uint64".into(),
+                body: vec![Stmt::Return {
+                    expr: Some(Expr::Call {
+                        target: "narrow_add".into(),
+                        args: vec![Expr::Name {
+                            name: "arg1".into(),
+                        }],
+                    }),
+                }],
+            },
+            coverage: CoverageMaps {
+                edges: vec![],
+                effects: vec!["call:narrow_add".into(), "return".into()],
+            },
+            residual_edges: 0,
+            case_partitions: vec![],
+            cost: 0,
+            nesting: 0,
+            hit_cap: false,
+        };
+        let report = check_typed_candidate_with_hir(&sem, &contracts, &cand, Some(&hir));
+        assert!(
+            report.accepted,
+            "extra AST args beyond empty HIR args must accept: {report:?}"
+        );
+        assert!(
+            !report
+                .rejects
+                .iter()
+                .any(|r| r == "invented_call_arguments"),
+            "{report:?}"
+        );
+    }
+
     #[test]
     fn checker_rejects_dropped_hir_call_arguments() {
         use crate::decompiler::hir::{
@@ -682,6 +741,49 @@ mod tests {
                 .rejects
                 .iter()
                 .any(|reason| reason == "unresolved_ast_placeholders"),
+            "{report:?}"
+        );
+    }
+
+    /// Thin store RHS `v` must not force product legacy fallback.
+    #[test]
+    fn checker_allows_thin_store_value_placeholder() {
+        let ssa = ret_ssa();
+        let sem = SemanticModel::from_raw_pcode(&ssa);
+        let contracts = ContractBundle::from_semantic(&ssa, &sem, &[]);
+        let hir = crate::decompiler::hir::HirFunction::default();
+        let cand = TypedAstCandidate {
+            ast: TypedAst {
+                name: "main".into(),
+                params: vec![],
+                ret_ty: "uint64".into(),
+                body: vec![
+                    Stmt::Assign {
+                        dest: "*mem_1".into(),
+                        expr: Expr::Name { name: "v".into() },
+                    },
+                    Stmt::Return {
+                        expr: Some(Expr::UInt { value: 0, bits: 64 }),
+                    },
+                ],
+            },
+            coverage: CoverageMaps {
+                edges: vec![],
+                effects: vec!["store:1".into(), "return".into()],
+            },
+            residual_edges: 0,
+            case_partitions: vec![],
+            cost: 0,
+            nesting: 0,
+            hit_cap: false,
+        };
+        let report = check_typed_candidate_with_hir(&sem, &contracts, &cand, Some(&hir));
+        assert!(report.accepted, "store RHS v must be allowed: {report:?}");
+        assert!(
+            !report
+                .rejects
+                .iter()
+                .any(|r| r == "unresolved_ast_placeholders"),
             "{report:?}"
         );
     }

@@ -6,8 +6,53 @@
       "program": "a01_signed_rel",
       "profile": "P0",
       "source": "main",
+      "gold": "0x140001080",
+      "pe": "eval/grand/bin/P0/a01_signed_rel.exe"
+    },
+    {
+      "id": "abstain:a01_signed_rel:P0:filter_av",
+      "family": "abstain",
+      "program": "a01_signed_rel",
+      "profile": "P0",
+      "source": "filter_av",
+      "gold": "refuse",
+      "pe": "eval/grand/bin/P0/a01_signed_rel.exe"
+    },
+    {
+      "id": "locate:a01_signed_rel:P0:signed_lt",
+      "family": "locate",
+      "program": "a01_signed_rel",
+      "profile": "P0",
+      "source": "signed_lt",
       "gold": "0x140001000",
-      "pe": "current repository root\\eval\\grand\\bin\\P0\\a01_signed_rel.exe"
+      "pe": "eval/grand/bin/P0/a01_signed_rel.exe"
+    },
+    {
+      "id": "abstain:a01_signed_rel:P1:outer_sum",
+      "family": "abstain",
+      "program": "a01_signed_rel",
+      "profile": "P1",
+      "source": "outer_sum",
+      "gold": "refuse",
+      "pe": "eval/grand/bin/P1/a01_signed_rel.exe"
+    },
+    {
+      "id": "locate:a01_signed_rel:P0:unsigned_lt",
+      "family": "locate",
+      "program": "a01_signed_rel",
+      "profile": "P0",
+      "source": "unsigned_lt",
+      "gold": "0x140001040",
+      "pe": "eval/grand/bin/P0/a01_signed_rel.exe"
+    },
+    {
+      "id": "abstain:a02_narrow_promo:P0:count_down",
+      "family": "abstain",
+      "program": "a02_narrow_promo",
+      "profile": "P0",
+      "source": "count_down",
+      "gold": "refuse",
+      "pe": "eval/grand/bin/P0/a02_narrow_promo.exe"
     },
     {
       "id": "locate:a01_signed_rel:P1:main",
@@ -15,99 +60,54 @@
       "program": "a01_signed_rel",
       "profile": "P1",
       "source": "main",
-      "gold": "0x1400012c8",
-      "pe": "current repository root\\eval\\grand\\bin\\P1\\a01_signed_rel.exe"
-    },
-    {
-      "id": "locate:a02_narrow_promo:P0:narrow_add",
-      "family": "locate",
-      "program": "a02_narrow_promo",
-      "profile": "P0",
-      "source": "narrow_add",
       "gold": "0x140001000",
-      "pe": "current repository root\\eval\\grand\\bin\\P0\\a02_narrow_promo.exe"
+      "pe": "eval/grand/bin/P1/a01_signed_rel.exe"
     },
     {
-      "id": "locate:a02_narrow_promo:P0:main",
-      "family": "locate",
-      "program": "a02_narrow_promo",
-      "profile": "P0",
-      "source": "main",
-      "gold": "0x1400015ac",
-      "pe": "current repository root\\eval\\grand\\bin\\P0\\a02_narrow_promo.exe"
-    },
-    {
-      "id": "locate:a02_narrow_promo:P1:narrow_add",
-      "family": "locate",
+      "id": "abstain:a02_narrow_promo:P1:sum_until_zero",
+      "family": "abstain",
       "program": "a02_narrow_promo",
       "profile": "P1",
-      "source": "narrow_add",
-      "gold": "0x1400015c4",
-      "pe": "current repository root\\eval\\grand\\bin\\P1\\a02_narrow_promo.exe"
+      "source": "sum_until_zero",
+      "gold": "refuse",
+      "pe": "eval/grand/bin/P1/a02_narrow_promo.exe"
     },
     {
-      "id": "locate:a02_narrow_promo:P1:main",
+      "id": "locate:a01_signed_rel:P1:signed_lt",
       "family": "locate",
-      "program": "a02_narrow_promo",
-      "profile": "P1",
-      "source": "main",
-      "gold": "0x140001594",
-      "pe": "current repository root\\eval\\grand\\bin\\P1\\a02_narrow_promo.exe"
-    },
-    {
-      "id": "abstain:a01_signed_rel:P0:signed_lt",
-      "family": "abstain",
-      "program": "a01_signed_rel",
-      "profile": "P0",
-      "source": "signed_lt",
-      "gold": "refuse",
-      "pe": "current repository root\\eval\\grand\\bin\\P0\\a01_signed_rel.exe"
-    },
-    {
-      "id": "abstain:a01_signed_rel:P0:unsigned_lt",
-      "family": "abstain",
-      "program": "a01_signed_rel",
-      "profile": "P0",
-      "source": "unsigned_lt",
-      "gold": "refuse",
-      "pe": "current repository root\\eval\\grand\\bin\\P0\\a01_signed_rel.exe"
-    },
-    {
-      "id": "abstain:a01_signed_rel:P1:signed_lt",
-      "family": "abstain",
       "program": "a01_signed_rel",
       "profile": "P1",
       "source": "signed_lt",
-      "gold": "refuse",
-      "pe": "current repository root\\eval\\grand\\bin\\P1\\a01_signed_rel.exe"
+      "gold": "0x140001044",
+      "pe": "eval/grand/bin/P1/a01_signed_rel.exe"
     },
     {
-      "id": "abstain:a01_signed_rel:P1:unsigned_lt",
+      "id": "abstain:a03_minmax_abs:P0:crc_add",
       "family": "abstain",
+      "program": "a03_minmax_abs",
+      "profile": "P0",
+      "source": "crc_add",
+      "gold": "refuse",
+      "pe": "eval/grand/bin/P0/a03_minmax_abs.exe"
+    },
+    {
+      "id": "locate:a01_signed_rel:P1:unsigned_lt",
+      "family": "locate",
       "program": "a01_signed_rel",
       "profile": "P1",
       "source": "unsigned_lt",
-      "gold": "refuse",
-      "pe": "current repository root\\eval\\grand\\bin\\P1\\a01_signed_rel.exe"
+      "gold": "0x14000104c",
+      "pe": "eval/grand/bin/P1/a01_signed_rel.exe"
     },
     {
-      "id": "abstain:a03_minmax_abs:P0:iabs",
+      "id": "abstain:a03_minmax_abs:P1:walk_cstr",
       "family": "abstain",
       "program": "a03_minmax_abs",
-      "profile": "P0",
-      "source": "iabs",
+      "profile": "P1",
+      "source": "walk_cstr",
       "gold": "refuse",
-      "pe": "current repository root\\eval\\grand\\bin\\P0\\a03_minmax_abs.exe"
-    },
-    {
-      "id": "abstain:a03_minmax_abs:P0:imin",
-      "family": "abstain",
-      "program": "a03_minmax_abs",
-      "profile": "P0",
-      "source": "imin",
-      "gold": "refuse",
-      "pe": "current repository root\\eval\\grand\\bin\\P0\\a03_minmax_abs.exe"
+      "pe": "eval/grand/bin/P1/a03_minmax_abs.exe"
     }
   ],
-  "note": "balanced sample for free subagent run"
+  "note": "Manifest-derived balanced sample for free subagent runs; PE paths are repository-relative."
 }

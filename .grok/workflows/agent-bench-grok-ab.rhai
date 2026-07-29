@@ -10,20 +10,24 @@ let meta = #{
     when_to_use: "Free Grok-model agent loop for windy vs pefile A-vs-B",
 };
 
-// Fixed 12-task balanced set (same as fixtures/p0p1_tasks_12.json). Gold is ONLY for scorer.
+let root = ".";
+if args != () && args.root != () { root = args.root; }
+
+// Manifest-derived 12-task balanced set (same as fixtures/p0p1_tasks_12.json).
+// Gold is ONLY for the scorer.
 let tasks = [
-    #{ id: "locate:a01_signed_rel:P0:main", family: "locate", source: "main", pe: "current repository root\\eval\\grand\\bin\\P0\\a01_signed_rel.exe", gold: "0x140001000" },
-    #{ id: "locate:a01_signed_rel:P1:main", family: "locate", source: "main", pe: "current repository root\\eval\\grand\\bin\\P1\\a01_signed_rel.exe", gold: "0x1400012c8" },
-    #{ id: "locate:a02_narrow_promo:P0:narrow_add", family: "locate", source: "narrow_add", pe: "current repository root\\eval\\grand\\bin\\P0\\a02_narrow_promo.exe", gold: "0x140001000" },
-    #{ id: "locate:a02_narrow_promo:P0:main", family: "locate", source: "main", pe: "current repository root\\eval\\grand\\bin\\P0\\a02_narrow_promo.exe", gold: "0x1400015ac" },
-    #{ id: "locate:a02_narrow_promo:P1:narrow_add", family: "locate", source: "narrow_add", pe: "current repository root\\eval\\grand\\bin\\P1\\a02_narrow_promo.exe", gold: "0x1400015c4" },
-    #{ id: "locate:a02_narrow_promo:P1:main", family: "locate", source: "main", pe: "current repository root\\eval\\grand\\bin\\P1\\a02_narrow_promo.exe", gold: "0x140001594" },
-    #{ id: "abstain:a01_signed_rel:P0:signed_lt", family: "abstain", source: "signed_lt", pe: "current repository root\\eval\\grand\\bin\\P0\\a01_signed_rel.exe", gold: "refuse" },
-    #{ id: "abstain:a01_signed_rel:P0:unsigned_lt", family: "abstain", source: "unsigned_lt", pe: "current repository root\\eval\\grand\\bin\\P0\\a01_signed_rel.exe", gold: "refuse" },
-    #{ id: "abstain:a01_signed_rel:P1:signed_lt", family: "abstain", source: "signed_lt", pe: "current repository root\\eval\\grand\\bin\\P1\\a01_signed_rel.exe", gold: "refuse" },
-    #{ id: "abstain:a01_signed_rel:P1:unsigned_lt", family: "abstain", source: "unsigned_lt", pe: "current repository root\\eval\\grand\\bin\\P1\\a01_signed_rel.exe", gold: "refuse" },
-    #{ id: "abstain:a03_minmax_abs:P0:iabs", family: "abstain", source: "iabs", pe: "current repository root\\eval\\grand\\bin\\P0\\a03_minmax_abs.exe", gold: "refuse" },
-    #{ id: "abstain:a03_minmax_abs:P0:imin", family: "abstain", source: "imin", pe: "current repository root\\eval\\grand\\bin\\P0\\a03_minmax_abs.exe", gold: "refuse" },
+    #{ id: "locate:a01_signed_rel:P0:main", family: "locate", source: "main", pe: root + "\\eval\\grand\\bin\\P0\\a01_signed_rel.exe", gold: "0x140001080" },
+    #{ id: "abstain:a01_signed_rel:P0:filter_av", family: "abstain", source: "filter_av", pe: root + "\\eval\\grand\\bin\\P0\\a01_signed_rel.exe", gold: "refuse" },
+    #{ id: "locate:a01_signed_rel:P0:signed_lt", family: "locate", source: "signed_lt", pe: root + "\\eval\\grand\\bin\\P0\\a01_signed_rel.exe", gold: "0x140001000" },
+    #{ id: "abstain:a01_signed_rel:P1:outer_sum", family: "abstain", source: "outer_sum", pe: root + "\\eval\\grand\\bin\\P1\\a01_signed_rel.exe", gold: "refuse" },
+    #{ id: "locate:a01_signed_rel:P0:unsigned_lt", family: "locate", source: "unsigned_lt", pe: root + "\\eval\\grand\\bin\\P0\\a01_signed_rel.exe", gold: "0x140001040" },
+    #{ id: "abstain:a02_narrow_promo:P0:count_down", family: "abstain", source: "count_down", pe: root + "\\eval\\grand\\bin\\P0\\a02_narrow_promo.exe", gold: "refuse" },
+    #{ id: "locate:a01_signed_rel:P1:main", family: "locate", source: "main", pe: root + "\\eval\\grand\\bin\\P1\\a01_signed_rel.exe", gold: "0x140001000" },
+    #{ id: "abstain:a02_narrow_promo:P1:sum_until_zero", family: "abstain", source: "sum_until_zero", pe: root + "\\eval\\grand\\bin\\P1\\a02_narrow_promo.exe", gold: "refuse" },
+    #{ id: "locate:a01_signed_rel:P1:signed_lt", family: "locate", source: "signed_lt", pe: root + "\\eval\\grand\\bin\\P1\\a01_signed_rel.exe", gold: "0x140001044" },
+    #{ id: "abstain:a03_minmax_abs:P0:crc_add", family: "abstain", source: "crc_add", pe: root + "\\eval\\grand\\bin\\P0\\a03_minmax_abs.exe", gold: "refuse" },
+    #{ id: "locate:a01_signed_rel:P1:unsigned_lt", family: "locate", source: "unsigned_lt", pe: root + "\\eval\\grand\\bin\\P1\\a01_signed_rel.exe", gold: "0x14000104c" },
+    #{ id: "abstain:a03_minmax_abs:P1:walk_cstr", family: "abstain", source: "walk_cstr", pe: root + "\\eval\\grand\\bin\\P1\\a03_minmax_abs.exe", gold: "refuse" },
 ];
 
 let answer_schema = #{
@@ -38,17 +42,17 @@ let answer_schema = #{
     },
 };
 
-let windy = "current repository root\\target\\debug\\windy.exe";
-let py = "current repository root\\target\\agent-bench-scratch\\local_b\\.venv\\Scripts\\python.exe";
-let root = "current repository root";
+let windy = root + "\\target\\debug\\windy.exe";
+let py = root + "\\target\\agent-bench-scratch\\local_b\\.venv\\Scripts\\python.exe";
 
 phase("Prep");
 let prep = agent(
-    "Working dir current repository root. Confirm these exist with shell/Test-Path: "
+    "Working dir " + root + ". Confirm these exist with shell/Test-Path: "
         + "target\\debug\\windy.exe and target\\agent-bench-scratch\\local_b\\.venv\\Scripts\\python.exe. "
         + "If windy missing: cargo build -p windy. If venv python missing, create venv and pip install pefile capstone. "
-        + "Return ok=true only if both binaries work: run windy agent-query --pe eval/grand/bin/P0/a01_signed_rel.exe --functions-named main "
-        + "with RUST_LOG=error, and python -c \"import pefile; print('ok')\".",
+        + "Return ok=true only if both work: start `windy serve-mcp --bind 127.0.0.1:18770 --open eval/grand/bin/P0/a01_signed_rel.exe` briefly "
+        + "(or call scripts/mcp-call.ps1 against a running endpoint with list_projects), and python -c \"import pefile; print('ok')\". "
+        + "Kill any temporary serve-mcp when done.",
     #{ label: "prep", capability_mode: "execute", agent_type: "general-purpose" },
 );
 if prep == () || !prep.success {
@@ -64,13 +68,22 @@ for t in tasks {
     prompt += "Task id: " + t.id + "\n";
     prompt += "Family: " + t.family + "\n";
     prompt += "Question: Which VA implements source function `" + t.source + "` in this PE? ";
-    prompt += "If the function is missing/inlined/eliminated, answer refuse.\n";
+    prompt += "If the function is missing/inlined/eliminated or evidence is weak/ambiguous, answer refuse (honest abstention).\n";
     prompt += "PE path: " + t.pe + "\n";
-    prompt += "REQUIRED: run shell with RUST_LOG=error:\n";
-    prompt += windy + " agent-query --pe \"" + t.pe + "\" --functions-named " + t.source + "\n";
-    prompt += "Parse the JSON matches. Prefer exact name match; if none, answer refuse.\n";
-    prompt += "Do NOT read identity_maps gold files. Answer is a hex VA like 0x140001000 or the word refuse.\n";
-    prompt += "Return JSON fields task_id, arm=A, answer, rationale, tool_calls.\n";
+    prompt += "REQUIRED: drive the AGENTS.md evidence ladder via Windy MCP (not a single agent-query).\n";
+    prompt += "1) Start: " + windy + " serve-mcp --bind 127.0.0.1:<free-port> --open \"" + t.pe + "\"\n";
+    prompt += "   Endpoint: http://127.0.0.1:<free-port>/mcp\n";
+    prompt += "   Helper: " + root + "\\scripts\\mcp-call.ps1 -Endpoint <url> -Tool <name> [-Arguments '<json>']\n";
+    prompt += "2) list_projects → take project_id.\n";
+    prompt += "3) get_triage (project_id, limit~32) — note ranked VAs/names.\n";
+    prompt += "4) search_bel (project_id, query=\"" + t.source + "\", mode=substring) — ranked BEL hits.\n";
+    prompt += "5) functions_named (project_id, pattern=\"" + t.source + "\") — name list; prefer exact name, not substring-only.\n";
+    prompt += "6) get_function_evidence on the best candidate VA (if any) before answering.\n";
+    prompt += "You MAY use describe_address / trace_value if needed. Do NOT use only agent-query --functions-named.\n";
+    prompt += "Prefer refuse over inventing a VA. Do NOT read identity_maps or .map gold files.\n";
+    prompt += "Answer is a hex VA like 0x140001000 or the word refuse.\n";
+    prompt += "Return JSON fields task_id, arm=A, answer, rationale, tool_calls (count of MCP tool invocations).\n";
+    prompt += "Kill serve-mcp when finished.\n";
     a_jobs.push(#{
         prompt: prompt,
         label: "A:" + t.id,
@@ -94,7 +107,7 @@ for t in tasks {
     prompt += "Question: Which VA implements source function `" + t.source + "` in this PE? ";
     prompt += "If missing/inlined/eliminated or not visible via pefile, answer refuse.\n";
     prompt += "PE path: " + t.pe + "\n";
-    prompt += "REQUIRED: write a short python script under current repository root\\target\\agent-bench-scratch\\grok_b\\ ";
+    prompt += "REQUIRED: write a short python script under " + root + "\\target\\agent-bench-scratch\\grok_b\\ ";
     prompt += "that loads the PE with pefile, lists exports (if any) and entry point, searches export names for the source name, ";
     prompt += "and prints a single line: hex VA or refuse. Run it with the venv python.\n";
     prompt += "Honest baseline: do not invent MAP/PDB names pefile cannot see. Prefer refuse over guessing entry for non-export symbols (except maybe main).\n";

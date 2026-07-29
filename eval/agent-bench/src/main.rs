@@ -1,4 +1,4 @@
-﻿//! Agent-loop benchmark harness (outside the windy binary).
+//! Agent-loop benchmark harness (outside the windy binary).
 //!
 //! Arms:
 //! - A: windy-evidence (MCP tools: get_function_evidence, search_bel, get_triage, â€¦)
@@ -77,15 +77,20 @@ struct Cli {
     /// Live Anthropic loop (requires ANTHROPIC_API_KEY). Paid tokens.
     #[arg(long, default_value_t = false)]
     live: bool,
-    /// Free local tool agents: arm A = `windy agent-query`, arm B = python+pefile.
+    /// Free local tool agents: arm A = Windy MCP evidence ladder, arm B = python+pefile.
     /// No Anthropic. Preferred for P0/P1 CI / free subagent orchestration.
     #[arg(long, default_value_t = false)]
     local: bool,
     /// Interleave locate/abstain instead of sort-all-abstain-first.
     #[arg(long, default_value_t = false)]
     balanced: bool,
+    /// Ingest per-task result JSON written by external agents (one file per
+    /// task/arm). Used for subagent runs where the model is driven outside this
+    /// process; each file must report the tools it actually called.
+    #[arg(long)]
+    sidecar: Option<PathBuf>,
     /// Model id for live runs.
-    #[arg(long, default_value = "claude-opus-4-20250514")]
+    #[arg(long, default_value = "claude-opus-5")]
     model: String,
     /// Write machine-readable report JSON here.
     /// Offline wiring: prefer `eval/agent-bench/fixtures/wiring-check-*.json`.
@@ -100,15 +105,37 @@ struct Cli {
     mcp_bind: String,
 }
 
-#[derive(Clone, Debug, Deserialize)]
-struct IdentityEntry {
-    function_id: String,
+// `IdentityEntry` (the eval/grand/identity_maps row type) is deliberately gone:
+// 442/480 of its entries contradict the linker map for the same binary, and it
+// disagrees with itself about whether `function_id` or `source_name` holds the
+// real C symbol. Nothing should read it until it is regenerated.
+
+/// Usual first-function VA of an `/Od` MSVC x64 image — the answer a model
+/// produces from layout priors alone, with no analysis. Scored as a baseline so
+/// a lucky guess can never be mistaken for capability.
+#[derive(Debug, Deserialize)]
+struct BenchManifest {
+    binaries: Vec<BenchBinary>,
+}
+
+#[derive(Debug, Deserialize)]
+struct BenchBinary {
+    program_id: String,
+    profile: String,
+    pe_path: PathBuf,
+    #[serde(default)]
+    function_map: Vec<BenchFunction>,
+}
+
+#[derive(Debug, Deserialize)]
+struct BenchFunction {
     source_name: String,
     status: String,
+    #[serde(default)]
     entry_va: Option<String>,
-    #[allow(dead_code)]
-    folded_to: Option<String>,
 }
+
+const DEFAULT_VA_GUESS: &str = "0x140001000";
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 struct Task {
@@ -154,13 +181,17 @@ impl TokenUsage {
 struct TaskResult {
     task_id: String,
     arm: String,
+    family: String,
     success: bool,
     abstained: bool,
     answer: String,
     gold: String,
-    tool_calls: usize,
-    tokens: TokenUsage,
-    wall_ms: u128,
+    /// `None` = not instrumented. Never emit 0 for "we didn't measure" — a zero
+    /// that looks like a measurement is what made the first Grok report unreadable.
+    tool_calls: Option<usize>,
+    tools_used: Vec<String>,
+    tokens: Option<TokenUsage>,
+    wall_ms: Option<u128>,
     mode: String,
     error: Option<String>,
 }
@@ -172,9 +203,29 @@ struct ArmSummary {
     successes: usize,
     abstentions: usize,
     abstention_correct: usize,
-    total_tool_calls: usize,
-    tokens: TokenUsage,
-    wall_ms: u128,
+    /// Per-family accuracy. Never average these into one headline: with a 50/50
+    /// locate/abstain split, "always refuse" scores 50% while locating nothing.
+    families: BTreeMap<String, FamilyStat>,
+    /// How many of `tasks` carried real telemetry.
+    instrumented_tasks: usize,
+    total_tool_calls: Option<usize>,
+    tokens: Option<TokenUsage>,
+    wall_ms: Option<u128>,
+}
+
+#[derive(Clone, Debug, Default, Serialize)]
+struct FamilyStat {
+    n: usize,
+    successes: usize,
+}
+
+/// Trivial constant policies scored on the same task set. An arm that does not
+/// beat both of these has demonstrated no capability, whatever its total says.
+#[derive(Clone, Debug, Serialize)]
+struct Baselines {
+    always_refuse: BTreeMap<String, FamilyStat>,
+    always_default_va: BTreeMap<String, FamilyStat>,
+    note: String,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -186,6 +237,7 @@ struct Report {
     model: Option<String>,
     live: bool,
     arms: Vec<ArmSummary>,
+    baselines: Baselines,
     results: Vec<TaskResult>,
     corpus: Value,
 }
@@ -226,7 +278,7 @@ fn main() -> Result<()> {
 
     if cli.local {
         eprintln!(
-            "agent-bench: free --local mode (windy agent-query vs python/pefile). No Anthropic."
+            "agent-bench: free --local mode (Windy MCP ladder vs python/pefile). No Anthropic."
         );
     } else if !cli.live {
         eprintln!(
@@ -240,7 +292,9 @@ fn main() -> Result<()> {
 
     for arm in &cli.arm {
         for task in &tasks {
-            let result = if cli.live {
+            let result = if let Some(dir) = &cli.sidecar {
+                run_sidecar_task(dir, *arm, task)
+            } else if cli.live {
                 run_live_task(&cli, &root, &windy, *arm, task)
             } else if cli.local {
                 run_local_task(&root, &windy, *arm, task)
@@ -329,6 +383,32 @@ fn resolve_windy(root: &Path, explicit: Option<&Path>) -> Result<PathBuf> {
         .unwrap_or_else(|| root.join("target/debug/windy.exe")))
 }
 
+/// Copy a PE on its own into a staging directory, leaving every sibling behind.
+///
+/// This is load-bearing, not hygiene. `src/project/mod.rs` calls
+/// `apply_adjacent_msvc_map_names`, so opening `bin/P0/x.exe` lets Windy lift
+/// real function names straight out of `bin/P0/x.map` — the same linker-derived
+/// identities frozen in the tracked manifest. Measured directly: with the `.map` present,
+/// `functions_named "main"` returns `0x140001080`; with the PE staged alone, it
+/// returns nothing. Benchmarking symbol recovery against a directory that also
+/// contains the answer key measures the directory, not the substrate.
+///
+/// Staging is deliberately applied to every arm so the two see identical inputs.
+fn stage_pe(pe: &Path, stage_root: &Path, program_id: &str, profile: &str) -> Result<PathBuf> {
+    let dir = stage_root.join(format!("{program_id}_{profile}"));
+    if dir.exists() {
+        fs::remove_dir_all(&dir)
+            .with_context(|| format!("clear stale stage dir {}", dir.display()))?;
+    }
+    fs::create_dir_all(&dir).with_context(|| format!("create stage dir {}", dir.display()))?;
+    let dest = dir.join(
+        pe.file_name()
+            .ok_or_else(|| anyhow::anyhow!("PE has no file name: {}", pe.display()))?,
+    );
+    fs::copy(pe, &dest).with_context(|| format!("stage {} -> {}", pe.display(), dest.display()))?;
+    Ok(dest)
+}
+
 fn load_tasks(
     root: &Path,
     profiles: &[String],
@@ -336,115 +416,211 @@ fn load_tasks(
     limit: usize,
     balanced: bool,
 ) -> Result<Vec<Task>> {
-    let id_dir = root.join("eval/grand/identity_maps");
-    let bin_root = root.join("eval/grand/bin");
-    if !id_dir.is_dir() {
-        bail!("missing {}", id_dir.display());
+    let manifest_path = root.join("eval/grand/manifest.json");
+    let manifest_text = fs::read_to_string(&manifest_path)
+        .with_context(|| format!("read benchmark manifest {}", manifest_path.display()))?;
+    let manifest: BenchManifest = serde_json::from_str(&manifest_text)
+        .with_context(|| format!("parse benchmark manifest {}", manifest_path.display()))?;
+
+    for bin in &manifest.binaries {
+        for function in &bin.function_map {
+            if !matches!(
+                function.status.as_str(),
+                "present" | "folded" | "inlined_only" | "missing"
+            ) {
+                bail!(
+                    "unknown manifest status {:?} for {} {} {}",
+                    function.status,
+                    bin.program_id,
+                    bin.profile,
+                    function.source_name
+                );
+            }
+        }
     }
 
+    // The tracked manifest freezes linker-derived source identity for every
+    // concrete binary. It is the clean-checkout truth source; adjacent map
+    // files are deliberately ignored because they are not shipped publicly and
+    // would leak the answer key to Windy's symbol loader.
+    let p0_by_program: BTreeMap<String, &BenchBinary> = manifest
+        .binaries
+        .iter()
+        .filter(|bin| bin.profile == "P0")
+        .map(|bin| (bin.program_id.clone(), bin))
+        .collect();
+    if p0_by_program.is_empty() {
+        bail!("manifest has no P0 source rosters");
+    }
+
+    let mut foreign_names: Vec<String> = p0_by_program
+        .values()
+        .filter_map(|bin| {
+            bin.function_map
+                .iter()
+                .map(|function| function.source_name.as_str())
+                .find(|name| *name != "main" && name.len() > 4 && !name.starts_with('_'))
+                .map(str::to_owned)
+        })
+        .collect();
+    foreign_names.sort();
+    foreign_names.dedup();
+
+    let stage_root = root.join("target/agent-bench-stage");
     let mut tasks = Vec::new();
-    let mut entries: Vec<_> = fs::read_dir(&id_dir)?.filter_map(|e| e.ok()).collect();
-    entries.sort_by_key(|e| e.file_name());
+    for (program_id, p0) in p0_by_program {
+        let roster: BTreeMap<String, &BenchFunction> = p0
+            .function_map
+            .iter()
+            .map(|function| (function.source_name.clone(), function))
+            .collect();
+        if roster.is_empty() {
+            continue;
+        }
 
-    for entry in entries {
-        let name = entry.file_name().to_string_lossy().into_owned();
-        if !name.ends_with(".json") {
-            continue;
-        }
-        let stem = name.trim_end_matches(".json");
-        let Some((program_id, profile)) = stem.rsplit_once('_') else {
-            continue;
-        };
-        if !profiles.iter().any(|p| p.eq_ignore_ascii_case(profile)) {
-            continue;
-        }
-        let pe_path = bin_root.join(profile).join(format!("{program_id}.exe"));
-        if !pe_path.exists() {
-            continue;
-        }
-        let raw = fs::read_to_string(entry.path())?;
-        let map: Vec<IdentityEntry> = serde_json::from_str(&raw)
-            .with_context(|| format!("parse {}", entry.path().display()))?;
-
-        for row in map {
-            if families.iter().any(|f| f == "locate")
-                && row.status == "present"
-                && let Some(va) = row.entry_va.clone()
-            {
-                tasks.push(Task {
-                    id: format!("locate:{program_id}:{profile}:{}", row.function_id),
-                    family: "locate".into(),
-                    program_id: program_id.into(),
-                    profile: profile.into(),
-                    pe_path: pe_path.clone(),
-                    question: format!(
-                        "Which VA implements source function `{}` in this binary? Answer with a single hex VA or refuse.",
-                        row.source_name
-                    ),
-                    gold: va,
-                    source_name: Some(row.source_name.clone()),
-                });
+        for profile in profiles {
+            let Some(bin) = manifest
+                .binaries
+                .iter()
+                .find(|bin| bin.program_id == program_id && bin.profile == *profile)
+            else {
+                continue;
+            };
+            let source_pe = root.join(&bin.pe_path);
+            if !source_pe.is_file() {
+                eprintln!(
+                    "warning: manifest binary is missing for {program_id} {profile}: {}",
+                    source_pe.display()
+                );
+                continue;
             }
-            if families.iter().any(|f| f == "abstain")
-                && (row.status == "inlined-only" || row.status == "missing")
+            let pe_path = stage_pe(&source_pe, &stage_root, &program_id, profile)?;
+            let truth: BTreeMap<&str, &BenchFunction> = bin
+                .function_map
+                .iter()
+                .map(|function| (function.source_name.as_str(), function))
+                .collect();
+
+            for name in roster.keys() {
+                match truth.get(name.as_str()).copied() {
+                    Some(function) if function.status == "present" => {
+                        if !families.iter().any(|family| family == "locate") {
+                            continue;
+                        }
+                        let va = function.entry_va.as_deref().ok_or_else(|| {
+                            anyhow::anyhow!(
+                                "present function has no entry_va: {program_id} {profile} {name}"
+                            )
+                        })?;
+                        let normalized = u64::from_str_radix(va.trim_start_matches("0x"), 16)
+                            .with_context(|| {
+                                format!("invalid entry_va {va:?} for {program_id} {profile} {name}")
+                            })?;
+                        tasks.push(Task {
+                            id: format!("locate:{program_id}:{profile}:{name}"),
+                            family: "locate".into(),
+                            program_id: program_id.clone(),
+                            profile: profile.clone(),
+                            pe_path: pe_path.clone(),
+                            question: format!(
+                                "Which VA implements source function `{name}` in this binary? \
+                                 Answer with a single hex VA, or refuse if it is not present."
+                            ),
+                            gold: format!("{normalized:#x}"),
+                            source_name: Some(name.clone()),
+                        });
+                    }
+                    Some(_) | None if families.iter().any(|family| family == "abstain") => {
+                        tasks.push(Task {
+                            id: format!("abstain:{program_id}:{profile}:{name}"),
+                            family: "abstain".into(),
+                            program_id: program_id.clone(),
+                            profile: profile.clone(),
+                            pe_path: pe_path.clone(),
+                            question: format!(
+                                "Which VA implements source function `{name}` in this binary? \
+                                 Answer with a single hex VA, or refuse if it is not present."
+                            ),
+                            gold: "refuse".into(),
+                            source_name: Some(name.clone()),
+                        });
+                    }
+                    _ => {}
+                }
+            }
+
+            // Optimizer-elided functions are rare in P0/P1. Add one real name
+            // borrowed from another program so a balanced run can still test
+            // honest refusal without inventing a fake symbol.
+            let pick = {
+                let mut hash = Sha256::new();
+                hash.update(program_id.as_bytes());
+                hash.update(profile.as_bytes());
+                let digest = hash.finalize();
+                usize::from(digest[0]) | (usize::from(digest[1]) << 8)
+            };
+            if families.iter().any(|family| family == "abstain")
+                && let Some(foreign) = (0..foreign_names.len())
+                    .map(|index| &foreign_names[(pick + index) % foreign_names.len()])
+                    .find(|name| !roster.contains_key(name.as_str()))
             {
                 tasks.push(Task {
-                    id: format!("abstain:{program_id}:{profile}:{}", row.function_id),
+                    id: format!("abstain:{program_id}:{profile}:{foreign}"),
                     family: "abstain".into(),
-                    program_id: program_id.into(),
-                    profile: profile.into(),
+                    program_id: program_id.clone(),
+                    profile: profile.clone(),
                     pe_path: pe_path.clone(),
                     question: format!(
-                        "Which VA implements source function `{}`? If it was inlined/eliminated, refuse.",
-                        row.source_name
+                        "Which VA implements source function `{foreign}` in this binary? \
+                         Answer with a single hex VA, or refuse if it is not present."
                     ),
                     gold: "refuse".into(),
-                    source_name: Some(row.source_name.clone()),
+                    source_name: Some(foreign.clone()),
                 });
             }
         }
     }
 
-    tasks.sort_by(|a, b| a.id.cmp(&b.id));
+    select_tasks(tasks, limit, balanced)
+}
+
+fn select_tasks(mut tasks: Vec<Task>, limit: usize, balanced: bool) -> Result<Vec<Task>> {
     if balanced {
-        // Interleave locate and abstain so limit=12 is not all-abstain.
+        // Interleave locate and abstain so limit=12 exercises both skills.
         let mut locate: Vec<_> = tasks
             .iter()
-            .filter(|t| t.family == "locate")
+            .filter(|task| task.family == "locate")
             .cloned()
             .collect();
         let mut abstain: Vec<_> = tasks
             .iter()
-            .filter(|t| t.family == "abstain")
-            .cloned()
-            .collect();
-        let other: Vec<_> = tasks
-            .iter()
-            .filter(|t| t.family != "locate" && t.family != "abstain")
+            .filter(|task| task.family == "abstain")
             .cloned()
             .collect();
         let mut out = Vec::new();
         let half = limit.div_ceil(2);
-        locate.truncate(half);
-        abstain.truncate(limit.saturating_sub(locate.len()));
-        let mut i = 0usize;
-        while out.len() < limit && (i < locate.len() || i < abstain.len()) {
-            if i < locate.len() {
-                out.push(locate[i].clone());
+        locate.truncate(half.min(locate.len()));
+        abstain.truncate(limit.saturating_sub(locate.len()).min(abstain.len()));
+        let mut index = 0;
+        while out.len() < limit && (index < locate.len() || index < abstain.len()) {
+            if index < locate.len() {
+                out.push(locate[index].clone());
             }
-            if out.len() >= limit {
-                break;
+            if out.len() < limit && index < abstain.len() {
+                out.push(abstain[index].clone());
             }
-            if i < abstain.len() {
-                out.push(abstain[i].clone());
-            }
-            i += 1;
+            index += 1;
         }
-        for t in other {
-            if out.len() >= limit {
-                break;
-            }
-            out.push(t);
+        if out.len() < limit {
+            let selected: std::collections::BTreeSet<_> =
+                out.iter().map(|task| task.id.clone()).collect();
+            out.extend(
+                tasks
+                    .iter()
+                    .filter(|task| !selected.contains(&task.id))
+                    .take(limit - out.len())
+                    .cloned(),
+            );
         }
         return Ok(out);
     }
@@ -453,25 +629,25 @@ fn load_tasks(
 }
 
 /// Free local tool agents (no LLM / no Anthropic).
-/// Arm A: `windy agent-query --functions-named` (substrate).
+/// Arm A: multi-step Windy MCP evidence ladder (triage → BEL → named → evidence).
 /// Arm B: python + pefile in scratch (baseline).
 /// Arm C: refuse unless name is literally an export-like hit via agent-query dump-style:
 /// uses agent-query then only accepts exact name match without fuzzy refuse heuristics beyond empty.
 fn run_local_task(root: &Path, windy: &Path, arm: Arm, task: &Task) -> TaskResult {
     let started = Instant::now();
     let source = task.source_name.clone().unwrap_or_else(|| "unknown".into());
-    let (answer, tool_calls, error) = match arm {
-        Arm::A => match local_arm_a_windy(windy, &task.pe_path, &source) {
-            Ok((ans, n)) => (ans, n, None),
-            Err(e) => (String::new(), 0, Some(e.to_string())),
+    let (answer, tool_calls, tools_used, error) = match arm {
+        Arm::A => match local_arm_a_windy_ladder(root, windy, &task.pe_path, &source, &task.id) {
+            Ok((ans, n, tools)) => (ans, n, tools, None),
+            Err(e) => (String::new(), 0, Vec::new(), Some(e.to_string())),
         },
         Arm::B => match local_arm_b_python(root, &task.pe_path, &source) {
-            Ok((ans, n)) => (ans, n, None),
-            Err(e) => (String::new(), 0, Some(e.to_string())),
+            Ok((ans, n)) => (ans, n, vec!["bash".into(), "write_file".into()], None),
+            Err(e) => (String::new(), 0, Vec::new(), Some(e.to_string())),
         },
         Arm::C => match local_arm_c_dump(windy, &task.pe_path, &source) {
-            Ok((ans, n)) => (ans, n, None),
-            Err(e) => (String::new(), 0, Some(e.to_string())),
+            Ok((ans, n)) => (ans, n, vec!["agent-query".into()], None),
+            Err(e) => (String::new(), 0, Vec::new(), Some(e.to_string())),
         },
     };
     let success = if error.is_some() {
@@ -482,47 +658,450 @@ fn run_local_task(root: &Path, windy: &Path, arm: Arm, task: &Task) -> TaskResul
     TaskResult {
         task_id: task.id.clone(),
         arm: arm_name(arm).into(),
+        family: task.family.clone(),
         success,
         abstained: is_abstain(&answer),
         answer,
         gold: task.gold.clone(),
-        tool_calls,
-        tokens: TokenUsage::default(), // free path: no model tokens
-        wall_ms: started.elapsed().as_millis(),
+        tool_calls: Some(tool_calls),
+        tools_used,
+        tokens: None, // free path: no model tokens to report
+        wall_ms: Some(started.elapsed().as_millis()),
         mode: "local_tools".into(),
         error,
     }
 }
 
-fn local_arm_a_windy(windy: &Path, pe: &Path, source: &str) -> Result<(String, usize)> {
+/// Deterministic Arm A policy: exercise the real product MCP ladder over HTTP.
+///
+/// Order mirrors AGENTS.md: list_projects → get_triage → search_bel →
+/// functions_named → get_function_evidence (when a candidate VA exists).
+/// Never a single `agent-query --functions-named` shell-out.
+fn local_arm_a_windy_ladder(
+    root: &Path,
+    windy: &Path,
+    pe: &Path,
+    source: &str,
+    task_id: &str,
+) -> Result<(String, usize, Vec<String>)> {
     if !windy.exists() {
         bail!("windy binary missing: {}", windy.display());
     }
-    let out = Command::new(windy)
-        .arg("agent-query")
-        .arg("--pe")
-        .arg(pe)
-        .arg("--functions-named")
-        .arg(source)
-        .arg("--limit")
-        .arg("32")
-        .env("RUST_LOG", "error")
-        .output()
-        .with_context(|| format!("spawn {}", windy.display()))?;
-    if !out.status.success() {
-        bail!(
-            "agent-query failed: {}",
-            String::from_utf8_lossy(&out.stderr)
-        );
+
+    let data_dir = root
+        .join("target/agent-bench-data")
+        .join(format!("local-A-{}", task_id.replace(':', "_")));
+    let _ = fs::remove_dir_all(&data_dir);
+    fs::create_dir_all(&data_dir)?;
+
+    // Ephemeral free port — never hash-collide with a leftover serve-mcp.
+    let bind = free_local_bind("127.0.0.1")?;
+    let mut child = spawn_windy(windy, &bind, pe, &data_dir)?;
+    let endpoint = format!("http://{bind}/mcp");
+
+    let outcome = (|| -> Result<(String, usize, Vec<String>)> {
+        // Allow serve-mcp to bind and open the PE.
+        wait_for_mcp_ready(&endpoint, Duration::from_secs(45))?;
+
+        let mut session = McpSession::connect(&endpoint)?;
+        let mut tools_used = Vec::new();
+        let mut name_hits: Vec<Value> = Vec::new();
+
+        // 1) Resolve project_id (PE already opened via --open).
+        let projects = session.call("list_projects", &json!({}))?;
+        tools_used.push("list_projects".into());
+        let project_id = extract_project_id(&projects)
+            .context("list_projects returned no project_id (serve-mcp --open failed?)")?;
+        // Guard against talking to a leftover server with a different PE open.
+        if let Some(path) = extract_project_path(&projects) {
+            let want = pe.canonicalize().unwrap_or_else(|_| pe.to_path_buf());
+            let got = PathBuf::from(&path);
+            let got = got.canonicalize().unwrap_or(got);
+            if want != got {
+                bail!(
+                    "MCP project path mismatch: open={} expected={}",
+                    got.display(),
+                    want.display()
+                );
+            }
+        }
+
+        // 2) First-minute triage ranking.
+        let triage = session.call(
+            "get_triage",
+            &json!({ "project_id": project_id, "limit": 32 }),
+        )?;
+        tools_used.push("get_triage".into());
+        collect_named_hits(&triage, &mut name_hits);
+
+        // 3) BEL name/token search (product ranked search surface).
+        let bel = session.call(
+            "search_bel",
+            &json!({
+                "project_id": project_id,
+                "query": source,
+                "mode": "substring",
+                "limit": 32,
+                "deadline_ms": 60_000u64,
+            }),
+        )?;
+        tools_used.push("search_bel".into());
+        collect_bel_hits(&bel, source, &mut name_hits);
+
+        // 4) Compatibility name list (same core as MCP functions_named).
+        let named = session.call(
+            "functions_named",
+            &json!({ "project_id": project_id, "pattern": source }),
+        )?;
+        tools_used.push("functions_named".into());
+        collect_named_hits(&named, &mut name_hits);
+
+        // 5) Evidence pack on the best current candidate (confirms the ladder step).
+        let provisional = pick_name_match(&name_hits, source);
+        if let Some(va) = provisional.as_ref() {
+            let evidence = session.call(
+                "get_function_evidence",
+                &json!({
+                    "project_id": project_id,
+                    "va": va,
+                    "max_items": 16,
+                    "include_agent_text": false,
+                }),
+            )?;
+            tools_used.push("get_function_evidence".into());
+            // Fold evidence summary name back into the candidate pool.
+            if let Some(summary) = evidence
+                .pointer("/summary")
+                .or_else(|| evidence.get("summary"))
+            {
+                let mut one = Vec::new();
+                if let Some(obj) = summary.as_object() {
+                    let n = obj
+                        .get("name")
+                        .and_then(|x| x.as_str())
+                        .unwrap_or("")
+                        .to_string();
+                    let v = obj
+                        .get("va")
+                        .map(|x| match x {
+                            Value::String(s) => s.clone(),
+                            Value::Number(num) => format!("{:#x}", num.as_u64().unwrap_or(0)),
+                            _ => String::new(),
+                        })
+                        .unwrap_or_default();
+                    if !v.is_empty() {
+                        one.push(json!({ "va": v, "name": n }));
+                    }
+                }
+                collect_named_hits(&Value::Array(one), &mut name_hits);
+            }
+        }
+
+        let answer = pick_name_match(&name_hits, source).unwrap_or_else(|| "refuse".into());
+        let n = tools_used.len();
+        Ok((answer, n, tools_used))
+    })();
+
+    // Best-effort teardown (Windows may keep the port until wait).
+    let _ = child.kill();
+    let _ = child.wait();
+    outcome
+}
+
+/// Bind `host:0` to reserve an unused loopback port for a fresh serve-mcp.
+fn free_local_bind(host: &str) -> Result<String> {
+    let listener = std::net::TcpListener::bind(format!("{host}:0"))
+        .with_context(|| format!("bind free port on {host}"))?;
+    let port = listener
+        .local_addr()
+        .context("local_addr for free port")?
+        .port();
+    drop(listener);
+    Ok(format!("{host}:{port}"))
+}
+
+/// Blocking MCP client that reuses one session for the multi-tool ladder.
+struct McpSession {
+    client: reqwest::blocking::Client,
+    endpoint: String,
+    session_id: Option<String>,
+    next_id: u64,
+}
+
+impl McpSession {
+    fn connect(endpoint: &str) -> Result<Self> {
+        let client = reqwest::blocking::Client::builder()
+            .timeout(Duration::from_secs(90))
+            .build()?;
+        let mut s = Self {
+            client,
+            endpoint: endpoint.to_string(),
+            session_id: None,
+            next_id: 1,
+        };
+        let init = json!({
+            "jsonrpc": "2.0",
+            "id": s.alloc_id(),
+            "method": "initialize",
+            "params": {
+                "protocolVersion": "2025-11-25",
+                "capabilities": {},
+                "clientInfo": { "name": "agent-bench-local-a", "version": "0.1.0" }
+            }
+        });
+        let resp = s
+            .client
+            .post(&s.endpoint)
+            .header("content-type", "application/json")
+            .header("accept", "application/json, text/event-stream")
+            .header("MCP-Protocol-Version", "2025-11-25")
+            .json(&init)
+            .send()
+            .context("mcp initialize")?;
+        s.session_id = resp
+            .headers()
+            .get("mcp-session-id")
+            .or_else(|| resp.headers().get("Mcp-Session-Id"))
+            .and_then(|v| v.to_str().ok())
+            .map(|x| x.to_string());
+        let _ = resp.text();
+
+        // Required by streamable HTTP MCP after initialize.
+        let mut note = s
+            .client
+            .post(&s.endpoint)
+            .header("content-type", "application/json")
+            .header("accept", "application/json, text/event-stream")
+            .header("MCP-Protocol-Version", "2025-11-25")
+            .json(&json!({
+                "jsonrpc": "2.0",
+                "method": "notifications/initialized"
+            }));
+        if let Some(sid) = &s.session_id {
+            note = note.header("mcp-session-id", sid);
+        }
+        let _ = note.send();
+        Ok(s)
     }
-    let v: Value = parse_json_stdout(&out.stdout).context("parse agent-query json")?;
-    let matches = v
-        .get("matches")
-        .and_then(|m| m.as_array())
+
+    fn alloc_id(&mut self) -> u64 {
+        let id = self.next_id;
+        self.next_id += 1;
+        id
+    }
+
+    fn call(&mut self, name: &str, arguments: &Value) -> Result<Value> {
+        let body = json!({
+            "jsonrpc": "2.0",
+            "id": self.alloc_id(),
+            "method": "tools/call",
+            "params": { "name": name, "arguments": arguments },
+        });
+        let mut req = self
+            .client
+            .post(&self.endpoint)
+            .header("content-type", "application/json")
+            .header("accept", "application/json, text/event-stream")
+            .header("MCP-Protocol-Version", "2025-11-25")
+            .json(&body);
+        if let Some(sid) = &self.session_id {
+            req = req.header("mcp-session-id", sid);
+        }
+        let resp = req
+            .send()
+            .with_context(|| format!("mcp tools/call {name}"))?;
+        let status = resp.status();
+        let text = resp.text().unwrap_or_default();
+        if !status.is_success() {
+            bail!("mcp HTTP {status} for {name}: {text}");
+        }
+        parse_mcp_tool_payload(&text)
+            .with_context(|| format!("parse mcp payload for {name}: {text}"))
+    }
+}
+
+fn wait_for_mcp_ready(endpoint: &str, budget: Duration) -> Result<()> {
+    let client = reqwest::blocking::Client::builder()
+        .timeout(Duration::from_secs(5))
+        .build()?;
+    let started = Instant::now();
+    let mut last_err = String::from("not attempted");
+    while started.elapsed() < budget {
+        match client
+            .post(endpoint)
+            .header("content-type", "application/json")
+            .header("accept", "application/json, text/event-stream")
+            .header("MCP-Protocol-Version", "2025-11-25")
+            .json(&json!({
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "initialize",
+                "params": {
+                    "protocolVersion": "2025-11-25",
+                    "capabilities": {},
+                    "clientInfo": { "name": "agent-bench-ready", "version": "0.1.0" }
+                }
+            }))
+            .send()
+        {
+            Ok(r) if r.status().is_success() => return Ok(()),
+            Ok(r) => last_err = format!("HTTP {}", r.status()),
+            Err(e) => last_err = e.to_string(),
+        }
+        thread::sleep(Duration::from_millis(250));
+    }
+    bail!("MCP not ready at {endpoint} within {budget:?}: {last_err}")
+}
+
+/// Extract structured tool result from streamable-HTTP MCP (JSON or SSE).
+fn parse_mcp_tool_payload(raw: &str) -> Result<Value> {
+    let json_text = if raw.contains("data:") {
+        raw.lines()
+            .filter_map(|line| {
+                let t = line.trim();
+                t.strip_prefix("data:")
+                    .map(|s| s.trim())
+                    .filter(|s| !s.is_empty() && s.starts_with('{'))
+            })
+            .last()
+            .unwrap_or(raw)
+            .to_string()
+    } else {
+        raw.trim().to_string()
+    };
+    let envelope: Value = serde_json::from_str(&json_text).context("envelope json")?;
+    if let Some(err) = envelope.get("error") {
+        bail!("mcp error: {err}");
+    }
+    let result = envelope.get("result").cloned().unwrap_or(envelope);
+    if result.get("isError").and_then(|v| v.as_bool()) == Some(true) {
+        bail!("tool isError: {result}");
+    }
+    if let Some(sc) = result.get("structuredContent") {
+        return Ok(sc.clone());
+    }
+    // Fall back to first text content block (may itself be JSON).
+    if let Some(arr) = result.get("content").and_then(|c| c.as_array()) {
+        for block in arr {
+            if block.get("type").and_then(|t| t.as_str()) == Some("text") {
+                if let Some(t) = block.get("text").and_then(|t| t.as_str()) {
+                    if let Ok(v) = serde_json::from_str::<Value>(t) {
+                        return Ok(v);
+                    }
+                    return Ok(json!({ "text": t }));
+                }
+            }
+        }
+    }
+    Ok(result)
+}
+
+fn extract_project_id(projects: &Value) -> Option<String> {
+    // list_projects returns a JSON array of project objects.
+    if let Some(arr) = projects.as_array() {
+        return arr
+            .first()
+            .and_then(|p| p.get("project_id"))
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+    }
+    projects
+        .get("project_id")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string())
+}
+
+fn extract_project_path(projects: &Value) -> Option<String> {
+    if let Some(arr) = projects.as_array() {
+        return arr
+            .first()
+            .and_then(|p| p.get("path"))
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+    }
+    projects
+        .get("path")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string())
+}
+
+/// Pull `{va,name}` pairs from triage / functions_named shaped payloads.
+fn collect_named_hits(payload: &Value, out: &mut Vec<Value>) {
+    let arrays = [
+        payload.as_array(),
+        payload.get("functions").and_then(|v| v.as_array()),
+        payload.get("hits").and_then(|v| v.as_array()),
+        payload.get("items").and_then(|v| v.as_array()),
+        payload.get("ranked").and_then(|v| v.as_array()),
+        payload.get("results").and_then(|v| v.as_array()),
+    ];
+    for arr in arrays.into_iter().flatten() {
+        for item in arr {
+            let name = item
+                .get("name")
+                .or_else(|| item.get("function_name"))
+                .or_else(|| item.get("label"))
+                .and_then(|n| n.as_str())
+                .unwrap_or("")
+                .to_string();
+            let va = item
+                .get("va")
+                .or_else(|| item.get("entry_va"))
+                .or_else(|| item.get("address"))
+                .map(|v| match v {
+                    Value::String(s) => s.clone(),
+                    Value::Number(n) => format!("{:#x}", n.as_u64().unwrap_or(0)),
+                    _ => String::new(),
+                })
+                .unwrap_or_default();
+            if !va.is_empty() {
+                out.push(json!({ "va": va, "name": name }));
+            }
+        }
+    }
+}
+
+/// BEL hits may nest entity metadata; keep only name-bearing function-like rows.
+fn collect_bel_hits(payload: &Value, source: &str, out: &mut Vec<Value>) {
+    let needle = source.to_ascii_lowercase();
+    let hits = payload
+        .get("hits")
+        .and_then(|h| h.as_array())
         .cloned()
         .unwrap_or_default();
-    let answer = pick_name_match(&matches, source).unwrap_or_else(|| "refuse".into());
-    Ok((answer, 1))
+    for hit in hits {
+        // Prefer direct fields, then entity sub-object.
+        let entity = hit.get("entity").cloned().unwrap_or(hit.clone());
+        let name = entity
+            .get("name")
+            .or_else(|| hit.get("name"))
+            .or_else(|| hit.get("label"))
+            .and_then(|n| n.as_str())
+            .unwrap_or("")
+            .to_string();
+        let va = entity
+            .get("va")
+            .or_else(|| hit.get("va"))
+            .map(|v| match v {
+                Value::String(s) => s.clone(),
+                Value::Number(n) => format!("{:#x}", n.as_u64().unwrap_or(0)),
+                _ => String::new(),
+            })
+            .unwrap_or_default();
+        if va.is_empty() || name.is_empty() {
+            continue;
+        }
+        // Only keep hits whose entity name actually relates to the source symbol.
+        // Never treat empty-name hits as matches (`needle.contains("")` is true).
+        let name_l = name.to_ascii_lowercase();
+        if name_l == needle
+            || name_l.ends_with(&format!("::{needle}"))
+            || name_l.ends_with(&needle)
+            || name_l.contains(&needle)
+        {
+            out.push(json!({ "va": va, "name": name }));
+        }
+    }
 }
 
 /// Prefer exact (case-insensitive) name, else unique substring hit, else refuse.
@@ -666,32 +1245,98 @@ fn run_offline_task(arm: Arm, task: &Task) -> TaskResult {
     TaskResult {
         task_id: task.id.clone(),
         arm: arm_name(arm).into(),
+        family: task.family.clone(),
         success,
         abstained: is_abstain(&answer),
         answer,
         gold: task.gold.clone(),
-        tool_calls: match arm {
-            Arm::A => 3,
-            Arm::B => 5,
-            Arm::C => 2,
-        },
-        tokens: TokenUsage {
-            // Distinct shapes only â€” not measured cost.
-            input_tokens: match arm {
-                Arm::A => 1200,
-                Arm::B => 2400,
-                Arm::C => 4000,
-            },
-            cache_creation_input_tokens: 500,
-            cache_read_input_tokens: match arm {
-                Arm::A => 800,
-                Arm::B => 0,
-                Arm::C => 200,
-            },
-            output_tokens: 80,
-        },
-        wall_ms: started.elapsed().as_millis(),
+        // This path exercises scoring/reporting wiring only. It has no agent and
+        // therefore no cost to report — emitting invented counts here is exactly
+        // how a fixture gets mistaken for a measurement.
+        tool_calls: None,
+        tools_used: Vec::new(),
+        tokens: None,
+        wall_ms: Some(started.elapsed().as_millis()),
         mode: "offline_wiring".into(),
+        error: None,
+    }
+}
+
+/// Sidecar filename for a task/arm pair. Task ids contain `:` which is illegal
+/// in Windows filenames, so they are flattened.
+fn sidecar_name(arm: Arm, task_id: &str) -> String {
+    format!(
+        "{}__{}.json",
+        arm_name(arm),
+        task_id.replace([':', '/'], "_")
+    )
+}
+
+/// Read one externally-produced task result. A missing or malformed sidecar is
+/// recorded as an error with no telemetry — never as a scored zero.
+fn run_sidecar_task(dir: &Path, arm: Arm, task: &Task) -> TaskResult {
+    let path = dir.join(sidecar_name(arm, &task.id));
+    let base = |error: Option<String>| TaskResult {
+        task_id: task.id.clone(),
+        arm: arm_name(arm).into(),
+        family: task.family.clone(),
+        success: false,
+        abstained: false,
+        answer: String::new(),
+        gold: task.gold.clone(),
+        tool_calls: None,
+        tools_used: Vec::new(),
+        tokens: None,
+        wall_ms: None,
+        mode: "sidecar".into(),
+        error,
+    };
+
+    let raw = match fs::read_to_string(&path) {
+        Ok(r) => r,
+        Err(e) => return base(Some(format!("sidecar missing {}: {e}", path.display()))),
+    };
+    let v: Value = match serde_json::from_str(&raw) {
+        Ok(v) => v,
+        Err(e) => return base(Some(format!("sidecar parse {}: {e}", path.display()))),
+    };
+    let Some(answer) = v.get("answer").and_then(|a| a.as_str()) else {
+        return base(Some(format!("sidecar {} has no `answer`", path.display())));
+    };
+
+    let tools_used: Vec<String> = v
+        .get("tools_used")
+        .and_then(|t| t.as_array())
+        .map(|a| {
+            a.iter()
+                .filter_map(|x| x.as_str().map(str::to_string))
+                .collect()
+        })
+        .unwrap_or_default();
+    // An agent that reported no tool list is unverified, not zero-tool.
+    let tool_calls = v
+        .get("tool_calls")
+        .and_then(|t| t.as_u64())
+        .map(|n| n as usize)
+        .or(if tools_used.is_empty() {
+            None
+        } else {
+            Some(tools_used.len())
+        });
+
+    TaskResult {
+        task_id: task.id.clone(),
+        arm: arm_name(arm).into(),
+        family: task.family.clone(),
+        success: score_answer(task, answer),
+        abstained: is_abstain(answer),
+        answer: answer.to_string(),
+        gold: task.gold.clone(),
+        tool_calls,
+        tools_used,
+        tokens: None,
+        wall_ms: v.get("wall_ms").and_then(|w| w.as_u64()).map(u128::from),
+        mode: "sidecar".into(),
         error: None,
     }
 }
@@ -831,13 +1476,15 @@ fn run_live_task(cli: &Cli, root: &Path, windy: &Path, arm: Arm, task: &Task) ->
             return TaskResult {
                 task_id: task.id.clone(),
                 arm: arm_name(arm).into(),
+                family: task.family.clone(),
                 success: false,
                 abstained: false,
                 answer: String::new(),
                 gold: task.gold.clone(),
-                tool_calls: 0,
-                tokens: TokenUsage::default(),
-                wall_ms: started.elapsed().as_millis(),
+                tool_calls: None,
+                tools_used: Vec::new(),
+                tokens: None,
+                wall_ms: Some(started.elapsed().as_millis()),
                 mode: "live".into(),
                 error: Some("ANTHROPIC_API_KEY not set".into()),
             };
@@ -923,13 +1570,15 @@ if hasattr(pe, "DIRECTORY_ENTRY_EXPORT") and pe.DIRECTORY_ENTRY_EXPORT:
             TaskResult {
                 task_id: task.id.clone(),
                 arm: "B".into(),
+                family: task.family.clone(),
                 success,
                 abstained: is_abstain(&answer),
                 answer,
                 gold: task.gold.clone(),
-                tool_calls: tools,
-                tokens,
-                wall_ms: started.elapsed().as_millis(),
+                tool_calls: Some(tools),
+                tools_used: Vec::new(),
+                tokens: Some(tokens),
+                wall_ms: Some(started.elapsed().as_millis()),
                 mode: "live".into(),
                 error: None,
             }
@@ -989,9 +1638,6 @@ fn ensure_python_pe_tools(scratch: &Path) -> Result<()> {
             abs.push(home.join(r"AppData\Local\Programs\Python\Python311\python.exe"));
         }
         abs.push(PathBuf::from(r"C:\Python312\python.exe"));
-        abs.push(PathBuf::from(
-            r"python",
-        ));
         for c in abs {
             if c.is_file() {
                 v.push((c.display().to_string(), vec![]));
@@ -1149,13 +1795,15 @@ fn run_live_windy_arm(
             TaskResult {
                 task_id: task.id.clone(),
                 arm: arm_name(arm).into(),
+                family: task.family.clone(),
                 success,
                 abstained: is_abstain(&answer),
                 answer,
                 gold: task.gold.clone(),
-                tool_calls,
-                tokens,
-                wall_ms: started.elapsed().as_millis(),
+                tool_calls: Some(tool_calls),
+                tools_used: Vec::new(),
+                tokens: Some(tokens),
+                wall_ms: Some(started.elapsed().as_millis()),
                 mode: "live".into(),
                 error: None,
             }
@@ -1168,13 +1816,15 @@ fn fail_result(task: &Task, arm: &str, started: Instant, error: String) -> TaskR
     TaskResult {
         task_id: task.id.clone(),
         arm: arm.into(),
+        family: task.family.clone(),
         success: false,
         abstained: false,
         answer: String::new(),
         gold: task.gold.clone(),
-        tool_calls: 0,
-        tokens: TokenUsage::default(),
-        wall_ms: started.elapsed().as_millis(),
+        tool_calls: None,
+        tools_used: Vec::new(),
+        tokens: None,
+        wall_ms: Some(started.elapsed().as_millis()),
         mode: "live".into(),
         error: Some(error),
     }
@@ -1586,9 +2236,11 @@ fn build_report(cli: &Cli, root: &Path, tasks: &[Task], results: Vec<TaskResult>
             successes: 0,
             abstentions: 0,
             abstention_correct: 0,
-            total_tool_calls: 0,
-            tokens: TokenUsage::default(),
-            wall_ms: 0,
+            families: BTreeMap::new(),
+            instrumented_tasks: 0,
+            total_tool_calls: None,
+            tokens: None,
+            wall_ms: None,
         });
         e.tasks += 1;
         if r.success {
@@ -1600,10 +2252,56 @@ fn build_report(cli: &Cli, root: &Path, tasks: &[Task], results: Vec<TaskResult>
                 e.abstention_correct += 1;
             }
         }
-        e.total_tool_calls += r.tool_calls;
-        e.tokens.add_assign(&r.tokens);
-        e.wall_ms = e.wall_ms.saturating_add(r.wall_ms);
+        let fam = e.families.entry(r.family.clone()).or_default();
+        fam.n += 1;
+        if r.success {
+            fam.successes += 1;
+        }
+        // "Instrumented" means we captured what the agent actually *did* — a
+        // wall-clock timer the harness kept for itself proves nothing about
+        // whether any tool was reached.
+        if r.tool_calls.is_some() {
+            e.instrumented_tasks += 1;
+        }
+        if let Some(tc) = r.tool_calls {
+            *e.total_tool_calls.get_or_insert(0) += tc;
+        }
+        if let Some(tok) = &r.tokens {
+            e.tokens
+                .get_or_insert_with(TokenUsage::default)
+                .add_assign(tok);
+        }
+        if let Some(ms) = r.wall_ms {
+            let slot = e.wall_ms.get_or_insert(0);
+            *slot = slot.saturating_add(ms);
+        }
     }
+
+    // Null policies over the same task set.
+    let mut always_refuse: BTreeMap<String, FamilyStat> = BTreeMap::new();
+    let mut always_default_va: BTreeMap<String, FamilyStat> = BTreeMap::new();
+    for t in tasks {
+        let r = always_refuse.entry(t.family.clone()).or_default();
+        r.n += 1;
+        if score_answer(t, "refuse") {
+            r.successes += 1;
+        }
+        let g = always_default_va.entry(t.family.clone()).or_default();
+        g.n += 1;
+        if score_answer(t, DEFAULT_VA_GUESS) {
+            g.successes += 1;
+        }
+    }
+    let baselines = Baselines {
+        always_refuse,
+        always_default_va,
+        note: format!(
+            "Constant policies on this task set. `always_refuse` answers \"refuse\" \
+             everywhere; `always_default_va` answers {DEFAULT_VA_GUESS} (the usual \
+             first-function VA of an /Od MSVC x64 image). An arm that does not beat \
+             both per family has shown no capability."
+        ),
+    };
 
     let corpus_sha = {
         let mut hasher = Sha256::new();
@@ -1628,6 +2326,7 @@ fn build_report(cli: &Cli, root: &Path, tasks: &[Task], results: Vec<TaskResult>
         model: cli.live.then(|| cli.model.clone()),
         live: cli.live,
         arms: by_arm.into_values().collect(),
+        baselines,
         results,
         corpus: json!({
             "task_count": tasks.len(),
@@ -1642,7 +2341,7 @@ fn build_report(cli: &Cli, root: &Path, tasks: &[Task], results: Vec<TaskResult>
                 "offline_wiring"
             },
             "note": if cli.local {
-                "Free local tools: arm A windy agent-query; arm B python+pefile. No model tokens."
+                "Free local tools: arm A Windy MCP ladder (triage/search_bel/functions_named/evidence); arm B python+pefile. No model tokens."
             } else if synthetic {
                 "SYNTHETIC offline wiring: arm A returns gold by construction; B/C wrong by construction. Not a product measurement."
             } else {
@@ -1673,8 +2372,10 @@ fn render_markdown(report: &Report) -> String {
              > Do not cite these numbers as product evidence. Run `--local` (free) or `--live` (paid).\n\n",
         );
     } else if report.harness.contains("local") {
-        md.push_str("# Agent loop v1 (local tools â€” free, no Anthropic)\n\n");
-        md.push_str("> Arm A: `windy agent-query`. Arm B: python + pefile. Zero model tokens.\n\n");
+        md.push_str("# Agent loop v1 (local tools — free, no Anthropic)\n\n");
+        md.push_str(
+            "> Arm A: Windy MCP evidence ladder (`list_projects` → `get_triage` → `search_bel` → `functions_named` → `get_function_evidence`). Arm B: python + pefile. Zero model tokens.\n\n",
+        );
     } else {
         md.push_str("# Agent loop v1\n\n");
     }
@@ -1685,30 +2386,406 @@ fn render_markdown(report: &Report) -> String {
         report.live,
         report.commit.as_deref().unwrap_or("unknown")
     ));
-    md.push_str("| arm | tasks | success | abstain (correct) | tool_calls | prompt_tokens (all fields) | wall_ms |\n");
-    md.push_str("|---|---:|---:|---:|---:|---:|---:|\n");
+    // Per-family accuracy is the result. A single blended number is not reported
+    // on purpose: on a 50/50 split "always refuse" scores 50% and locates nothing.
+    let families: Vec<String> = {
+        let mut f: Vec<String> = report
+            .arms
+            .iter()
+            .flat_map(|a| a.families.keys().cloned())
+            .collect();
+        f.sort();
+        f.dedup();
+        f
+    };
+
+    md.push_str("## Accuracy by family\n\n");
+    md.push_str("| arm |");
+    for fam in &families {
+        md.push_str(&format!(" {fam} |"));
+    }
+    md.push_str("\n|---|");
+    for _ in &families {
+        md.push_str("---:|");
+    }
+    md.push('\n');
+
+    let row = |label: &str, get: &dyn Fn(&str) -> Option<FamilyStat>| -> String {
+        let mut s = format!("| {label} |");
+        for fam in &families {
+            match get(fam) {
+                Some(st) => s.push_str(&format!(" {}/{} |", st.successes, st.n)),
+                None => s.push_str(" - |"),
+            }
+        }
+        s.push('\n');
+        s
+    };
+
     for a in &report.arms {
+        md.push_str(&row(&a.arm, &|fam| a.families.get(fam).cloned()));
+    }
+    md.push_str(&row("_always_refuse_", &|fam| {
+        report.baselines.always_refuse.get(fam).cloned()
+    }));
+    md.push_str(&row("_always_default_va_", &|fam| {
+        report.baselines.always_default_va.get(fam).cloned()
+    }));
+    md.push_str(&format!("\n{}\n\n", report.baselines.note));
+
+    md.push_str("## Cost and instrumentation\n\n");
+    md.push_str(
+        "| arm | tasks | instrumented | tool_calls | prompt_tokens (all fields) | wall_ms |\n",
+    );
+    md.push_str("|---|---:|---:|---:|---:|---:|\n");
+    for a in &report.arms {
+        let fmt_opt = |v: Option<String>| v.unwrap_or_else(|| "not measured".into());
         md.push_str(&format!(
-            "| {} | {} | {} | {} ({}) | {} | {} | {} |\n",
+            "| {} | {} | {}/{} | {} | {} | {} |\n",
             a.arm,
             a.tasks,
-            a.successes,
-            a.abstentions,
-            a.abstention_correct,
-            a.total_tool_calls,
-            a.tokens.total_prompt(),
-            a.wall_ms
+            a.instrumented_tasks,
+            a.tasks,
+            fmt_opt(a.total_tool_calls.map(|v| v.to_string())),
+            fmt_opt(a.tokens.as_ref().map(|t| t.total_prompt().to_string())),
+            fmt_opt(a.wall_ms.map(|v| v.to_string())),
         ));
     }
     md.push_str(
-        "\nPrompt tokens = input_tokens + cache_creation_input_tokens + cache_read_input_tokens.\n",
+        "\nPrompt tokens = input_tokens + cache_creation_input_tokens + cache_read_input_tokens.\n\
+         `not measured` means the runner captured no telemetry — it is not zero.\n",
     );
+    for a in &report.arms {
+        if a.instrumented_tasks < a.tasks {
+            md.push_str(&format!(
+                "\n> Arm {}: only {}/{} tasks carried telemetry. Tool-use claims for this arm are unverified.\n",
+                a.arm, a.instrumented_tasks, a.tasks
+            ));
+        }
+    }
     md
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn t(family: &str, gold: &str) -> Task {
+        Task {
+            id: format!("{family}:p:P0:f"),
+            family: family.into(),
+            program_id: "p".into(),
+            profile: "P0".into(),
+            pe_path: PathBuf::from("x.exe"),
+            question: String::new(),
+            gold: gold.into(),
+            source_name: None,
+        }
+    }
+
+    /// The failure that made the first Grok report unreadable: an arm with no
+    /// telemetry must surface as "not measured", never as a zero that reads
+    /// like a measured value.
+    #[test]
+    fn missing_telemetry_is_never_zero() {
+        let dir = std::env::temp_dir().join("agent-bench-sidecar-test");
+        let _ = fs::create_dir_all(&dir);
+        let task = t("locate", "0x140001000");
+        // No sidecar written for this task.
+        let r = run_sidecar_task(&dir, Arm::A, &task);
+        assert!(r.tool_calls.is_none(), "absent telemetry must stay None");
+        assert!(r.tokens.is_none());
+        assert!(
+            r.error.is_some(),
+            "a missing sidecar is an error, not a 0/1"
+        );
+        assert!(!r.success);
+    }
+
+    /// A sidecar that reports an answer but no tool list is unverified, not
+    /// zero-tool — we cannot tell whether it used the substrate.
+    #[test]
+    fn sidecar_without_tool_list_is_unverified() {
+        let dir = std::env::temp_dir().join("agent-bench-sidecar-test2");
+        let _ = fs::create_dir_all(&dir);
+        let task = t("locate", "0x140001000");
+        fs::write(
+            dir.join(sidecar_name(Arm::A, &task.id)),
+            r#"{"answer":"0x140001000"}"#,
+        )
+        .unwrap();
+        let r = run_sidecar_task(&dir, Arm::A, &task);
+        assert!(r.success, "answer still scores");
+        assert!(r.tool_calls.is_none(), "no tool list => unverified, not 0");
+    }
+
+    /// Windy lifts function names from an adjacent MSVC `.map`
+    /// (`src/project/mod.rs` -> `apply_adjacent_msvc_map_names`), which is the
+    /// same file this harness scores against. Staged PEs must therefore be
+    /// alone in their directory, or arm A reads the answer key through its
+    /// tools and a 6/6 means nothing.
+    #[test]
+    fn staged_pe_has_no_sibling_answer_key() {
+        let root =
+            std::env::temp_dir().join(format!("agent-bench-stage-test-{}", uuid::Uuid::new_v4()));
+        let src_dir = root.join("source");
+        fs::create_dir_all(&src_dir).expect("source dir");
+        let pe = src_dir.join("fixture.exe");
+        fs::write(&pe, b"tracked PE bytes").expect("PE");
+        for extension in ["map", "pdb", "obj", "json"] {
+            fs::write(
+                src_dir.join(format!("fixture.{extension}")),
+                b"private answer key",
+            )
+            .expect("sibling answer key");
+        }
+
+        let stage = root.join("stage");
+        let staged = stage_pe(&pe, &stage, "fixture", "P0").expect("stage");
+        assert!(staged.exists());
+        let dir = staged.parent().expect("staged parent");
+        let mut entries = 0;
+        for e in fs::read_dir(dir).expect("read stage dir") {
+            entries += 1;
+            let p = e.expect("entry").path();
+            let ext = p.extension().and_then(|x| x.to_str()).unwrap_or("");
+            assert!(
+                !matches!(ext, "map" | "pdb" | "obj" | "json"),
+                "staged dir leaks {}",
+                p.display()
+            );
+        }
+        assert_eq!(entries, 1, "only the staged PE is visible to either arm");
+        fs::remove_dir_all(root).expect("cleanup");
+    }
+
+    #[test]
+    fn manifest_tasks_work_without_linker_maps_and_balance_refusals() {
+        let root = std::env::temp_dir().join(format!(
+            "agent-bench-manifest-test-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let grand = root.join("eval/grand");
+        for profile in ["P0", "P1"] {
+            let bin_dir = grand.join("bin").join(profile);
+            fs::create_dir_all(&bin_dir).expect("bin dir");
+            for program in ["alpha", "beta", "gamma"] {
+                fs::write(bin_dir.join(format!("{program}.exe")), b"PE").expect("PE");
+            }
+        }
+
+        let function = |name: &str, status: &str, entry: Option<&str>| {
+            json!({
+                "source_name": name,
+                "status": status,
+                "entry_va": entry
+            })
+        };
+        let binary = |program: &str, profile: &str, functions: Vec<Value>| {
+            json!({
+                "program_id": program,
+                "profile": profile,
+                "pe_path": format!("eval/grand/bin/{profile}/{program}.exe"),
+                "function_map": functions
+            })
+        };
+        let manifest = json!({
+            "binaries": [
+                binary("alpha", "P0", vec![
+                    function("main", "present", Some("0x140001000")),
+                    function("alpha_helper", "present", Some("0x140001040"))
+                ]),
+                binary("alpha", "P1", vec![
+                    function("main", "present", Some("0x140001000")),
+                    function("alpha_helper", "inlined_only", None)
+                ]),
+                binary("beta", "P0", vec![
+                    function("main", "present", Some("0x140001000")),
+                    function("beta_helper", "present", Some("0x140001040"))
+                ]),
+                binary("beta", "P1", vec![
+                    function("main", "present", Some("0x140001000")),
+                    function("beta_helper", "present", Some("0x140001040"))
+                ]),
+                binary("gamma", "P0", vec![
+                    function("main", "present", Some("0x140001000")),
+                    function("gamma_helper", "present", Some("0x140001040"))
+                ]),
+                binary("gamma", "P1", vec![
+                    function("main", "present", Some("0x140001000")),
+                    function("gamma_helper", "present", Some("0x140001040"))
+                ])
+            ]
+        });
+        fs::write(
+            grand.join("manifest.json"),
+            serde_json::to_vec_pretty(&manifest).expect("manifest json"),
+        )
+        .expect("manifest");
+
+        let tasks = load_tasks(
+            &root,
+            &["P0".into(), "P1".into()],
+            &["locate".into(), "abstain".into()],
+            12,
+            true,
+        )
+        .expect("load clean-checkout tasks");
+        assert_eq!(tasks.len(), 12);
+        assert_eq!(
+            tasks.iter().filter(|task| task.family == "locate").count(),
+            6
+        );
+        assert_eq!(
+            tasks.iter().filter(|task| task.family == "abstain").count(),
+            6
+        );
+        assert!(
+            tasks
+                .iter()
+                .any(|task| task.id == "abstain:alpha:P1:alpha_helper"),
+            "manifest inlining must become a refusal task"
+        );
+        for task in &tasks {
+            let entries = fs::read_dir(task.pe_path.parent().expect("stage parent"))
+                .expect("stage dir")
+                .count();
+            assert_eq!(entries, 1, "staged task leaked an answer-key sibling");
+        }
+        fs::remove_dir_all(root).expect("cleanup");
+    }
+
+    #[test]
+    fn committed_balanced_fixture_matches_manifest_loader() {
+        let repo = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let tasks = load_tasks(
+            &repo,
+            &["P0".into(), "P1".into()],
+            &["locate".into(), "abstain".into()],
+            12,
+            true,
+        )
+        .expect("manifest task set");
+        let fixture_path = repo.join("eval/agent-bench/fixtures/p0p1_tasks_12.json");
+        let fixture: Value =
+            serde_json::from_slice(&fs::read(&fixture_path).expect("committed task fixture"))
+                .expect("fixture JSON");
+        let rows = fixture["tasks"].as_array().expect("fixture tasks");
+        assert_eq!(rows.len(), tasks.len());
+        for (row, task) in rows.iter().zip(tasks.iter()) {
+            assert_eq!(row["id"].as_str(), Some(task.id.as_str()));
+            assert_eq!(row["family"].as_str(), Some(task.family.as_str()));
+            assert_eq!(row["gold"].as_str(), Some(task.gold.as_str()));
+            assert_eq!(row["program"].as_str(), Some(task.program_id.as_str()));
+            assert_eq!(row["profile"].as_str(), Some(task.profile.as_str()));
+            assert_eq!(
+                row["source"].as_str(),
+                task.source_name.as_deref(),
+                "source mismatch for {}",
+                task.id
+            );
+            let expected_pe = format!("eval/grand/bin/{}/{}.exe", task.profile, task.program_id);
+            assert_eq!(
+                row["pe"].as_str(),
+                Some(expected_pe.as_str()),
+                "fixture PE path mismatch for {}",
+                task.id
+            );
+        }
+    }
+
+    /// Guards the conclusion the first Grok run got wrong: on a 50/50 split the
+    /// constant refuser scores 50% overall while locating nothing, so the
+    /// baselines must be reported per family.
+    #[test]
+    fn always_refuse_ties_half_on_balanced_split() {
+        let tasks = vec![
+            t("locate", "0x140001000"),
+            t("locate", "0x140002000"),
+            t("abstain", "refuse"),
+            t("abstain", "refuse"),
+        ];
+        let refused: usize = tasks.iter().filter(|x| score_answer(x, "refuse")).count();
+        assert_eq!(refused, 2, "always-refuse gets exactly the abstain half");
+        let located: usize = tasks
+            .iter()
+            .filter(|x| x.family == "locate" && score_answer(x, "refuse"))
+            .count();
+        assert_eq!(located, 0, "and locates nothing");
+    }
+
+    /// Exact name must beat a longer substring hit (the product failure mode
+    /// where `mainCRTStartup` steals `main` under unranked substring search).
+    #[test]
+    fn pick_name_match_prefers_exact_over_substring() {
+        let matches = vec![
+            json!({"va": "0x14000132c", "name": "mainCRTStartup"}),
+            json!({"va": "0x140001080", "name": "main"}),
+            json!({"va": "0x14000dead", "name": "domain"}),
+        ];
+        let got = pick_name_match(&matches, "main").expect("exact hit");
+        assert_eq!(got.to_ascii_lowercase(), "0x140001080");
+    }
+
+    #[test]
+    fn pick_name_match_refuses_ambiguous_fuzzy() {
+        // Contains-only (not exact, not ends_with) — two hits must refuse.
+        let matches = vec![
+            json!({"va": "0x140001000", "name": "bar_foo"}),
+            json!({"va": "0x140002000", "name": "xbarx"}),
+        ];
+        assert!(pick_name_match(&matches, "bar").is_none());
+    }
+
+    #[test]
+    fn collect_named_hits_from_functions_array() {
+        let payload = json!({
+            "functions": [
+                {"va": "0x140001000", "name": "main"},
+                {"va": 5368713472u64, "name": "other"}
+            ]
+        });
+        let mut out = Vec::new();
+        collect_named_hits(&payload, &mut out);
+        assert_eq!(out.len(), 2);
+        assert_eq!(out[0]["name"], "main");
+    }
+
+    #[test]
+    fn parse_mcp_tool_payload_sse_structured() {
+        let raw = "data: \nid: 0/0\n\ndata: {\"jsonrpc\":\"2.0\",\"id\":2,\"result\":{\"content\":[{\"type\":\"text\",\"text\":\"[]\"}],\"structuredContent\":[{\"project_id\":\"abc\",\"path\":\"x.exe\"}],\"isError\":false}}\nid: 1/0\n";
+        let v = parse_mcp_tool_payload(raw).expect("parse");
+        assert_eq!(v[0]["project_id"], "abc");
+    }
+
+    #[test]
+    fn local_arm_a_source_mentions_mcp_ladder_not_single_query() {
+        // Structural guard: the shipped local Arm A policy must call the MCP
+        // ladder helpers, not only agent-query --functions-named.
+        let src = include_str!("main.rs");
+        assert!(
+            src.contains("local_arm_a_windy_ladder"),
+            "local Arm A entry point missing"
+        );
+        assert!(
+            src.contains("get_triage")
+                && src.contains("search_bel")
+                && src.contains("get_function_evidence"),
+            "MCP ladder tools missing from harness source"
+        );
+        // The Arm A local policy body must not be a single agent-query shell-out.
+        // Arm C may still use agent-query; ensure ladder is the A path.
+        let a_fn = src
+            .split("fn local_arm_a_windy_ladder")
+            .nth(1)
+            .and_then(|s| s.split("fn local_arm_b_python").next())
+            .expect("A ladder fn body");
+        assert!(
+            !a_fn.contains("agent-query"),
+            "Arm A ladder must not shell out to agent-query"
+        );
+        assert!(a_fn.contains("McpSession") || a_fn.contains("session.call"));
+    }
 
     #[test]
     fn abstain_vocab_unified() {

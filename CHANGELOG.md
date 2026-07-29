@@ -43,7 +43,8 @@ Grok, OpenCode, …) first-class operators:
   product split via `build_info` (`windy` vs `windy-beta`).
 - **Agent-loop harness** — workspace crate `eval/agent-bench` (raw Anthropic
   HTTP; not inside the windy binary), free `--local` P0/P1 A-vs-B vs
-  pefile/capstone, Grok multi-agent workflows, reports under
+  pefile/capstone, manifest-derived clean-checkout task gold, balanced honest
+  abstentions, Grok multi-agent workflows, and reports under
   `docs/benchmarks/agent-loop-v1*`.
 
 Commits in this stack: `321371c` (substrate/BEL/beta), `01c8a78` /
@@ -80,8 +81,8 @@ search_bel                 →  prefer over naive string greps on large images
 
 ### What this is not
 
-- Not a rewrite of the decompiler emit pipeline (local emit_fold splits remain
-  unpublished WIP).
+- Not a change to the frozen LLM4Decompile export format. The emitter split and
+  Win64 call-argument recovery are internal decompiler improvements.
 - Not kernel dump / WinDbg parity.
 - Not an installer or public auto-update feed — private beta packaging stays
   local ZIP + loopback MCP.
@@ -149,10 +150,54 @@ Compact summary: `docs/benchmarks/v0.1.1-summary.json`
 
 ### Still open
 
-- Product CTW (~32) / LRW (~17) lag pure.
+- Product residual CTW/LRW/SRW still above pure on full corpus (re-archive
+  `v2-strict` for official post-Phase-3 histograms when convenient).
+- Remaining product fallbacks on freeload name `a` (e.g. boss COM) — extract fix,
+  not blanket checker allow.
 - Pure SRW freeload leftovers; StructureAlignLow ~28.
-- P3 weaker than P0–P2 (especially product P3).
-- Five omitted pure targets (inlined/folded identities).
+- P3 still weaker than P0–P2 overall (open-ended LTCG diversity).
+- Five pure omitted targets **reconfirmed by design** (not Windy false omits):
+  - `a01_signed_rel/P3/unsigned_lt` — ICF-folded into `signed_lt` (shared map VA)
+  - `c03_dispatch/P3/classify` — body absent under LTCG (unreachable from `main`)
+  - `boss_com_variant_router/{P1,P2,P3}/Release` — COM method inlined (no own-object `Release`)
+- (Phase 4 landed) optional further emit helper dedupe — out of scope for the
+  mechanical split.
+
+### Phase 2 note (pure_v2 call-arg fidelity)
+
+- Direct Call AST emission now recovers Win64 integer args in lockstep with HIR
+  (`region_ast`), closing the dogfood `Source2Main` class of
+  `dropped_call_arguments` rejects. Regression:
+  `direct_call_emits_win64_args_matching_abi_uses`.
+
+### Phase 4 note (code health only — no quality claim)
+
+`structure/emit.rs` mechanical split into sibling modules (verbatim moves):
+
+- `emit_fold.rs` — CfgOnly text passes (ladder/goto/`minimize_gotos`)
+- `emit_polish.rs` — LegacySemantic `polish_*`
+- `emit_region.rs` — `structure_emit_core` + region/expression emission
+- `emit.rs` — public façade (`NameCtx`, `decompile*`) + re-exports + tests
+
+No intentional behavior change; presentation pipeline order unchanged.
+
+### Phase 3 note (product vs pure / fewer legacy fallbacks)
+
+Product path falls back to legacy when the typed-AST checker rejects. Two reject
+classes were over-firing relative to pure V2 quality:
+
+1. **`invented_call_arguments`** — AST may recover more call args than the
+   lightweight HIR Win64 lift. Extra args are now allowed (same spirit as extra
+   recovered call sites); **dropped** args still reject.
+2. **`unresolved_ast_placeholders` on `v` / `store_val`** — thin store RHS when
+   uses are missing. No longer treated as synthetic rejects; freeload `a`/`b`/`ret`
+   and `cond_N` still reject.
+
+Sample P3 packs A/D/G (53 present functions): product fallbacks **27 → 5**,
+pack-A `main` no longer legacy-falls back. Regressions:
+`checker_allows_extra_ast_call_arguments_beyond_hir`,
+`checker_allows_thin_store_value_placeholder`,
+`p3_a02_main_product_no_legacy_fallback`.
 
 ## 0.1.0
 

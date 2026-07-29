@@ -2388,8 +2388,11 @@ mod tests {
             .expect("artifact");
         assert!(art.fallback_reason.is_none(), "{art:?}");
         let compact: String = art.text.chars().filter(|c| !c.is_whitespace()).collect();
+        // Prefer `leaf(...)` (possibly with recovered Win64 args). Empty `leaf()`
+        // was the pre-Phase-2 emission; args are a strict improvement.
+        // Note: do not search bare `f(` — it is a substring of `leaf(`.
         assert!(
-            compact.contains("leaf()"),
+            compact.contains("leaf(") && !compact.contains(";f(") && !compact.contains("=f("),
             "P0 mid must name direct-call callee leaf (not f), got:\n{}",
             art.text
         );
