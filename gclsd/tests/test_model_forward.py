@@ -54,8 +54,8 @@ class _FakeOutputTokenizer:
         return " ".join(id_to_tok.get(i, "<?>") for i in token_ids)
 
 
-def test_forward_pass_on_notepad_sample() -> None:
-    assert FIXTURE.exists(), "run `windy export-gclsd` first"
+def test_forward_pass_on_authored_sample() -> None:
+    assert FIXTURE.exists()
     with FIXTURE.open() as f:
         inp = GclsdInput.model_validate(json.loads(next(f)))
 

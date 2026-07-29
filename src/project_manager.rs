@@ -1535,10 +1535,7 @@ mod tests {
 
     #[test]
     fn open_sample_dump_module_if_present() {
-        let path = Path::new(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/sample_process.dmp"
-        ));
+        let path = Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/sample_process.dmp"));
         if !path.exists() {
             eprintln!("skipping open_dump_module: sample dump not present");
             return;

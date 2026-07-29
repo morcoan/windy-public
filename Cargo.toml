@@ -9,10 +9,22 @@ edition = "2024"
 rust-version = "1.85"
 description = "A static Windows PE reverse-engineering workbench and pure MCP analysis server"
 license = "MIT OR Apache-2.0"
-repository = "https://github.com/morcoan/windy"
+repository = "https://github.com/morcoan/windy-public"
 readme = "README.md"
 keywords = ["reverse-engineering", "mcp", "decompiler", "pe", "windows"]
 categories = ["development-tools", "command-line-utilities"]
+include = [
+    "/src/**",
+    "/signatures/**",
+    "/vtables/**",
+    "/Cargo.toml",
+    "/Cargo.lock",
+    "/README.md",
+    "/CHANGELOG.md",
+    "/LICENSE-APACHE",
+    "/LICENSE-MIT",
+    "/THIRD_PARTY_NOTICES.md",
+]
 
 [features]
 default = []

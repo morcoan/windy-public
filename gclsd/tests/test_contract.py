@@ -45,9 +45,9 @@ def test_schema_emitted() -> None:
     assert "GclsdEdgeKind" not in schema["$defs"]["GclsdEdge"]["properties"]["kind"]
 
 
-def test_parses_notepad_sample() -> None:
+def test_parses_authored_sample() -> None:
     fixture = FIXTURES_ROOT / "authored_smoke.gclsd.jsonl"
-    assert fixture.exists(), "run `windy export-gclsd` first"
+    assert fixture.exists()
     with fixture.open() as f:
         first = json.loads(next(f))
     parsed = GclsdInput.model_validate(first)

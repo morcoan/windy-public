@@ -21,7 +21,7 @@ let build_schema = #{
 
 phase("Build");
 let build = agent(
-    "In the windy repo at current repository root, run verification for dump MCP support. "
+    "From the current windy repository root, run verification for dump MCP support. "
         + "Use the shell from the repo root: "
         + "(1) cargo build  "
         + "(2) cargo test sample_dump_smoke_if_present -- --nocapture  "
@@ -47,8 +47,8 @@ if build == () || !build.success || build.output == () || build.output.ok != tru
 }
 
 phase("Dogfood");
-let dog_prompt = "In current repository root, dogfood dump CLI. ";
-dog_prompt += "If sample_process.dmp exists in repo root, run: cargo run --quiet -- dump-info sample_process.dmp  and summarize modules/threads/memory. ";
+let dog_prompt = "From the current windy repository root, dogfood the dump CLI. ";
+dog_prompt += "If a local sample_process.dmp exists in the repo root, run: cargo run --quiet -- dump-info sample_process.dmp and summarize modules/threads/memory. ";
 dog_prompt += "Grep src/mcp.rs for get_thread_stack and open_dump_module and confirm both exist. ";
 dog_prompt += "Set ok=true if tools exist and CLI works or fixture is missing; ok=false only on hard failure.";
 

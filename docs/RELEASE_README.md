@@ -9,7 +9,7 @@ Windy is a portable static PE reverse-engineering GUI and local MCP server. No i
 .\windy.exe serve-mcp --open C:\path\to\crash.dmp
 ```
 
-Configure your MCP client for `http://127.0.0.1:8765/mcp`. The server is intentionally loopback-only. Full setup and usage documentation is available in the project README at https://github.com/morcoan/windy.
+Configure your MCP client for `http://127.0.0.1:8765/mcp`. The server is intentionally loopback-only. Full setup and usage documentation is available in the project README at https://github.com/morcoan/windy-public.
 
 See `SETUP.md` in this archive for verified Codex, Claude Code, Cursor, and OpenCode configuration examples.
 
