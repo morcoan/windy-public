@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-    [string]$Version = "0.1.2",
+    [string]$Version = "0.3.0",
     [string]$OutputDirectory = "",
     [switch]$SkipBuild,
     [switch]$Sign
@@ -68,7 +68,7 @@ try {
 
     $stagedExe = Join-Path $stage "windy.exe"
     Copy-Item -LiteralPath $exe -Destination $stagedExe
-    Copy-Item -LiteralPath (Join-Path $root "docs\RELEASE_README.md") -Destination (Join-Path $stage "README.md")
+    Copy-Item -LiteralPath (Join-Path $root "README.md") -Destination (Join-Path $stage "README.md")
     Copy-Item -LiteralPath (Join-Path $root "docs\QUICKSTART.md") -Destination (Join-Path $stage "SETUP.md")
     Copy-Item -LiteralPath (Join-Path $root "LICENSE-MIT") -Destination $stage
     Copy-Item -LiteralPath (Join-Path $root "LICENSE-APACHE") -Destination $stage

@@ -3064,7 +3064,7 @@ mod tests {
 
     #[test]
     fn phase6_dataflow_json_simple_function() {
-        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/gclsd/bench/sample.exe");
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/eval/fixtures/pe/sample.exe");
         if !std::path::Path::new(path).exists() {
             eprintln!("skipping: sample.exe not found");
             return;
@@ -3160,7 +3160,7 @@ mod tests {
 
     #[test]
     fn phase6_token_bounded_decompilation() {
-        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/gclsd/bench/sample.exe");
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/eval/fixtures/pe/sample.exe");
         if !std::path::Path::new(path).exists() {
             eprintln!("skipping: sample.exe not found");
             return;
@@ -3203,7 +3203,7 @@ mod tests {
     /// Prefers a V2-accepted pure-printer function for the SCRATCH sample.
     #[test]
     fn decompile_artifact_text_matches_native() {
-        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/gclsd/bench/sample.exe");
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/eval/fixtures/pe/sample.exe");
         if !std::path::Path::new(path).exists() {
             eprintln!("skipping: sample.exe not found");
             return;
@@ -3361,7 +3361,7 @@ mod tests {
     #[test]
     fn pure_v2_artifact_digests_deterministic() {
         use sha2::{Digest, Sha256};
-        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/gclsd/bench/sample.exe");
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/eval/fixtures/pe/sample.exe");
         if !std::path::Path::new(path).exists() {
             eprintln!("skipping: sample.exe not found");
             return;
@@ -3399,7 +3399,7 @@ mod tests {
         );
         assert!(!digests_a.is_empty(), "expected digests for sample.exe");
         let report = serde_json::json!({
-            "pe": "gclsd/bench/sample.exe",
+            "pe": "eval/fixtures/pe/sample.exe",
             "mode": "pure_no_fallback",
             "functions": digests_a.len(),
             "identical": digests_a == digests_b,
@@ -3418,7 +3418,7 @@ mod tests {
         write_scratch(
             "determinism_artifact_report.txt",
             &format!(
-                "identical=true\npe=gclsd/bench/sample.exe\nmode=pure_no_fallback\nfunctions={}\n",
+                "identical=true\npe=eval/fixtures/pe/sample.exe\nmode=pure_no_fallback\nfunctions={}\n",
                 digests_a.len()
             ),
         );
@@ -3429,8 +3429,8 @@ mod tests {
     fn external_corpus_pure_v2_share() {
         let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
         let pes = [
-            root.join("gclsd/bench/sample.exe"),
-            root.join("gclsd/bench/complex.exe"),
+            root.join("eval/fixtures/pe/sample.exe"),
+            root.join("eval/fixtures/pe/complex.exe"),
         ];
         let pure = crate::decompiler::v2::DecompileOptions::pure_no_fallback();
         let mut total = 0usize;
@@ -3502,7 +3502,7 @@ mod tests {
 
     #[test]
     fn phase6_def_types_serialized() {
-        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/gclsd/bench/sample.exe");
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/eval/fixtures/pe/sample.exe");
         if !std::path::Path::new(path).exists() {
             eprintln!("skipping: sample.exe not found");
             return;
@@ -3536,7 +3536,7 @@ mod tests {
 
     #[test]
     fn phase6_structured_decompilation() {
-        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/gclsd/bench/sample.exe");
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/eval/fixtures/pe/sample.exe");
         if !std::path::Path::new(path).exists() {
             eprintln!("skipping: sample.exe not found");
             return;
@@ -3586,7 +3586,7 @@ mod tests {
 
     #[test]
     fn phase6_structured_decompilation_includes_call_facts() {
-        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/gclsd/bench/sample.exe");
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/eval/fixtures/pe/sample.exe");
         if !std::path::Path::new(path).exists() {
             eprintln!("skipping: sample.exe not found");
             return;
@@ -3628,7 +3628,7 @@ mod tests {
 
     #[test]
     fn native_sample_main_emits_recovered_win64_call_arguments() {
-        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/gclsd/bench/sample.exe");
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/eval/fixtures/pe/sample.exe");
         if !std::path::Path::new(path).exists() {
             eprintln!("skipping: sample.exe not found");
             return;
@@ -3729,7 +3729,7 @@ mod tests {
         use crate::decompiler::ssa::{Location, SsaFunction, SsaOpKind};
         use rsleigh_api::PcodeOp;
 
-        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/gclsd/bench/sample.exe");
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/eval/fixtures/pe/sample.exe");
         if !std::path::Path::new(path).exists() {
             eprintln!("skipping: sample.exe not found");
             return;
@@ -3802,7 +3802,7 @@ mod tests {
 
     #[test]
     fn emitted_signature_keeps_persisted_operator_declaration() {
-        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/gclsd/bench/sample.exe");
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/eval/fixtures/pe/sample.exe");
         if !std::path::Path::new(path).exists() {
             eprintln!("skipping: sample.exe not found");
             return;
@@ -3836,7 +3836,7 @@ mod tests {
 
     #[test]
     fn x64_runtime_function_metadata_is_exposed_to_analysis() {
-        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/gclsd/bench/sample.exe");
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/eval/fixtures/pe/sample.exe");
         if !std::path::Path::new(path).exists() {
             eprintln!("skipping: sample.exe not found");
             return;
@@ -3920,7 +3920,7 @@ mod tests {
 
     #[test]
     fn phase7_sample_signedness_or_aggregate_or_points_to() {
-        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/gclsd/bench/sample.exe");
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/eval/fixtures/pe/sample.exe");
         if !std::path::Path::new(path).exists() {
             eprintln!("skipping: sample.exe not found");
             return;
@@ -3991,7 +3991,7 @@ mod tests {
         assert!(db.lookup("IUnknown").is_some());
         assert!(db.resolve_method(0, None).is_some());
 
-        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/gclsd/bench/sample.exe");
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/eval/fixtures/pe/sample.exe");
         if !std::path::Path::new(path).exists() {
             eprintln!("skipping sample COM scan: sample.exe not found");
             return;
@@ -4009,7 +4009,7 @@ mod tests {
 
     #[test]
     fn phase7_points_to_distinct_globals_on_sample() {
-        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/gclsd/bench/sample.exe");
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/eval/fixtures/pe/sample.exe");
         if !std::path::Path::new(path).exists() {
             eprintln!("skipping: sample.exe not found");
             return;
@@ -4037,7 +4037,7 @@ mod tests {
         use crate::project::op::Op;
         use crate::project::persistence::ProjectState;
 
-        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/gclsd/bench/sample.exe");
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/eval/fixtures/pe/sample.exe");
         if !std::path::Path::new(path).exists() {
             eprintln!("skipping: sample.exe not found");
             return;
@@ -4095,7 +4095,7 @@ mod tests {
         use crate::project::op::Op;
         use crate::project::types::DataType;
 
-        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/gclsd/bench/sample.exe");
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/eval/fixtures/pe/sample.exe");
         if !std::path::Path::new(path).exists() {
             eprintln!("skipping: sample.exe not found");
             return;

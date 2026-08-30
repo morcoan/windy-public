@@ -29,7 +29,7 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: stable
-          components: clippy
+          components: clippy,rustfmt
 
       - name: Cache Cargo registry and build artifacts
         uses: actions/cache@v4
@@ -60,11 +60,18 @@ jobs:
       - name: Test
         run: cargo test
 
+      - name: Microbench harness tests
+        run: python -m unittest discover eval/microbench
+
       - name: Agent bench harness tests
         run: cargo test -p agent-bench
 
-      - name: Decompile scorecard smoke
-        run: cargo run --quiet -- bench scorecard
+      - name: Terminal-only dependency assertion
+        shell: pwsh
+        run: |
+          $tree = cargo tree --locked
+          $blocked = $tree | Select-String -Pattern '(?i)\b(eframe|egui|egui_dock|egui_extras|rfd|winit|wgpu)\b'
+          if ($blocked) { throw "GUI/GPU dependency found:`n$blocked" }
 
   artifact-smoke:
     name: Windows packaged executable smoke

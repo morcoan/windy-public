@@ -901,7 +901,7 @@ mod tests {
 
     #[test]
     fn verify_calls_api_true_and_false_on_sample() {
-        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/gclsd/bench/sample.exe");
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/eval/fixtures/pe/sample.exe");
         if !std::path::Path::new(path).exists() {
             return;
         }
@@ -930,7 +930,7 @@ mod tests {
 
     #[test]
     fn verify_local_name_after_writeback() {
-        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/gclsd/bench/sample.exe");
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/eval/fixtures/pe/sample.exe");
         if !std::path::Path::new(path).exists() {
             return;
         }
@@ -958,7 +958,7 @@ mod tests {
 
     #[test]
     fn consistency_runs_on_sample() {
-        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/gclsd/bench/sample.exe");
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/eval/fixtures/pe/sample.exe");
         if !std::path::Path::new(path).exists() {
             return;
         }
@@ -970,7 +970,7 @@ mod tests {
 
     #[test]
     fn memory_purpose_claim() {
-        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/gclsd/bench/sample.exe");
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/eval/fixtures/pe/sample.exe");
         if !std::path::Path::new(path).exists() {
             return;
         }

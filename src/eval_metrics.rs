@@ -81,7 +81,7 @@ mod tests {
 
     #[test]
     fn evidence_cards_present_on_sample() {
-        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/gclsd/bench/sample.exe");
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/eval/fixtures/pe/sample.exe");
         if !std::path::Path::new(path).exists() {
             eprintln!("skipping: sample.exe missing");
             return;

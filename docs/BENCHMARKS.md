@@ -1,65 +1,45 @@
-# Benchmarks and release acceptance
+# Benchmarks
 
-Windy's north-star metric is `verified_facts_per_1k_tokens`: facts statically supported by the binary per thousand agent-context tokens.
+Windy's north-star metric is verified binary facts per thousand visible agent
+tokens, with no silently supported false claims. Evaluation code remains outside
+the shipped MCP server.
 
-## Reproducibility commands
+## Active suites
+
+- `eval/microbench/`: Python-standard-library SQLite runner for compact,
+  deterministic tool-use cases. Private instances, gold, and trajectories are
+  ignored by Git.
+- `eval/agent-bench/`: external agent-loop client that exercises Windy only
+  through streamable HTTP MCP.
+- `cargo test eval_metrics`: bounded evidence-card versus text-dump wiring
+  checks.
+- `cargo test decomp_scorecard`: native decompiler comparison against authored
+  source gold and checked-in Ghidra exports.
+- `eval/grand/`: larger exact-address decompiler corpus and provenance.
 
 ```powershell
-cargo run -p agent-bench -- --root . --limit 12 --profile P0 --profile P1 `
-  --output eval\agent-bench\fixtures\wiring-check-report.json
+python -m unittest discover eval/microbench
+cargo test -p agent-bench
 cargo test eval_metrics
 cargo test decomp_scorecard
-windy.exe bench bel --pe gclsd\bench\sample.exe --iterations 100
 ```
 
-Windy v0.2 deliberately ships no scorecard, Grand, or direct RE query commands.
-Those workflows stay in the evaluation workspace and exercise the product over
-MCP; there are no v0.1 compatibility aliases.
+To issue a blinded microbench task while a local host is running:
 
-## Strict V2 lane
+```powershell
+python -m eval.microbench.microbench --root . issue --split canary `
+  --endpoint http://127.0.0.1:8765/mcp
+```
 
-The release lane uses exact-VA, pure-V2 output. It does not permit legacy fallback or a dual-engine picker. Every report must archive:
+## Reporting policy
 
-- the exact JSON report;
-- SHA-256 of `eval/grand/manifest.json`;
-- source commit or dirty-tree identifier;
-- benchmark suite and compiler profiles;
-- Ghidra export provenance available with the authored fixtures.
+Every committed performance report must identify the source commit, target
+hashes, suite and compiler profiles, cold/warm state, repetitions, and relevant
+hardware. Source-gold comparisons must include omitted functions, catastrophic
+errors, fallbacks, and provenance; Ghidra output is a comparison lane, not
+ground truth.
 
-Release acceptance requires:
-
-- `pure_v2_share == 1.0` and `pure_fallback_count == 0`;
-- overall score at least `0.6976985453832655` and catastrophic rate at most `0.35157894736842105`;
-- no increase in omitted-function count;
-- no empty present functions;
-- a targeted per-exit semantic-return regression that fails on the old global substitution and passes on the candidate.
-
-The v0.1.0 exact-address floor and machine-readable status are in
-`docs/benchmarks/v0.1.0-rc/provenance.json`. Its locked forward guard is
-`docs/benchmarks/v0.1.0-baseline.json`; workflow acceptance uses the exact
-floating-point bounds and pinned manifest/report hashes in that file. The
-supplied approximate pre-change summary remains archived for audit and is
-explicitly non-comparable. Its old approximately `0.902` score is never an
-acceptance threshold.
-
-### v0.1.1 quality snapshot
-
-Post-0.1.0 decompiler ratchet (not a new floor for CI unless you pin it):
-
-- Summary: `docs/benchmarks/v0.1.1-summary.json`
-- Four-lane aggregates: `docs/benchmarks/v0.1.1-grand-v2-four-lanes.json`
-- pure_v2 overall ≈ **0.938** (catastrophic ≈ **0.025**), product ≈ **0.884**,
-  pure share **1.0**, fallbacks **0**, omit **5** (same identity set as 0.1.0).
-
-The checked-in Grand corpus is rebuilt and compared with fully analyzed Ghidra
-exports using the procedure in `eval/grand/README.md`. Exact source identities
-come from MSVC linker MAPs embedded in the manifest; no decompiler output or
-gold-aware ranking is used to select a function VA. The committed Ghidra JSON
-contains only allowlisted authored target functions, not statically linked CRT
-pseudocode.
-
-Committed release reports belong under `docs/benchmarks/`. A report without its manifest hash and source identity is diagnostic only, not a publishable comparison.
-
-## Interpretation
-
-Source-gold scoring measures structural and semantic recovery on authored fixtures. Ghidra output is a comparison lane, not ground truth. Scores should be reported with omitted functions, catastrophic errors, fallbacks, and provenance rather than as a single headline number.
+The [v0.3.0 release report](benchmarks/v0.3.0-local-review.md) records the
+current architecture, Luna development-set evaluation, context measurements,
+runtime measurements, and limitations. Historical v0.1 snapshots are available
+from Git history rather than carried on the current branch.

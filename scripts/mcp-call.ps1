@@ -8,8 +8,8 @@ JSON-RPC handshake. Each invocation is one logical tool call, which is also the
 unit agent-bench counts.
 
 .EXAMPLE
-./scripts/mcp-call.ps1 -Endpoint http://127.0.0.1:8765/mcp -Tool server_status
-./scripts/mcp-call.ps1 -Endpoint http://127.0.0.1:8765/mcp -Tool target_open -Arguments '{"path":"C:\\x.exe"}'
+./scripts/mcp-call.ps1 -Endpoint http://127.0.0.1:8765/mcp -Tool windy_status
+./scripts/mcp-call.ps1 -Endpoint http://127.0.0.1:8765/mcp -Tool investigation_start -Arguments '{"path":"C:\\x.exe","intent":"locate","question":"locate the main parser","budget":"tiny"}'
 #>
 [CmdletBinding()]
 param(

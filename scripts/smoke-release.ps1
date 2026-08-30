@@ -12,7 +12,7 @@ $ErrorActionPreference = "Stop"
 $root = [System.IO.Path]::GetFullPath((Split-Path -Parent $PSScriptRoot))
 $exe = [System.IO.Path]::GetFullPath($ExePath)
 $fixture = if ([string]::IsNullOrWhiteSpace($FixturePath)) {
-    Join-Path $root "gclsd\bench\sample.exe"
+    Join-Path $root "eval\fixtures\pe\sample.exe"
 } else {
     [System.IO.Path]::GetFullPath($FixturePath)
 }
@@ -107,7 +107,7 @@ try {
     $initialize = Invoke-Mcp $endpoint @{
         jsonrpc = "2.0"; id = 1; method = "initialize"; params = @{
             protocolVersion = "2025-11-25"; capabilities = @{}; clientInfo = @{
-                name = "windy-release-smoke"; version = "0.2.0"
+                name = "windy-release-smoke"; version = "0.3.0"
             }
         }
     }
@@ -117,72 +117,84 @@ try {
     Invoke-Mcp $endpoint @{ jsonrpc = "2.0"; method = "notifications/initialized" } $session -AllowEmpty | Out-Null
 
     $tools = Invoke-Mcp $endpoint @{ jsonrpc = "2.0"; id = 2; method = "tools/list"; params = @{} } $session
-    Assert-True ($tools.Json.result.tools.Count -eq 12) "MCP tools/list did not return the v2 surface"
-    Assert-True ($tools.Response.Content.Length -le 12288) "MCP tools/list exceeded the 12 KiB release budget"
+    Assert-True ($tools.Json.result.tools.Count -eq 6) "MCP tools/list did not return the v3 surface"
+    Assert-True ($tools.Response.Content.Length -le 4096) "MCP tools/list exceeded the 4 KiB release budget"
 
-    $open = Invoke-Mcp $endpoint @{ jsonrpc = "2.0"; id = 3; method = "tools/call"; params = @{
-        name = "target_open"; arguments = @{ path = $fixture }
+    $start = Invoke-Mcp $endpoint @{ jsonrpc = "2.0"; id = 3; method = "tools/call"; params = @{
+        name = "investigation_start"; arguments = @{
+            path = $fixture
+            intent = "locate"
+            question = "locate a NUL-terminated byte-counting loop"
+            budget = "tiny"
+        }
     }} $session
-    $jobId = [string]$open.Json.result.structuredContent.data.job_id
-    Assert-True ([bool]$jobId) "target_open returned no job_id"
-    $projectId = ""
-    for ($attempt = 0; $attempt -lt 120; $attempt++) {
-        $job = Invoke-Mcp $endpoint @{ jsonrpc = "2.0"; id = 30; method = "tools/call"; params = @{
-            name = "server_status"; arguments = @{ job_id = $jobId }
+    Assert-True (-not $start.Json.result.isError) "investigation_start failed"
+    $startData = $start.Json.result.structuredContent.data
+    $actionId = [string]$startData.next_actions[0].execute.arguments.action_id
+    Assert-True ([bool]$actionId) "investigation_start returned no action ticket"
+
+    $targetId = ""
+    $functionVa = ""
+    $stepBytes = 0
+    for ($attempt = 0; $attempt -lt 200; $attempt++) {
+        $step = Invoke-Mcp $endpoint @{ jsonrpc = "2.0"; id = 4; method = "tools/call"; params = @{
+            name = "investigation_step"; arguments = @{ action_id = $actionId }
         }} $session
-        $jobData = $job.Json.result.structuredContent.data.job
-        if ($jobData.state -eq "complete") {
-            $projectId = [string]$jobData.target_id
+        Assert-True (-not $step.Json.result.isError) "investigation_step failed"
+        $stepBytes = $step.Response.Content.Length
+        $stepData = $step.Json.result.structuredContent.data
+        if ($stepData.stage -eq "sketch" -and $stepData.state -ne "pending") {
+            $targetId = [string]$stepData.target_id
+            if ($stepData.answer.address) { $functionVa = [string]$stepData.answer.address }
+            elseif ($stepData.evidence_delta.Count -gt 0) { $functionVa = [string]$stepData.evidence_delta[0].address }
             break
         }
-        if ($jobData.state -eq "error") { throw "target_open failed: $($jobData.error)" }
-        Start-Sleep -Milliseconds 100
+        Start-Sleep -Milliseconds 25
     }
-    Assert-True ([bool]$projectId) "target_open job did not complete"
+    Assert-True ([bool]$targetId) "investigation did not reach the sketch stage"
+    Assert-True ([bool]$functionVa) "investigation returned no evidence address"
+    Assert-True ($stepBytes -le 8192) "evidence delta exceeded the 8 KiB hard inline budget"
 
-    $bel = Invoke-Mcp $endpoint @{ jsonrpc = "2.0"; id = 7; method = "tools/call"; params = @{
-        name = "evidence_search"; arguments = @{
-            target_id = $projectId; query = "mov"; mode = "token"; limit = 2; deadline_ms = 120000
+    $edit = Invoke-Mcp $endpoint @{ jsonrpc = "2.0"; id = 5; method = "tools/call"; params = @{
+        name = "investigation_start"; arguments = @{
+            target_id = $targetId
+            intent = "edit"
+            question = "attach the function comment 'v3 packaged smoke marker' to $functionVa"
+            budget = "tiny"
         }
     }} $session
-    Assert-True (-not $bel.Json.result.isError) "evidence_search failed"
-    Assert-True ([bool]$bel.Json.result.structuredContent.data.total_kind) "BEL total contract missing"
+    $editData = $edit.Json.result.structuredContent.data
+    $editAction = [string]$editData.next_actions[0].execute.arguments.action_id
+    Assert-True ([bool]$editAction) "edit investigation returned no action ticket"
+    $proposal = $null
+    for ($attempt = 0; $attempt -lt 200; $attempt++) {
+        $editStep = Invoke-Mcp $endpoint @{ jsonrpc = "2.0"; id = 6; method = "tools/call"; params = @{
+            name = "investigation_step"; arguments = @{ action_id = $editAction }
+        }} $session
+        Assert-True (-not $editStep.Json.result.isError) "edit investigation_step failed"
+        $editStepData = $editStep.Json.result.structuredContent.data
+        if ($editStepData.proposal) { $proposal = $editStepData.proposal; break }
+        Start-Sleep -Milliseconds 25
+    }
+    Assert-True ($null -ne $proposal) "edit investigation returned no verified proposal"
 
-    $functions = Invoke-Mcp $endpoint @{ jsonrpc = "2.0"; id = 4; method = "tools/call"; params = @{
-        name = "capability_execute"; arguments = @{
-            capability_id = "list_functions"; arguments = @{ target_id = $projectId; limit = 16 }
+    $commit = Invoke-Mcp $endpoint @{ jsonrpc = "2.0"; id = 7; method = "tools/call"; params = @{
+        name = "change_commit"; arguments = @{
+            proposal_id = [string]$proposal.proposal_id
+            expected_revision = [int64]$proposal.expected_revision
+            idempotency_key = "packaged-smoke-0001"
         }
     }} $session
-    $va = [string]$functions.Json.result.structuredContent.data.functions[0].va
-    Assert-True ([bool]$va) "list_functions returned no function"
-
-    $evidence = Invoke-Mcp $endpoint @{ jsonrpc = "2.0"; id = 5; method = "tools/call"; params = @{
-        name = "function_inspect"; arguments = @{ target_id = $projectId; va = $va; max_items = 2 }
-    }} $session
-    Assert-True (-not $evidence.Json.result.isError) "function_inspect failed"
-    Assert-True ([bool]$evidence.Json.result.structuredContent) "evidence structuredContent missing"
-    Assert-True ($evidence.Response.Content.Length -le 65536) "function_inspect exceeded the hard inline budget"
-    $evidenceText = [string]$evidence.Json.result.content[0].text
-    Assert-True (-not $evidenceText.Contains('"data"')) "function_inspect duplicated structured JSON into text"
-
-    $decompile = Invoke-Mcp $endpoint @{ jsonrpc = "2.0"; id = 6; method = "tools/call"; params = @{
-        name = "capability_execute"; arguments = @{
-            capability_id = "decompile_function"; arguments = @{
-                target_id = $projectId; va = $va; policy = "product"; max_tokens = 256
-            }
-        }
-    }} $session
-    Assert-True (-not $decompile.Json.result.isError) "native decompilation failed"
-    Assert-True (@("ok", "omitted", "pending") -contains [string]$decompile.Json.result.structuredContent.data.status) "Unexpected decompile status"
+    Assert-True (-not $commit.Json.result.isError) "change_commit failed"
 
     $close = Invoke-Mcp $endpoint @{ jsonrpc = "2.0"; id = 8; method = "tools/call"; params = @{
-        name = "target_close"; arguments = @{ target_id = $projectId }
+        name = "target_close"; arguments = @{ target_id = $targetId }
     }} $session
     Assert-True (-not $close.Json.result.isError) "target_close failed"
 
     & $exe doctor --endpoint $endpoint --open $fixture --data-dir $dataDir | Out-Null
     if ($LASTEXITCODE -ne 0) { throw "windy doctor endpoint probe failed" }
-    Write-Host "Packaged $ExpectedProductName smoke test passed ($projectId $va; tools/list=$($tools.Response.Content.Length) bytes; function_inspect=$($evidence.Response.Content.Length) bytes)."
+    Write-Host "Packaged $ExpectedProductName smoke test passed ($targetId $functionVa; tools/list=$($tools.Response.Content.Length) bytes; evidence=$stepBytes bytes)."
 }
 finally {
     if ($process -and -not $process.HasExited) {

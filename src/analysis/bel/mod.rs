@@ -2425,7 +2425,7 @@ mod tests {
 
     fn fixture_index(name: &str) -> (Project, Arc<BelIndex>, Arc<Overlay>) {
         let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("gclsd/bench")
+            .join("eval/fixtures/pe")
             .join(name);
         let project = Project::open(path).expect("open BEL fixture");
         let cancel = AtomicBool::new(false);
@@ -2544,8 +2544,8 @@ mod tests {
 
     #[test]
     fn cancellation_invalid_regex_and_short_query_safety_are_explicit() {
-        let path =
-            std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("gclsd/bench/sample.exe");
+        let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("eval/fixtures/pe/sample.exe");
         let project = Project::open(path).expect("open cancellation fixture");
         let cancelled = AtomicBool::new(true);
         let control = BelBuildControl {

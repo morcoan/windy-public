@@ -6602,8 +6602,8 @@ mod http_tests {
 
     #[test]
     fn streamable_http_release_contract_and_persistence() {
-        let fixture =
-            std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("gclsd/bench/sample.exe");
+        let fixture = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("eval/fixtures/pe/sample.exe");
         assert!(fixture.exists(), "sample.exe fixture is required");
         let home = std::env::temp_dir().join(format!(
             "windy-mcp-e2e-{}-{}",
@@ -6988,8 +6988,8 @@ mod http_tests {
 
     #[test]
     fn v3_public_surface_opens_investigates_edits_and_closes() {
-        let fixture =
-            std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("gclsd/bench/sample.exe");
+        let fixture = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("eval/fixtures/pe/sample.exe");
         let home = std::env::temp_dir().join(format!(
             "windy-mcp-v3-{}-{}",
             std::process::id(),

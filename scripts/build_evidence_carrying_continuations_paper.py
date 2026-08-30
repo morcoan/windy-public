@@ -23,7 +23,7 @@ from reportlab.platypus import Paragraph, Table, TableStyle
 
 
 ROOT = Path(__file__).resolve().parents[1]
-OUTPUT = ROOT / "output" / "pdf" / "Windy_Evidence_Carrying_Continuations.pdf"
+OUTPUT = ROOT / "docs" / "paper" / "Windy_Evidence_Carrying_Continuations.pdf"
 
 PAGE_W, PAGE_H = letter
 MARGIN = 54

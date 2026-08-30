@@ -1436,7 +1436,7 @@ mod tests {
     fn recent_projects_persist_and_duplicate_open_reuses_id() {
         let exe = PathBuf::from(concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/gclsd/bench/sample.exe"
+            "/eval/fixtures/pe/sample.exe"
         ));
         let tmp = std::env::temp_dir().join(format!(
             "windy-recents-{}-{}",
@@ -1469,7 +1469,7 @@ mod tests {
 
     #[test]
     fn apply_undo_redo_restores_state() {
-        let exe = concat!(env!("CARGO_MANIFEST_DIR"), "/gclsd/bench/sample.exe");
+        let exe = concat!(env!("CARGO_MANIFEST_DIR"), "/eval/fixtures/pe/sample.exe");
         if !Path::new(exe).exists() {
             eprintln!("skipping redo_last: sample.exe not found");
             return;
@@ -1536,7 +1536,7 @@ mod tests {
 
     #[test]
     fn auto_checkpoint_bounds_oplog() {
-        let exe = concat!(env!("CARGO_MANIFEST_DIR"), "/gclsd/bench/sample.exe");
+        let exe = concat!(env!("CARGO_MANIFEST_DIR"), "/eval/fixtures/pe/sample.exe");
         if !Path::new(exe).exists() {
             eprintln!("skipping auto-checkpoint: sample.exe not found");
             return;
@@ -1707,7 +1707,7 @@ mod tests {
 
     #[test]
     fn guarded_decompile_caches_artifacts_and_distinguishes_lanes() {
-        let fixture = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("gclsd/bench/sample.exe");
+        let fixture = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("eval/fixtures/pe/sample.exe");
         if !fixture.exists() {
             eprintln!("skipping: sample.exe not found");
             return;

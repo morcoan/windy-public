@@ -14,25 +14,22 @@ read-only status surface and must remain open.
 Ask the agent to:
 
 ```text
-Open C:\samples\target.exe with target_open. Poll server_status until the
-target is ready. Run target_triage, inspect the highest-ranked function, and
-verify every claim before applying any project_edit. Close the target when
-finished.
+Start a tiny locate investigation for C:\samples\target.exe and describe the
+behavior I ask about. Execute only the returned action tickets, cite Windy's
+evidence IDs, verify uncertain claims, and close the target when finished.
 ```
 
-For a minidump, open the `.dmp` the same way, then use
-`capability_search("dump modules threads stack")` to retrieve only the needed
-dump operations. Open an individual module before function analysis; never
-build a BEL over the whole process.
+The agent should call `investigation_start` with `path`, `intent`, `question`,
+and `budget`, then pass returned `action_id` values to `investigation_step`.
+`evidence_read` accepts only immutable cursors returned by Windy. Edits use the
+exact proposal, revision, and idempotency arguments returned by the server.
 
-If a result contains an artifact handle, use `artifact_read` with a small
-page. Do not request the entire artifact unless the task truly needs it.
+For a minidump, use the `dump` intent. Windy can inspect user-mode dump metadata
+and modules but never launches, attaches to, or terminates a process.
 
 Troubleshooting:
 
 - `/healthz` confirms the host without creating an MCP session.
-- `server_status` reports open jobs, active targets, BEL readiness, memory and
-  request statistics.
+- `windy_status` reports targets, investigations, jobs, cache, and metrics.
 - Windy refuses non-loopback bind addresses and non-loopback browser origins.
-- A target is never reopened automatically; the agent must call
-  `target_open` after every fresh host start.
+- Targets are never reopened automatically after a fresh host start.

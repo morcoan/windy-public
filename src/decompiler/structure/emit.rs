@@ -654,7 +654,7 @@ mod tests {
 
     #[test]
     fn sample_exe_native_decompile_has_add_and_return() {
-        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/gclsd/bench/sample.exe");
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/eval/fixtures/pe/sample.exe");
         if !std::path::Path::new(path).exists() {
             eprintln!("skipping: sample.exe not found");
             return;
@@ -694,7 +694,7 @@ mod tests {
 
     #[test]
     fn sample_exe_branches_prefer_if_over_goto() {
-        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/gclsd/bench/sample.exe");
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/eval/fixtures/pe/sample.exe");
         if !std::path::Path::new(path).exists() {
             eprintln!("skipping: sample.exe not found");
             return;
@@ -874,7 +874,7 @@ mod tests {
 
     #[test]
     fn sample_exe_native_uses_reg_names_not_r08() {
-        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/gclsd/bench/sample.exe");
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/eval/fixtures/pe/sample.exe");
         if !std::path::Path::new(path).exists() {
             eprintln!("skipping: sample.exe not found");
             return;

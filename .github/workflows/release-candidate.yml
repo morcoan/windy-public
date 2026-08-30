@@ -12,7 +12,7 @@ on:
         description: "Artifact version"
         required: true
         type: string
-        default: "0.1.0"
+        default: "0.3.0"
 
 permissions:
   contents: read
@@ -34,7 +34,7 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: stable
-          components: clippy
+          components: clippy,rustfmt
           targets: x86_64-pc-windows-msvc
 
       - name: Cache Cargo registry and build artifacts
@@ -46,42 +46,26 @@ jobs:
             target
           key: ${{ runner.os }}-rc-${{ hashFiles('**/Cargo.lock') }}
 
-      - name: Run mandatory gate
+      - name: Run mandatory v0.3 gate
         shell: pwsh
         run: |
-          cargo build
+          cargo fmt -- --check
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
-          cargo clippy -- -D warnings
+          cargo build --locked
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
-          cargo test
+          cargo clippy --locked -- -D warnings
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          cargo test --locked
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          python -m unittest discover eval/microbench
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
 
-      - name: Run strict pure-V2 acceptance scorecard
+      - name: Assert terminal-only dependency graph
         shell: pwsh
         run: |
-          $bench = Join-Path $PWD "dist\benchmark\v0.1.0-rc"
-          New-Item -ItemType Directory -Path $bench -Force | Out-Null
-          $env:WINDY_SCRATCH = $bench
-          $reportPath = Join-Path $bench "strict-v2.json"
-          cargo run --quiet -- bench grand --suite v2-strict --output $reportPath
-          if ($LASTEXITCODE) { exit $LASTEXITCODE }
-          $report = Get-Content $reportPath -Raw | ConvertFrom-Json
-          $share = Get-Content (Join-Path $bench "engine_share_v2.json") -Raw | ConvertFrom-Json
-          $baselinePath = '.\docs\benchmarks\v0.1.0-baseline.json'
-          $baseline = Get-Content $baselinePath -Raw | ConvertFrom-Json
-          if ($baseline.schema -ne "windy_exact_address_baseline" -or $baseline.version -ne 1) { throw "Unsupported v0.1 baseline schema" }
-          $manifestHash = (Get-FileHash $baseline.manifest.path -Algorithm SHA256).Hash.ToLowerInvariant()
-          $baselineReportHash = (Get-FileHash $baseline.report.path -Algorithm SHA256).Hash.ToLowerInvariant()
-          if ($manifestHash -ne $baseline.manifest.sha256) { throw "Grand manifest hash differs from the locked v0.1 baseline" }
-          if ($baselineReportHash -ne $baseline.report.sha256) { throw "Checked-in v0.1 baseline report hash is invalid" }
-          if ($report.windy.overall_mean -lt $baseline.score_bounds.overall_mean_min) { throw "Strict score regressed below the exact v0.1 baseline" }
-          if ($report.windy.catastrophic_rate -gt $baseline.score_bounds.catastrophic_rate_max) { throw "Catastrophic rate regressed above the exact v0.1 baseline" }
-          if ($report.omitted_functions.Count -gt $baseline.limits.omitted_functions_max) { throw "Omitted-function count increased above baseline" }
-          if ($report.windy.empty_decomp_count -gt $baseline.limits.empty_present_functions_max) { throw "Pure-V2 produced too many empty present decompilations" }
-          if ($report.ghidra.functions_scored -ne $report.windy.functions_scored) { throw "Ghidra does not cover the exact Windy VA set" }
-          if ($report.windy.functions_scored -ne $baseline.coverage.functions_scored) { throw "Function coverage differs from the locked v0.1 baseline" }
-          if ($share.v2_pure_fraction -ne $baseline.pure_v2.required_share) { throw "Pure-V2 share differs from the locked requirement" }
-          if ($share.pure_fallback_count -gt $baseline.pure_v2.fallbacks_max) { throw "Pure-V2 fallback count exceeds the locked limit" }
+          $tree = cargo tree --locked
+          $blocked = $tree | Select-String -Pattern '(?i)\b(eframe|egui|egui_dock|egui_extras|rfd|winit|wgpu)\b'
+          if ($blocked) { throw "GUI/GPU dependency found:`n$blocked" }
 
       - name: Install SBOM generator
         run: cargo install cargo-cyclonedx --locked
@@ -97,7 +81,6 @@ jobs:
           path: |
             dist/windy-v${{ inputs.version }}-windows-x64.zip
             dist/windy-v${{ inputs.version }}-windows-x64.zip.sha256
-            dist/benchmark/v0.1.0-rc/**
           if-no-files-found: error
 
   publish-draft:
@@ -124,4 +107,4 @@ jobs:
           --draft
           --target "${{ github.sha }}"
           --title "Windy v${{ inputs.version }} release candidate"
-          --notes "Draft release candidate produced by the manual workflow. Validate dogfood results before publication."
+          --notes "Draft release candidate produced by the manual v0.3 workflow. Review benchmark and smoke results before publication."

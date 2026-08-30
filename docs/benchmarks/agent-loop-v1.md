@@ -1,4 +1,8 @@
-# Agent loop v1
+# Agent loop v1 (historical v0.2 methodology)
+
+This document describes the frozen v0.2 comparison harness and its former MCP
+surface. It is retained for interpreting baseline results, not as v0.3 usage
+documentation. Use `eval/microbench/` and `docs/MCP.md` for current runs.
 
 North-star measurement for **Windy as an RE substrate for agents**, compared
 against what an agent does without it (`pip install pefile capstone` + a REPL).

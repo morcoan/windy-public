@@ -1,13 +1,13 @@
 /target
 debug/
 *.exe
-!gclsd/bench/sample.exe
-!gclsd/bench/complex.exe
+!eval/fixtures/pe/sample.exe
+!eval/fixtures/pe/complex.exe
 # Authored Grand fixtures: every PE has checked-in C source, build profile,
 # and SHA-256 provenance in eval/grand/manifest.json.
 !eval/grand/bin/**/*.exe
 *.pdb
-!gclsd/bench/sample.pdb
+!eval/fixtures/pe/sample.pdb
 *.obj
 *.o
 *.lib

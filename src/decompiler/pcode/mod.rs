@@ -419,7 +419,7 @@ mod tests {
     #[test]
     fn test_pcode_lift_sample_exe() {
         with_big_stack(|| {
-            let path = concat!(env!("CARGO_MANIFEST_DIR"), "/gclsd/bench/sample.exe");
+            let path = concat!(env!("CARGO_MANIFEST_DIR"), "/eval/fixtures/pe/sample.exe");
             let bytes = std::fs::read(path).expect("read sample.exe");
             let (image_base, va, raw_off, raw_size) =
                 locate_text_section(&bytes).expect("find .text section");

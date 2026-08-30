@@ -5,8 +5,8 @@ This file is written for LLM agents and developers using `windy` as a
 external agents (OpenCode, Claude, Cursor, Grok, …) own planning. Windy
 answers tight questions and commits durable state.
 
-GCLSD (custom decompiler model) is **archived**. Prefer native decompile +
-evidence tools. Do not invest in model training unless explicitly funded.
+Legacy model experiments are not part of the public tree. Prefer native
+decompile and evidence tools. Do not add a first-party model client.
 
 ## Verification Gate
 
@@ -19,7 +19,7 @@ cargo test
 python -m unittest discover eval/microbench
 ```
 
-All three must pass. No exceptions, no skipped smoke tests.
+All four must pass. No exceptions, no skipped smoke tests.
 
 ## Terminal MCP host
 
@@ -61,26 +61,18 @@ user asked for hex (`read_va` / `get_fragment` capped at 512 bytes).
 - Evidence Card v2: `docs/contracts/evidence_card_v2.md`
 - Evidence Card v1: `docs/contracts/evidence_card_v1.md`
 - Claim & edge registry v1: `docs/contracts/claim_edge_registry_v1.md`
-- Roadmap absorption: `docs/ROADMAP_ABSORPTION.md`
 
 ### North-star metric
 
-Agent-loop task success + honest abstention vs python/pefile baseline
-(see `docs/benchmarks/agent-loop-v1.md`). The harness is the workspace crate
-`eval/agent-bench` (raw HTTP Anthropic client; **not** inside the windy binary).
+Agent-loop task success plus honest abstention, measured with bounded calls and
+visible context. The compact v0.3 harness is under `eval/microbench`; the larger
+`eval/agent-bench` client remains external to the Windy binary.
 
 ```bash
-# Offline scoring-wiring only (synthetic; write under fixtures/, not docs/benchmarks/)
-cargo run -p agent-bench -- --root . --limit 12 --profile P0 --profile P1 \
-  --output eval/agent-bench/fixtures/wiring-check-report.json
-# Evidence-card smoke (not the full agent loop)
+python -m unittest discover eval/microbench
+cargo test -p agent-bench
 cargo test eval_metrics
-# Windy vs Ghidra vs source gold (sample.c smoke + complex.c quality gap)
 cargo test decomp_scorecard
-# Full scorecards and Grand runs are evaluation clients under eval/, not
-# commands shipped in the server executable.
-# BEL cold build, memory, warm percentiles, and oracle checksums
-windy bench bel --pe gclsd/bench/sample.exe --iterations 100
 ```
 
 ## Module Responsibilities

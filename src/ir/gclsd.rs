@@ -360,7 +360,7 @@ mod tests {
     /// (one that lifts to `IntAdd`) must also end in a `Return`.
     #[test]
     fn test_function_export_carries_pcode() {
-        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/gclsd/bench/sample.exe");
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/eval/fixtures/pe/sample.exe");
         let project = crate::project::Project::open(path).expect("open sample.exe");
 
         let is_pcode_noop = |m: &str| {

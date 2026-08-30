@@ -959,7 +959,7 @@ mod tests {
 
     #[test]
     fn function_evidence_pack_on_sample() {
-        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/gclsd/bench/sample.exe");
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/eval/fixtures/pe/sample.exe");
         if !std::path::Path::new(path).exists() {
             eprintln!("skipping: sample.exe not found");
             return;
@@ -1002,7 +1002,7 @@ mod tests {
 
     #[test]
     fn search_summary_prefers_indexed_import_symbol_hits() {
-        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/gclsd/bench/complex.exe");
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/eval/fixtures/pe/complex.exe");
         let project = Project::open(path).expect("open complex fixture");
         let api = project
             .symbols
@@ -1019,7 +1019,7 @@ mod tests {
 
     #[test]
     fn fast_search_reports_exact_total_and_paginates() {
-        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/gclsd/bench/complex.exe");
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/eval/fixtures/pe/complex.exe");
         let project = Project::open(path).expect("open complex fixture");
         let (query, expected) = ["_", "e", "a", "i"]
             .into_iter()
@@ -1059,7 +1059,7 @@ mod tests {
 
     #[test]
     fn instruction_search_obeys_deadline_then_reuses_index() {
-        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/gclsd/bench/sample.exe");
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/eval/fixtures/pe/sample.exe");
         let project = Project::open(path).expect("open sample fixture");
         let expired = Instant::now() - std::time::Duration::from_millis(1);
         let timed_out = search_summary_page(

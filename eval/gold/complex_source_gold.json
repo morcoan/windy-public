@@ -1,7 +1,7 @@
 {
-  "program": "gclsd/bench/complex.exe",
-  "source": "gclsd/bench/complex.c",
-  "ghidra_export": "gclsd/bench/complex_ghidra_output.json",
+  "program": "eval/fixtures/pe/complex.exe",
+  "source": "eval/fixtures/pe/complex.c",
+  "ghidra_export": "eval/fixtures/pe/complex_ghidra_output.json",
   "notes": "Harder PE gold for classical-decomp quality. Quality gates (no_rsp, no_stack_home, max_assign, null_term, char_cast, return_binop) are engine-agnostic and intended to show Ghidra ahead of Windy-native SSA emission on MSVC /Od code. Ghidra entry VAs are FUN_* addresses after strip (no PDB).",
   "functions": [
     {

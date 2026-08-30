@@ -28,12 +28,10 @@ include = [
 
 [features]
 default = []
-# Local-only fast-iteration channel. Changes product identity and enables
-# eager search warming; it is packaged by scripts/package-beta.ps1 and is not
-# connected to GitHub release workflows.
+# Local compatibility switch; not part of the public release workflow.
 beta = []
-# Archived corpus/model authoring support. The public release binary is fully
-# native and does not compile an HTTP model client.
+# Archived protocol compatibility. The default public binary is fully native
+# and does not compile an HTTP model client.
 gclsd-archive = ["dep:reqwest"]
 
 [[bin]]

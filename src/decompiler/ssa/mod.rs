@@ -435,7 +435,7 @@ mod tests {
     use crate::project::Project;
 
     fn open_sample() -> Project {
-        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/gclsd/bench/sample.exe");
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/eval/fixtures/pe/sample.exe");
         Project::open(path).expect("open sample.exe")
     }
 

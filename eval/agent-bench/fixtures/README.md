@@ -1,6 +1,6 @@
 # agent-bench fixtures
 
-## `wiring-check-report.*`
+## Generated wiring reports
 
 Offline harness output (`--live` omitted). **Synthetic by construction:**
 
@@ -10,10 +10,10 @@ Offline harness output (`--live` omitted). **Synthetic by construction:**
 These are **not** product measurements. Do not copy them into
 `docs/benchmarks/` or cite them as A-vs-B evidence.
 
-Regenerate:
+Generate into a local scratch directory (reports are not tracked):
 
 ```bash
 cargo run -p agent-bench -- --root . --limit 8 \
-  --output eval/agent-bench/fixtures/wiring-check-report.json \
-  --markdown eval/agent-bench/fixtures/wiring-check-report.md
+  --output .artifacts/agent-bench/wiring-check-report.json \
+  --markdown .artifacts/agent-bench/wiring-check-report.md
 ```

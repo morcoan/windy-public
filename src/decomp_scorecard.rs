@@ -1248,7 +1248,7 @@ mod tests {
     #[test]
     fn sample_add_native_decomp_has_plus_and_params() {
         let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-        let pe = root.join("gclsd/bench/sample.exe");
+        let pe = root.join("eval/fixtures/pe/sample.exe");
         assert!(pe.exists(), "sample.exe required");
         let p = Project::open(&pe).unwrap();
         let va = 0x140001000u64;
@@ -1264,7 +1264,7 @@ mod tests {
     #[test]
     fn sample_main_calls_named_callees() {
         let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-        let pe = root.join("gclsd/bench/sample.exe");
+        let pe = root.join("eval/fixtures/pe/sample.exe");
         assert!(pe.exists(), "sample.exe required");
         let p = Project::open(&pe).unwrap();
         let va = 0x1400010b0u64;
@@ -1314,10 +1314,10 @@ mod tests {
             "missing gold file {}; required for scorecard gate",
             gold.display()
         );
-        let pe = root.join("gclsd/bench/sample.exe");
+        let pe = root.join("eval/fixtures/pe/sample.exe");
         assert!(
             pe.exists(),
-            "missing {}; force-add under gclsd/bench (see .gitignore exception) or rebuild sample.c",
+            "missing {}; force-add under eval/fixtures/pe (see .gitignore exception) or rebuild sample.c",
             pe.display()
         );
         let a = run_scorecard(&root, &gold).expect("scorecard a");
@@ -1656,7 +1656,7 @@ uint64 FUN_140001000(u64 arg1, u64 arg2) {
     #[ignore = "authoring helper: cargo test dump_complex_native_for_gold_authoring -- --ignored --nocapture"]
     fn dump_complex_native_for_gold_authoring() {
         let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-        let pe = root.join("gclsd/bench/complex.exe");
+        let pe = root.join("eval/fixtures/pe/complex.exe");
         assert!(pe.exists(), "missing complex.exe");
         let p = Project::open(&pe).unwrap();
         for f in p.functions().iter() {
@@ -1674,7 +1674,7 @@ uint64 FUN_140001000(u64 arg1, u64 arg2) {
     fn complex_scorecard_shows_ghidra_ahead_when_fixture_present() {
         let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
         let gold = root.join("eval/gold/complex_source_gold.json");
-        let pe = root.join("gclsd/bench/complex.exe");
+        let pe = root.join("eval/fixtures/pe/complex.exe");
         assert!(
             gold.exists(),
             "missing {}; required quality-gap gold",
@@ -1682,7 +1682,7 @@ uint64 FUN_140001000(u64 arg1, u64 arg2) {
         );
         assert!(
             pe.exists(),
-            "missing {}; rebuild gclsd/bench/complex.c with cl /Od or force-add the PE",
+            "missing {}; rebuild eval/fixtures/pe/complex.c with cl /Od or force-add the PE",
             pe.display()
         );
         let report = run_scorecard(&root, &gold).expect("complex scorecard");

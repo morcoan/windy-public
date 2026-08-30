@@ -1112,7 +1112,7 @@ mod tests {
 
     #[test]
     fn sample_exe_recovers_some_types() {
-        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/gclsd/bench/sample.exe");
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/eval/fixtures/pe/sample.exe");
         if !std::path::Path::new(path).exists() {
             eprintln!("skipping: sample.exe not found");
             return;

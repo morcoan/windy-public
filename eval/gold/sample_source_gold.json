@@ -1,7 +1,7 @@
 {
-  "program": "gclsd/bench/sample.exe",
-  "source": "gclsd/bench/sample.c",
-  "ghidra_export": "gclsd/bench/ghidra_output.json",
+  "program": "eval/fixtures/pe/sample.exe",
+  "source": "eval/fixtures/pe/sample.c",
+  "ghidra_export": "eval/fixtures/pe/sample_ghidra_output.json",
   "notes": "Ground truth from hand-written C. Ghidra names are FUN_* when symbols stripped; match by entry_va.",
   "functions": [
     {
