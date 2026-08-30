@@ -43,6 +43,7 @@ debug/
 .ruff_cache/
 
 # Local agent / session / scratch
+/.zcode/
 terminals/
 mcps/
 build_warnings.txt
@@ -70,6 +71,14 @@ decomp_scorecard.json
 /eval/grand/patch_noinline.py
 /eval/grand/patch_volatile_main.py
 
+# Dataset curator: third-party sources + build outputs stay local
+/eval/dataset-curator/corpus/
+/eval/dataset-curator/out/
+
+# Private v0.3 microbench instances, gold, and Luna trajectories
+/eval/microbench/private/
+/eval/microbench/runs/
+
 # IDE / tooling
 .vscode/
 .idea/
@@ -82,3 +91,10 @@ opencode.json
 Thumbs.db
 Desktop.ini
 .DS_Store
+
+# Local model serving/runtime artifacts (llama.cpp binaries, venvs are covered above)
+/eval/dataset-curator/models/
+/eval/dataset-curator/train-venv/
+
+# Reasonix agent local state
+/.reasonix/

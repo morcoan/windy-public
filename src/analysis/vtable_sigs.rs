@@ -233,6 +233,10 @@ impl VtableDB {
     pub fn len(&self) -> usize {
         self.by_interface.values().map(|i| i.methods.len()).sum()
     }
+
+    pub fn is_empty(&self) -> bool {
+        self.by_interface.is_empty()
+    }
 }
 
 #[cfg(test)]

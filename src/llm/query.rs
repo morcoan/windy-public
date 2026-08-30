@@ -958,11 +958,6 @@ mod tests {
     use crate::project::Project;
 
     #[test]
-    fn query_module_exists() {
-        assert!(true);
-    }
-
-    #[test]
     fn function_evidence_pack_on_sample() {
         let path = concat!(env!("CARGO_MANIFEST_DIR"), "/gclsd/bench/sample.exe");
         if !std::path::Path::new(path).exists() {

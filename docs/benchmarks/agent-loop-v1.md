@@ -88,22 +88,21 @@ alone manufactures cost differences that are pure caching artifacts.
 
 ## Local Arm A policy (Phase 1)
 
-`--local` Arm A no longer shells out to a single
-`windy agent-query --functions-named`. It spawns `windy serve-mcp`, then runs a
-deterministic MCP ladder over HTTP:
+`--local` Arm A spawns `windy serve-mcp`, then runs a deterministic MCP v2
+ladder over HTTP:
 
-1. `list_projects`
-2. `get_triage`
-3. `search_bel` (substring)
-4. `functions_named`
-5. `get_function_evidence` on the best name-ranked candidate (if any)
+1. `target_open`, then poll `server_status`
+2. `target_triage`
+3. `evidence_search` (substring)
+4. `capability_search` only when a specialized name query is required
+5. `function_inspect` on the best evidence-ranked candidate (if any)
 
 PEs are staged **without** adjacent `.map`, `.pdb`, `.obj`, or JSON files so name
 recovery is not reading the answer key. On this corpus that means Arm A
 typically **refuses** locate when no recovered symbol matches — honest
 measurement, not a harness bug. Product
-`functions_named` unranked-substring ranking was **not** confirmed as causing wrong
-VAs under this ladder (empty name lists when the map is stripped).
+Name-substring ranking was **not** confirmed as causing wrong VAs under this
+ladder (empty name lists when the map is stripped).
 
 ## Expected headline
 

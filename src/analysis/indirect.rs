@@ -365,11 +365,6 @@ mod tests {
     use iced_x86::{Decoder, DecoderOptions};
 
     #[test]
-    fn indirect_module_exists() {
-        assert!(true);
-    }
-
-    #[test]
     fn resolve_vtable_release_synthetic() {
         // VtableDB alone: offset 16 → IUnknown::Release
         let db = VtableDB::load_bundled_only();

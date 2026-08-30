@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-
 use iced_x86::{Code, Decoder, DecoderOptions, Instruction};
 
 use crate::loader::address_space::{AddressSpace, Section};
@@ -27,7 +25,6 @@ impl DecodedInstr {
 #[derive(Clone, Debug)]
 pub struct CodeIndex {
     pub instrs: Vec<DecodedInstr>,
-    pub va_to_idx: HashMap<u64, usize>,
 }
 
 impl CodeIndex {
@@ -50,16 +47,10 @@ impl CodeIndex {
             );
         }
 
-        // Exact VA lookup is the hottest operation during discovery, CFG, and
-        // decompilation. A HashMap builds in linear time and avoids the
-        // pointer-heavy BTreeMap previously populated once per instruction.
-        // `instrs` remains VA-sorted for range/floor lookups.
-        let mut va_to_idx = HashMap::with_capacity(instrs.len());
-        for (index, instruction) in instrs.iter().enumerate() {
-            va_to_idx.insert(instruction.ip, index);
-        }
-
-        Self { instrs, va_to_idx }
+        // The VA-sorted vector is the index. An auxiliary entry-per-instruction
+        // hash table dominated memory on large binaries and duplicated facts
+        // already present here. Exact and floor lookups remain logarithmic.
+        Self { instrs }
     }
 
     pub fn len(&self) -> usize {
@@ -71,14 +62,13 @@ impl CodeIndex {
     }
 
     pub fn at_va(&self, va: u64) -> Option<&DecodedInstr> {
-        self.va_to_idx
-            .get(&va)
-            .and_then(|&idx| self.instrs.get(idx))
+        self.idx_for_va(va).and_then(|idx| self.instrs.get(idx))
     }
 
-    #[allow(dead_code)] // Used by future index-based windowing callers
     pub fn idx_for_va(&self, va: u64) -> Option<usize> {
-        self.va_to_idx.get(&va).copied()
+        self.instrs
+            .binary_search_by_key(&va, |instruction| instruction.ip)
+            .ok()
     }
 
     /// Returns `count` instructions starting at the index closest to `va` (floor).
@@ -101,7 +91,7 @@ impl CodeIndex {
 
     /// Previous decoded instruction before `va` in linear-sweep order, if any.
     pub fn instruction_before(&self, va: u64) -> Option<&DecodedInstr> {
-        let idx = self.va_to_idx.get(&va).copied()?;
+        let idx = self.idx_for_va(va)?;
         if idx == 0 {
             return None;
         }

@@ -1,65 +1,57 @@
 # Windy
 
-Windy is a portable Windows x64 reverse-engineering workbench and local MCP server for static PE analysis. It gives external agents compact evidence, native checked pseudocode, and durable write-back without GCLSD, a model service, Python, Java, or Ghidra at runtime.
+Windy is a lightweight, agent-first MCP server for static Windows binary and
+user-mode minidump analysis. It has no GUI, embedded planner, model service,
+debugger, or emulation runtime. External agents own planning and target
+lifecycle; Windy returns bounded evidence and durable, reversible write-back.
 
-Windy v0.1.x is local-only and static-only. It analyzes Windows PE files (`.exe`, `.dll`, and `.sys`); it does not emulate code, attach a debugger, or expose an unauthenticated remote service.
+## Start
 
-## Five-minute start
+```powershell
+windy
+# equivalent explicit form
+windy serve-mcp
+```
 
-1. Extract the release ZIP.
-2. Check the executable:
+The server binds `http://127.0.0.1:8765/mcp`. The terminal is a read-only
+status display; it cannot open targets or perform RE. Use Ctrl+C to stop it.
 
-   ```powershell
-   .\windy.exe --version
-   .\windy.exe doctor
-   ```
+Point an MCP client at the endpoint, then use:
 
-3. Open the GUI by double-clicking `windy.exe`, dragging a PE onto it, or running:
+1. `investigation_start` with a target path, intent, question, and budget.
+2. Execute only returned opaque actions with `investigation_step`.
+3. Page deliberately requested evidence with `evidence_read`.
+4. Commit only server-issued proposals with `change_commit`.
+5. Inspect runtime state with `windy_status`.
+6. Flush and release the target with `target_close`.
 
-   ```powershell
-   .\windy.exe C:\path\to\program.exe
-   ```
+Only six tools are advertised. Evidence deltas default to 2 KiB with an 8 KiB
+hard inline limit. See [MCP v3](docs/MCP.md), the
+[v0.2 to v0.3 migration guide](docs/MCP_V3_MIGRATION.md), and
+[Evidence Card v2](docs/contracts/evidence_card_v2.md).
 
-4. For an agent session, keep this terminal open:
+## Runtime behavior
 
-   ```powershell
-   .\windy.exe serve-mcp --open C:\path\to\program.exe
-   ```
+- Targets are never opened or reopened from CLI history.
+- Analysis advances through mapped, catalog, sketch, function, global, and
+  deep stages only when an investigation requires them.
+- Structural partitions are SHA-addressed, checksummed, ABI-versioned, and
+  bounded by a 5 GiB LRU.
+- PE, DLL, SYS, user-mode MDMP, dump-module, and multi-binary workspace
+  analysis remain supported.
+- Addresses are returned as hexadecimal strings and incomplete indexes are
+  reported as partial or pending rather than complete negatives.
+- Target-derived strings and decompiler output are treated as untrusted data.
+- MCP binds to loopback and rejects non-loopback browser origins.
 
-   The stable endpoint is `http://127.0.0.1:8765/mcp`. Desktop and headless mode use the same default. If another Windy owns it, Desktop remains usable and tells you to attach to the existing agent server.
-
-5. Follow the [client setup guide](docs/QUICKSTART.md) for Codex, Claude Code, Cursor, or OpenCode.
-
-## What agents should do
-
-Use an evidence-first loop:
-
-1. `list_projects` / `open_project`
-2. `list_imports`, `list_exports`, `list_strings`, `list_sections`, `search_bel`
-3. `list_functions`
-4. `get_function_evidence`
-5. `apply_rename_batch`, `apply_type_recovery`, or `set_comment`
-6. `verify_claims` / `get_function_consistency`
-7. `set_function_memory`
-8. Re-read the evidence and confirm that durable annotations survived
-
-`decompile_function` is the canonical native decompiler tool. Its default `product` policy uses V2 output when the structural validator and semantic checker accept it, with an explicit legacy fallback only on rejection. `pure_v2` never falls back; `legacy` is available for comparison.
-
-See [MCP.md](docs/MCP.md) for the protocol and tool contracts.
-
-`search_bel` is the Binary Evidence Lattice: deterministic exact/prefix/substring/numeric/regex/token/relationship/motif/ontology/multi-evidence search with provenance, stable cursors, immediate annotation overlays, and hard cooperative deadlines. See [BEL.md](docs/BEL.md).
-
-## Data and privacy
-
-Windy stores IDBs, reversible operation journals, activity and claim journals, function memory, workspaces, and optional signature overlays under one data directory:
+Windy stores analysis caches, IDBs, reversible operation journals, claims,
+function memory, and workspaces under:
 
 1. `--data-dir <DIR>`
 2. `WINDY_HOME`
 3. `%USERPROFILE%\.windy`
 
-MCP v0.1 refuses non-loopback bind addresses and rejects non-loopback browser origins. Analysis stays on the local machine.
-
-## Build from source
+## Build
 
 Rust 1.85 or newer and the MSVC Windows toolchain are required.
 
@@ -67,14 +59,13 @@ Rust 1.85 or newer and the MSVC Windows toolchain are required.
 cargo build
 cargo clippy -- -D warnings
 cargo test
+python -m unittest discover eval/microbench
 ```
 
-Archived GCLSD corpus/model authoring commands are excluded from normal builds. Opt in only for historical reproducibility with `--features gclsd-archive`.
-
-The local private channel is built with `scripts\package-beta.ps1`. It produces an ignored `.artifacts\windy-beta\*.zip`, runs all local verification gates, and never calls GitHub. It is not a public release workflow.
-
-Benchmark and release-candidate procedures are documented in [BENCHMARKS.md](docs/BENCHMARKS.md) and [RELEASING.md](RELEASING.md).
+The external agent benchmark remains the `eval/agent-bench` workspace crate.
+Archived GCLSD authoring is available only with `--features gclsd-archive`.
 
 ## License
 
-Windy is dual-licensed under [MIT](LICENSE-MIT) or [Apache-2.0](LICENSE-APACHE), at your option.
+Windy is dual-licensed under [MIT](LICENSE-MIT) or
+[Apache-2.0](LICENSE-APACHE), at your option.

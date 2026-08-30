@@ -1,0 +1,95 @@
+{
+  "harness": "agent-bench-v1-local-tools",
+  "synthetic": false,
+  "commit": "a9887153282c522c7bb567fc935fe0f2cf8801d7",
+  "model": null,
+  "live": false,
+  "arms": [
+    {
+      "arm": "A",
+      "tasks": 2,
+      "successes": 0,
+      "abstentions": 2,
+      "abstention_correct": 0,
+      "families": {
+        "locate": {
+          "n": 2,
+          "successes": 0
+        }
+      },
+      "instrumented_tasks": 2,
+      "total_tool_calls": 8,
+      "tokens": null,
+      "wall_ms": 1656
+    }
+  ],
+  "baselines": {
+    "always_refuse": {
+      "locate": {
+        "n": 2,
+        "successes": 0
+      }
+    },
+    "always_default_va": {
+      "locate": {
+        "n": 2,
+        "successes": 1
+      }
+    },
+    "note": "Constant policies on this task set. `always_refuse` answers \"refuse\" everywhere; `always_default_va` answers 0x140001000 (the usual first-function VA of an /Od MSVC x64 image). An arm that does not beat both per family has shown no capability."
+  },
+  "results": [
+    {
+      "task_id": "locate:a01_signed_rel:P0:main",
+      "arm": "A",
+      "family": "locate",
+      "success": false,
+      "abstained": true,
+      "answer": "refuse",
+      "gold": "0x140001080",
+      "tool_calls": 4,
+      "tools_used": [
+        "target_open",
+        "target_triage",
+        "evidence_search",
+        "capability_execute:functions_named"
+      ],
+      "tokens": null,
+      "wall_ms": 990,
+      "mode": "local_tools",
+      "error": null
+    },
+    {
+      "task_id": "locate:a01_signed_rel:P0:signed_lt",
+      "arm": "A",
+      "family": "locate",
+      "success": false,
+      "abstained": true,
+      "answer": "refuse",
+      "gold": "0x140001000",
+      "tool_calls": 4,
+      "tools_used": [
+        "target_open",
+        "target_triage",
+        "evidence_search",
+        "capability_execute:functions_named"
+      ],
+      "tokens": null,
+      "wall_ms": 666,
+      "mode": "local_tools",
+      "error": null
+    }
+  ],
+  "corpus": {
+    "families": [
+      "locate"
+    ],
+    "mode": "local_tools",
+    "note": "Free local tools: arm A Windy MCP ladder (triage/search_bel/functions_named/evidence); arm B python+pefile. No model tokens.",
+    "profiles": [
+      "P0"
+    ],
+    "task_count": 2,
+    "task_set_sha256": "6ceed236cd4592005219a65f9d4f90e1b3a547a387e01a7b6be1af95aebe602f"
+  }
+}

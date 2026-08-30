@@ -1,5 +1,37 @@
 # Changelog
 
+## 0.3.0 — Evidence Query VM
+
+- Replaced the v0.2 surface with six agent-only MCP tools and opaque,
+  action-id-only continuations.
+- Added demand-driven catalog, sketch, function, global, and explicit deep
+  stages with checksummed structural cache partitions and bounded artifacts.
+- Added streaming function sketches, constraint-intersection retrieval, and
+  graph-backed verification without retaining decoded instructions globally.
+- Added an eight-byte partitioned deep instruction index and stopped automatic
+  whole-image BEL construction.
+- Added the deterministic SQLite microbenchmark and failure-driven Luna
+  evaluation loop; models and training remain external to Windy.
+- Added durable rename/comment proposals with revision, idempotency, close,
+  reopen, and persistence verification continuations.
+
+## 0.2.0 — agent-first MCP architecture
+
+- Removed the GUI, window/GPU dependency graph, startup target arguments, and
+  automatic recent-project reopen.
+- Running `windy` now starts the loopback MCP host with a read-only terminal
+  statistics display.
+- Replaced the wide advertised API with twelve MCP v2 tools plus deterministic
+  on-demand capability discovery/execution.
+- Added asynchronous target-open jobs, target close, response envelopes,
+  4 KiB default budgets, artifact paging, revision checks, and idempotent edits.
+- Stopped automatic whole-image BEL construction and compacted exact
+  instruction lookup keys from 64-bit host pairs to 32-bit PE RVA/index pairs.
+- Removed the product-facing `windy-agent`; model experiments remain external
+  evaluation clients.
+- Added Evidence Card v2 and the breaking API migration guide while leaving
+  the frozen v1 contract unchanged.
+
 All notable changes will be documented here.
 
 ## 0.1.2 — agent substrate + BEL + Windows dumps

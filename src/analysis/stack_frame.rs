@@ -176,11 +176,3 @@ fn is_prologue_terminator(instr: &iced_x86::Instruction) -> bool {
             | FlowControl::IndirectCall
     ) || instr.mnemonic() == Mnemonic::Nop
 }
-
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn stack_frame_module_exists() {
-        assert!(true);
-    }
-}

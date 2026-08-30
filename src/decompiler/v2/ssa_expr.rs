@@ -1775,7 +1775,7 @@ mod tests {
         // Must not ship only the return-slot load with a lost quotient.
         let compact = art.text.replace(' ', "");
         assert!(
-            !(compact.contains("return*(local_0)") && !compact.contains('/')),
+            !compact.contains("return*(local_0)") || compact.contains('/'),
             "return-slot soup without divide:\n{}",
             art.text
         );

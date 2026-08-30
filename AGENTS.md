@@ -16,53 +16,49 @@ Before any change is declared complete:
 cargo build
 cargo clippy -- -D warnings
 cargo test
+python -m unittest discover eval/microbench
 ```
 
 All three must pass. No exceptions, no skipped smoke tests.
 
-## Headless MCP (primary attach path)
+## Terminal MCP host
 
 ```bash
-# Bind default 127.0.0.1:8765; optional PE or user-mode .dmp open on start
+# Both commands bind 127.0.0.1:8765 by default.
+windy
 windy serve-mcp
-windy serve-mcp --bind 127.0.0.1:8765 --open path\to\binary.exe
-windy serve-mcp --open path\to\process.dmp
-windy dump-info path\to\process.dmp
+windy serve-mcp --bind 127.0.0.1:8765
 ```
 
-MCP endpoint: `http://127.0.0.1:8765/mcp` (streamable HTTP).
+The terminal is a read-only statistics display. It never opens or reopens a
+target; the MCP agent owns all target lifecycle. Deep BEL indexing is also
+demand-driven rather than an automatic open stage.
 
-The GUI also starts MCP on an ephemeral port and prints it to the console.
-Prefer headless `serve-mcp` for agent sessions.
+MCP endpoint: `http://127.0.0.1:8765/mcp` (streamable HTTP).
 
 ### Connect your agent
 
 Point your MCP client at the streamable HTTP URL above. Recommended tool ladder:
 
-1. `list_projects` / `open_project` (PE **or** user-mode MDMP `.dmp`)
-2. **If `kind=dump_session`:** `get_dump_triage` → `list_dump_modules` /
-   `list_dump_threads` / `get_thread_stack` / `list_memory_regions` /
-   `describe_dump` → **`open_dump_module`** (name or `0x` base) → continue as PE
-   with returned `project_id` (`kind=dump_module`). Never BEL the whole process.
-3. **If `kind=pe` or `dump_module`:** **`get_triage`** — first-minute ranked functions
-4. Triage: `list_imports`, `list_exports`, `list_strings`, `list_sections`, **`search_bel`**
-5. `list_functions` (paginated: `offset` + `limit`)
-6. **`get_function_evidence`** — one-shot pack. Prefer this over 5+ separate tools.
-6. Structured data: **`read_pointers`**, **`walk_list`**, **`read_struct_array`**,
-   **`describe_address`** (resolved — not raw hex). Prefer over `read_va`.
-7. Provenance: **`trace_value`** (backward/forward; reports `died` reason)
-8. Write-back: `apply_rename_batch` / `apply_type_recovery` / `set_comment`
-9. Check: **`verify_claims`** and/or **`get_function_consistency`**
-10. Persist understanding: **`set_function_memory`** (purpose, tags; auto-seeds APIs/strings)
-11. Re-read evidence — annotations + memory should stick across IDB reloads
-12. Multi-DLL workspaces: **`get_cross_project_similar`** (API Jaccard + size/shape)
-13. Full `get_function_agent_text` / decompile only when the pack is not enough
+1. `investigation_start` with a path or target id, intent, question and budget.
+2. Execute only returned tickets through `investigation_step`.
+3. Use `evidence_read` only for a returned immutable cursor.
+4. Commit a returned proposal through `change_commit` with its exact revision
+   and idempotency arguments.
+5. Use `windy_status` for jobs, targets, investigations, cache and metrics.
+6. `target_close` flushes annotations and releases the target.
+
+The public surface is intentionally six tools. Specialized dump, workspace,
+decompiler, SSA, type, xref, provenance, vtable, memory, history and deep-index
+operations are internal Evidence Query VM operators reached through action
+tickets, not separately advertised schemas.
 
 Prefer evidence tools over freeform C. Never dump whole image bytes unless the
 user asked for hex (`read_va` / `get_fragment` capped at 512 bytes).
 
-### Contracts (frozen)
+### Contracts
 
+- Evidence Card v2: `docs/contracts/evidence_card_v2.md`
 - Evidence Card v1: `docs/contracts/evidence_card_v1.md`
 - Claim & edge registry v1: `docs/contracts/claim_edge_registry_v1.md`
 - Roadmap absorption: `docs/ROADMAP_ABSORPTION.md`
@@ -78,12 +74,11 @@ Agent-loop task success + honest abstention vs python/pefile baseline
 cargo run -p agent-bench -- --root . --limit 12 --profile P0 --profile P1 \
   --output eval/agent-bench/fixtures/wiring-check-report.json
 # Evidence-card smoke (not the full agent loop)
-windy bench agent-loop --pe gclsd/bench/sample.exe --limit 16
 cargo test eval_metrics
 # Windy vs Ghidra vs source gold (sample.c smoke + complex.c quality gap)
-windy decomp-scorecard
-windy decomp-scorecard --gold eval/gold/complex_source_gold.json
 cargo test decomp_scorecard
+# Full scorecards and Grand runs are evaluation clients under eval/, not
+# commands shipped in the server executable.
 # BEL cold build, memory, warm percentiles, and oracle checksums
 windy bench bel --pe gclsd/bench/sample.exe --iterations 100
 ```
@@ -165,7 +160,8 @@ and add pagination / broader triage:
 **Project triage**
 
 - `list_functions` — `pattern`, `offset`, `limit` (max 128)
-- `search_bel` — exact/prefix/substring/numeric/regex/token/relationship/motif/ontology/multi-evidence; provenance + stable cursors
+- `search_bel` — exact/prefix/substring/numeric/regex/token/relationship/motif/ontology/multi-evidence; provenance + stable cursors; hit rows (VA, kind, display) are embedded in the response text
+- `decompile_function` — `max_instructions` (default 1000, raise to force large functions; above the cap returns structured `too_complex` guidance) and `deadline_ms` (default 30000; overruns finish in the background and are cached — retry returns instantly)
 - `list_imports` / `list_exports` / `list_strings` / `list_sections`
 - `search_summary` / `functions_named`
 - `list_api_signatures` / `list_vtable_signatures`
@@ -196,8 +192,8 @@ After `apply_rename_batch` on locals/args, re-read agent text to see updates.
 
 ## Updating State
 
-Agents must not mutate `Project` fields directly. Route all edits through MCP
-(or `Op` + `ProjectManager::apply_op`):
+Agents must not mutate `Project` fields directly. Route edits through
+`project_edit`; discover uncommon mutation/history operations only when needed.
 
 - `apply_rename_batch` — preferred batch path for names + types
 - `rename_symbol` / `set_comment` / `retype_global` / `set_function_signature`
@@ -216,3 +212,6 @@ Agents must not mutate `Project` fields directly. Route all edits through MCP
 5. **Pure MCP** — no first-party planner loop inside windy.
 6. **Static analysis only** for now — no emulation / debugger bridge.
 7. Token budgets and pagination are features, not limitations.
+
+Model/training experiments are evaluation-only and must connect over MCP.
+Never add a first-party planner or model client back to the Windy product.

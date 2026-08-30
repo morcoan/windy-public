@@ -217,11 +217,3 @@ fn full_gpr(r: Register) -> Register {
         other => other,
     }
 }
-
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn signatures_module_exists() {
-        assert!(true);
-    }
-}

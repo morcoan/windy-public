@@ -1881,7 +1881,9 @@ mod tests {
             provenance_at(0x401000),
         );
         let string = hir.add_memory_object(
-            MemoryObjectKind::ReadOnlyData { va: 0x14001_a000 },
+            MemoryObjectKind::ReadOnlyData {
+                va: 0x0001_4001_a000,
+            },
             Some(6),
             Some(1),
             provenance_at(0x401004),

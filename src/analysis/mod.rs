@@ -9,12 +9,15 @@ use std::sync::{Arc, OnceLock};
 
 pub mod bel;
 pub mod code_index;
+pub mod compact_index;
 pub mod functions;
 pub mod indirect;
 pub mod mem_walk;
 pub mod search;
 pub mod signatures;
+pub mod sketch;
 pub mod stack_frame;
+pub mod structural_cache;
 pub mod thunks;
 pub mod unwind;
 pub mod vtable_sigs;
@@ -40,6 +43,10 @@ pub struct Analysis {
     pub instruction_search: Arc<OnceLock<search::InstructionSearchIndex>>,
     /// Sorted immediate-value postings for exact numeric/VA searches.
     pub immediate_search: Arc<OnceLock<search::ImmediateSearchIndex>>,
+    /// Compact per-function semantic facts. Built on first behavior query and
+    /// shared across annotation snapshots; full iced instructions remain in
+    /// the bounded function path rather than being duplicated here.
+    pub function_sketches: Arc<OnceLock<Vec<sketch::FunctionSketch>>>,
     /// Immutable Binary Evidence Lattice, built cooperatively after project
     /// open and shared across copy-on-write annotation snapshots.
     pub bel: Arc<bel::BelIndexCell>,
@@ -68,7 +75,36 @@ impl Analysis {
         symbols: &SymbolTable,
         entry_hints: &[u64],
     ) -> Self {
+        Self::build_with_entry_hints_progress(
+            image,
+            address_space,
+            bitness,
+            entry_va,
+            symbols,
+            entry_hints,
+            None,
+        )
+    }
+
+    /// [`Self::build_with_entry_hints`] with an optional progress listener
+    /// that splits the two heaviest stages (code decode, function/xref
+    /// discovery) so huge binaries report where time goes.
+    pub fn build_with_entry_hints_progress(
+        image: &[u8],
+        address_space: &AddressSpace,
+        bitness: u32,
+        entry_va: u64,
+        symbols: &SymbolTable,
+        entry_hints: &[u64],
+        progress: Option<&crate::project::OpenProgress>,
+    ) -> Self {
+        let report = |stage: crate::project::OpenStage| {
+            if let Some(callback) = progress {
+                callback(stage);
+            }
+        };
         let code_index = CodeIndex::build(image, address_space, bitness);
+        report(crate::project::OpenStage::Functions);
 
         // On native x64 Windows binaries, `.pdata` is a much stronger source
         // of function starts than recursive descent alone.  Keep parsing
@@ -115,6 +151,7 @@ impl Analysis {
             xrefs,
             instruction_search: Arc::new(OnceLock::new()),
             immediate_search: Arc::new(OnceLock::new()),
+            function_sketches: Arc::new(OnceLock::new()),
             bel: Arc::new(bel::BelIndexCell::default()),
         }
     }

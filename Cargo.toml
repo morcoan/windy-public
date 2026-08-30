@@ -4,10 +4,10 @@ resolver = "2"
 
 [package]
 name = "windy"
-version = "0.1.2"
+version = "0.3.0"
 edition = "2024"
 rust-version = "1.85"
-description = "A static Windows PE reverse-engineering workbench and pure MCP analysis server"
+description = "Agent-first static Windows PE analysis MCP server"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/morcoan/windy-public"
 readme = "README.md"
@@ -36,16 +36,16 @@ beta = []
 # native and does not compile an HTTP model client.
 gclsd-archive = ["dep:reqwest"]
 
+[[bin]]
+name = "windy"
+path = "src/main.rs"
+
 [dependencies]
 anyhow = "1"
 ahash = "0.8"
 arc-swap = "1"
 clap = { version = "4", features = ["derive"] }
 directories = "6"
-eframe = { version = "0.35", features = ["default", "persistence"] }
-egui = "0.35.0"
-egui_dock = "0.20"
-egui_extras = "0.35"
 iced-x86 = "1.21.0"
 memmap2 = "0.9.11"
 minidump = "0.26"
@@ -55,8 +55,7 @@ pdb = "0.8"
 petriage = "0.5.0"
 postcard = { version = "1", features = ["alloc"] }
 regex = "1"
-rfd = "0.15"
-roaring = "0.11"
+roaring = { version = "0.11", features = ["serde"] }
 ron = "0.8"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -66,7 +65,6 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 ureq = "2"
 uuid = { version = "1", features = ["serde"] }
-wgpu = { version = "22", features = ["dx12"] }
 msvc-demangler = "0.11.0"
 cpp_demangle = "0.5.1"
 rsleigh-api = "0.4.1"
@@ -76,9 +74,10 @@ schemars = "1"
 tokio = { version = "1", features = ["full"] }
 axum = "0.7"
 http-body-util = "0.1"
-reqwest = { version = "0.12", optional = true, default-features = false, features = ["json", "rustls-tls"] }
+reqwest = { version = "0.12", optional = true, default-features = false, features = ["json", "rustls-tls", "blocking"] }
 
 [profile.release]
-lto = "thin"
+lto = "fat"
 codegen-units = 1
 strip = "symbols"
+panic = "abort"

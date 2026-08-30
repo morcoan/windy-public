@@ -975,6 +975,7 @@ pub fn score_function_sfg(engine: &str, text: &str, gold: &SfgFunctionGold) -> F
 mod tests {
     use super::*;
 
+    #[allow(clippy::too_many_arguments)]
     fn fact(
         id: &str,
         kind: FactKind,

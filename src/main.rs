@@ -1,41 +1,23 @@
-#[cfg(feature = "gclsd-archive")]
-use std::io::{BufWriter, Write};
+use std::io::Write;
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
 
 use anyhow::Context;
 use clap::{Parser, Subcommand};
-use eframe::NativeOptions;
-use egui::ViewportBuilder;
 use tracing_subscriber::EnvFilter;
 
-mod analysis;
-mod app;
-mod build_info;
-mod cross_project;
-mod decomp_scorecard;
-mod decompiler;
-mod disasm;
-mod eval_metrics;
-mod grand_bench;
-mod ir;
-mod llm;
-mod loader;
-mod mcp;
-mod project;
-mod project_manager;
-mod ui;
+// The rest of the crate lives in src/lib.rs (the `windy` library) so that
+// evaluation binaries can link the analysis core directly. These imports
+// keep the `crate::<module>` paths used throughout the bin-side code resolving
+// unchanged.
+use windy::{analysis, build_info, loader, mcp, project, project_manager};
 
 #[derive(Parser)]
 #[command(name = build_info::PRODUCT_ID)]
-#[command(about = "Windy reverse-engineering workbench")]
+#[command(about = "Agent-first static analysis MCP server")]
 #[command(version = build_info::VERSION)]
 struct Cli {
-    /// Optional PE to open directly in the GUI.
-    #[arg(value_name = "PE")]
-    path: Option<PathBuf>,
-
     /// Windy state directory (overrides WINDY_HOME and %USERPROFILE%\.windy).
     #[arg(long, global = true, value_name = "DIR")]
     data_dir: Option<PathBuf>,
@@ -52,12 +34,6 @@ enum Commands {
         /// Bind address (default 127.0.0.1:8765).
         #[arg(long, default_value = "127.0.0.1:8765")]
         bind: String,
-        /// Optional PE path to open on startup.
-        #[arg(long)]
-        open: Option<PathBuf>,
-        /// Reopen the most recently used PE when --open is omitted.
-        #[arg(long)]
-        reopen_last: bool,
         /// Optional endpoint text file (defaults to <data-dir>/agent-endpoint.txt).
         #[arg(long, value_name = "FILE")]
         endpoint_file: Option<PathBuf>,
@@ -75,74 +51,6 @@ enum Commands {
     Bench {
         #[command(subcommand)]
         command: BenchCommands,
-    },
-    #[cfg(feature = "gclsd-archive")]
-    /// Export every function of a PE as GCLSD (asm + CFG) JSONL for model training.
-    ExportGclsd {
-        /// Path to the PE file (.exe/.dll/.sys).
-        path: PathBuf,
-        /// Output JSONL file (defaults to stdout).
-        #[arg(short, long)]
-        output: Option<PathBuf>,
-        /// Minimum instruction count for a function to be exported.
-        #[arg(long, default_value_t = 1)]
-        min_insns: usize,
-    },
-    #[cfg(feature = "gclsd-archive")]
-    /// Emit the JSON Schema for the external GCLSD model input contract.
-    EmitContract {
-        /// Output JSON file (defaults to stdout).
-        #[arg(short, long)]
-        output: Option<PathBuf>,
-    },
-    #[command(hide = true)]
-    /// Compatibility alias for `bench agent-loop`.
-    EvalAgentLoop {
-        /// Path to PE.
-        #[arg(long)]
-        pe: PathBuf,
-        /// Max functions to sample (largest first).
-        #[arg(long, default_value_t = 16)]
-        limit: usize,
-    },
-    /// Headless name/symbol lookup for free agent-bench local mode (no LLM).
-    #[command(hide = true)]
-    AgentQuery {
-        /// Path to PE.
-        #[arg(long)]
-        pe: PathBuf,
-        /// Substring match against recovered function names (case-insensitive).
-        #[arg(long)]
-        functions_named: Option<String>,
-        /// Max hits (default 32).
-        #[arg(long, default_value_t = 32)]
-        limit: usize,
-    },
-    #[command(hide = true)]
-    /// Compatibility alias for `bench scorecard`.
-    DecompScorecard {
-        /// Gold JSON path (default: eval/gold/sample_source_gold.json under CWD/manifest).
-        #[arg(long)]
-        gold: Option<PathBuf>,
-        /// Optional output JSON path.
-        #[arg(short, long)]
-        output: Option<PathBuf>,
-    },
-    #[command(hide = true)]
-    /// Compatibility alias for `bench grand`.
-    GrandBench {
-        /// Manifest JSON (default: eval/grand/manifest.json).
-        #[arg(long)]
-        manifest: Option<PathBuf>,
-        /// Optional JSON report output path.
-        #[arg(short, long)]
-        output: Option<PathBuf>,
-        /// Also print human-readable markdown table to stdout (default true).
-        #[arg(long, default_value_t = true)]
-        table: bool,
-        /// Suite: `v1` (frozen picker SFG) or `v2` (exact-VA present-function scoring).
-        #[arg(long, default_value = "v1")]
-        suite: String,
     },
     /// Inspect a user-mode Windows minidump (.dmp) without full project open.
     DumpInfo {
@@ -165,6 +73,24 @@ enum Commands {
 
 #[derive(Subcommand)]
 enum BenchCommands {
+    /// Build the compact partitioned deep instruction index.
+    CompactIndex {
+        /// Path to PE.
+        #[arg(long)]
+        pe: PathBuf,
+    },
+    /// Stream compact function sketches without retaining full instructions.
+    Sketch {
+        /// Path to PE.
+        #[arg(long)]
+        pe: PathBuf,
+        /// Semantic queries to rank (repeat --query).
+        #[arg(long)]
+        query: Vec<String>,
+        /// Ranked functions per query.
+        #[arg(long, default_value_t = 3)]
+        limit: usize,
+    },
     /// Build and benchmark the Binary Evidence Lattice with oracle checksums.
     Bel {
         /// Path to PE.
@@ -177,39 +103,6 @@ enum BenchCommands {
         /// derived deterministically from the PE.
         #[arg(long)]
         query: Vec<String>,
-    },
-    /// Smoke evidence cards on a PE (full agent loop lives in eval/agent-bench).
-    AgentLoop {
-        /// Path to PE.
-        #[arg(long)]
-        pe: PathBuf,
-        /// Max functions to sample (largest first).
-        #[arg(long, default_value_t = 16)]
-        limit: usize,
-    },
-    /// Grade native decompilation against source gold and a Ghidra export.
-    Scorecard {
-        /// Gold JSON path (defaults to the authored sample fixture).
-        #[arg(long)]
-        gold: Option<PathBuf>,
-        /// Optional output JSON path.
-        #[arg(short, long)]
-        output: Option<PathBuf>,
-    },
-    /// Run the Windy Grand Decompilation Benchmark suite.
-    Grand {
-        /// Manifest JSON (default: eval/grand/manifest.json).
-        #[arg(long)]
-        manifest: Option<PathBuf>,
-        /// Optional JSON report output path.
-        #[arg(short, long)]
-        output: Option<PathBuf>,
-        /// Also print the human-readable score table.
-        #[arg(long, default_value_t = true)]
-        table: bool,
-        /// Suite: v1, v2, or v2-strict.
-        #[arg(long, default_value = "v1")]
-        suite: String,
     },
 }
 
@@ -231,47 +124,18 @@ fn main() -> anyhow::Result<()> {
     match cli.command {
         Some(Commands::ServeMcp {
             bind,
-            open,
-            reopen_last,
             endpoint_file,
-        }) => run_serve_mcp(bind, open, reopen_last, endpoint_file, data_dir),
+        }) => run_serve_mcp(bind, endpoint_file, data_dir),
         Some(Commands::Doctor { open, endpoint }) => run_doctor(data_dir, open, endpoint),
         Some(Commands::Bench { command }) => match command {
+            BenchCommands::CompactIndex { pe } => run_compact_index_bench(pe),
+            BenchCommands::Sketch { pe, query, limit } => run_sketch_bench(pe, query, limit),
             BenchCommands::Bel {
                 pe,
                 iterations,
                 query,
             } => run_bel_bench(pe, iterations, query),
-            BenchCommands::AgentLoop { pe, limit } => run_eval_agent_loop(pe, limit),
-            BenchCommands::Scorecard { gold, output } => run_decomp_scorecard(gold, output),
-            BenchCommands::Grand {
-                manifest,
-                output,
-                table,
-                suite,
-            } => run_grand_bench(manifest, output, table, suite),
         },
-        #[cfg(feature = "gclsd-archive")]
-        Some(Commands::ExportGclsd {
-            path,
-            output,
-            min_insns,
-        }) => run_export_gclsd(path, output, min_insns),
-        #[cfg(feature = "gclsd-archive")]
-        Some(Commands::EmitContract { output }) => run_emit_contract(output),
-        Some(Commands::EvalAgentLoop { pe, limit }) => run_eval_agent_loop(pe, limit),
-        Some(Commands::AgentQuery {
-            pe,
-            functions_named,
-            limit,
-        }) => run_agent_query(pe, functions_named, limit),
-        Some(Commands::DecompScorecard { gold, output }) => run_decomp_scorecard(gold, output),
-        Some(Commands::GrandBench {
-            manifest,
-            output,
-            table,
-            suite,
-        }) => run_grand_bench(manifest, output, table, suite),
         Some(Commands::DumpInfo {
             path,
             modules,
@@ -279,8 +143,60 @@ fn main() -> anyhow::Result<()> {
             hash,
             json,
         }) => run_dump_info(path, modules, threads, hash, json),
-        None => run_gui(data_dir, cli.path),
+        None => run_serve_mcp("127.0.0.1:8765".to_string(), None, data_dir),
     }
+}
+
+fn run_compact_index_bench(pe: PathBuf) -> anyhow::Result<()> {
+    let index = analysis::compact_index::build_from_path(&pe)
+        .with_context(|| format!("build compact instruction index for {}", pe.display()))?;
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&serde_json::json!({
+            "path":pe,
+            "elapsed_ms":index.elapsed_ms,
+            "instructions":index.instructions,
+            "sections":index.sections.len(),
+            "retained_bytes_estimate":index.instructions * std::mem::size_of::<analysis::compact_index::InstrMeta>(),
+            "record_bytes":std::mem::size_of::<analysis::compact_index::InstrMeta>(),
+        }))?
+    );
+    Ok(())
+}
+
+fn run_sketch_bench(pe: PathBuf, queries: Vec<String>, limit: usize) -> anyhow::Result<()> {
+    let sketch = analysis::sketch::build_from_path(&pe)
+        .with_context(|| format!("build compact sketches for {}", pe.display()))?;
+    let queries = if queries.is_empty() {
+        vec![
+            "NUL terminated byte string length".to_string(),
+            "linked list next pointer accumulator".to_string(),
+            "arithmetic dispatcher add subtract multiply".to_string(),
+        ]
+    } else {
+        queries
+    };
+    let ranked: Vec<_> = queries
+        .iter()
+        .map(|query| {
+            serde_json::json!({
+                "query":query,
+                "matches":analysis::sketch::rank_sketches(&sketch.sketches, query, limit),
+            })
+        })
+        .collect();
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&serde_json::json!({
+            "path":pe,
+            "elapsed_ms":sketch.elapsed_ms,
+            "decoded_instructions":sketch.decoded_instructions,
+            "functions":sketch.sketches.len(),
+            "retained_bytes_estimate":sketch.sketches.len() * std::mem::size_of::<analysis::sketch::FunctionSketch>(),
+            "queries":ranked,
+        }))?
+    );
+    Ok(())
 }
 
 fn run_dump_info(
@@ -682,6 +598,7 @@ fn bel_id_checksum(ids: &[crate::analysis::bel::EntityId]) -> String {
     format!("{:016x}", crate::analysis::bel::stable_u64_hash(&bytes))
 }
 
+#[cfg(any())]
 fn run_grand_bench(
     manifest: Option<PathBuf>,
     output: Option<PathBuf>,
@@ -794,6 +711,7 @@ fn run_grand_bench(
     Ok(())
 }
 
+#[cfg(any())]
 fn run_decomp_scorecard(gold: Option<PathBuf>, output: Option<PathBuf>) -> anyhow::Result<()> {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let gold_path = gold.unwrap_or_else(|| crate::decomp_scorecard::default_gold_path(&root));
@@ -808,6 +726,7 @@ fn run_decomp_scorecard(gold: Option<PathBuf>, output: Option<PathBuf>) -> anyho
     Ok(())
 }
 
+#[cfg(any())]
 fn run_eval_agent_loop(pe: PathBuf, limit: usize) -> anyhow::Result<()> {
     let project =
         crate::project::Project::open(&pe).with_context(|| format!("open PE {}", pe.display()))?;
@@ -823,6 +742,7 @@ fn run_eval_agent_loop(pe: PathBuf, limit: usize) -> anyhow::Result<()> {
 }
 
 /// Token-free locate helper for `agent-bench --local` (arm A substrate, no LLM).
+#[cfg(any())]
 fn run_agent_query(
     pe: PathBuf,
     functions_named: Option<String>,
@@ -872,8 +792,6 @@ fn run_agent_query(
 
 fn run_serve_mcp(
     bind: String,
-    open: Option<PathBuf>,
-    reopen_last: bool,
     endpoint_file: Option<PathBuf>,
     data_dir: PathBuf,
 ) -> anyhow::Result<()> {
@@ -882,43 +800,13 @@ fn run_serve_mcp(
         .with_context(|| format!("parse bind address {bind}"))?;
     if !addr.ip().is_loopback() {
         anyhow::bail!(
-            "Windy v0.1 is local-only; --bind must use 127.0.0.1 or ::1 (got {})",
+            "Windy is local-only; --bind must use 127.0.0.1 or ::1 (got {})",
             addr.ip()
         );
     }
     let manager = Arc::new(crate::project_manager::ProjectManager::with_home_dir(
         &data_dir,
     )?);
-    let open = open.or_else(|| {
-        reopen_last
-            .then(|| manager.recent_projects(1).into_iter().next())
-            .flatten()
-            .map(|entry| entry.path)
-    });
-    if let Some(path) = open {
-        let id = open_project_with_heartbeat(&manager, &path)
-            .with_context(|| format!("open PE {}", path.display()))?;
-        let project = manager.get(id).expect("project was just opened");
-        let functions = project.functions().len();
-        let instructions = project.analysis.code_index.len();
-        eprintln!("Opened {} as project_id={}", path.display(), id);
-        if project.pe.image.len() >= 128 * 1024 * 1024
-            || functions >= 100_000
-            || instructions >= 2_000_000
-        {
-            eprintln!(
-                "Large PE detected ({functions} functions, {instructions} instructions, {} MiB). Targeted searches are fast; broad searches may take longer and time out after 30s by default.",
-                project.pe.image.len() / (1024 * 1024)
-            );
-        }
-    } else if let Some(last) = manager.recent_projects(1).first() {
-        eprintln!(
-            "No PE opened. Last used: {}. Restart with --reopen-last or --open <PE>.",
-            last.path.display()
-        );
-    } else {
-        eprintln!("No PE opened. Use --open <PE> or call open_project from your agent.");
-    }
     let mut server = match manager.start_http_server(addr) {
         Ok(server) => server,
         Err(error) => return Err(friendly_bind_error(addr, error)),
@@ -929,8 +817,6 @@ fn run_serve_mcp(
         other => other.to_string(),
     };
     let endpoint = format!("http://{host}:{port}/mcp");
-    eprintln!("{} listening on {endpoint}", build_info::PRODUCT_TITLE);
-    eprintln!("State directory: {}", data_dir.display());
     let endpoint_file = endpoint_file.unwrap_or_else(|| data_dir.join("agent-endpoint.txt"));
     if let Some(parent) = endpoint_file.parent() {
         std::fs::create_dir_all(parent)
@@ -938,14 +824,15 @@ fn run_serve_mcp(
     }
     std::fs::write(&endpoint_file, format!("{endpoint}\n"))
         .with_context(|| format!("write endpoint file {}", endpoint_file.display()))?;
-    eprintln!("Agent URL written to {}", endpoint_file.display());
-    eprintln!("Pure MCP mode - external agents plan; Windy answers and commits.");
-    eprintln!("Ctrl+C to stop.");
-    // Multi-threaded runtime keeps the server alive; block until interrupt.
-    manager.runtime().block_on(async {
-        tokio::signal::ctrl_c().await.context("wait for Ctrl+C")?;
-        Ok::<(), anyhow::Error>(())
-    })?;
+    eprintln!(
+        "{} {} — agent-first MCP",
+        build_info::PRODUCT_TITLE,
+        build_info::VERSION
+    );
+    eprintln!("endpoint: {endpoint}");
+    eprintln!("state: {}", data_dir.display());
+    eprintln!("targets are opened and closed by MCP agents; Ctrl+C stops the host");
+    run_status_display(&manager, &endpoint)?;
     eprintln!("Shutting down.");
     manager
         .runtime()
@@ -954,30 +841,50 @@ fn run_serve_mcp(
     Ok(())
 }
 
-fn open_project_with_heartbeat(
+fn run_status_display(
     manager: &Arc<crate::project_manager::ProjectManager>,
-    path: &std::path::Path,
-) -> anyhow::Result<crate::project_manager::ProjectId> {
-    let (finished_tx, finished_rx) = std::sync::mpsc::channel();
-    let label = path.display().to_string();
-    let heartbeat = std::thread::spawn(move || {
-        let started = std::time::Instant::now();
+    endpoint: &str,
+) -> anyhow::Result<()> {
+    use std::io::IsTerminal;
+
+    let interactive = std::io::stderr().is_terminal();
+    manager.runtime().block_on(async {
+        let mut interval = tokio::time::interval(std::time::Duration::from_millis(500));
+        let mut previous = String::new();
         loop {
-            match finished_rx.recv_timeout(std::time::Duration::from_secs(5)) {
-                Ok(()) | Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
-                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
-                    eprintln!(
-                        "Still opening {label} ({:.0}s): parsing/indexing is active...",
-                        started.elapsed().as_secs_f64()
+            tokio::select! {
+                signal = tokio::signal::ctrl_c() => {
+                    signal.context("wait for Ctrl+C")?;
+                    break;
+                }
+                _ = interval.tick(), if interactive => {
+                    let activity = manager.server_activity();
+                    let metrics = crate::mcp::runtime_metrics();
+                    let line = format!(
+                        "endpoint={endpoint}  state={}  stage={}  clients=n/a  targets={}  jobs={}  cache=n/a  req={}  latency={}us  wire={}KiB  errors={}  rss={}MiB",
+                        activity.state,
+                        activity.operation.as_deref().unwrap_or("idle"),
+                        manager.list().len(),
+                        activity.active_operations,
+                        metrics.requests,
+                        metrics.average_latency_micros,
+                        metrics.response_bytes / 1024,
+                        metrics.errors,
+                        metrics.rss_bytes.unwrap_or_default() / (1024 * 1024),
                     );
+                    if line != previous {
+                        eprint!("\r\x1b[2K{line}");
+                        let _ = std::io::stderr().flush();
+                        previous = line;
+                    }
                 }
             }
         }
-    });
-    let result = manager.open(path);
-    let _ = finished_tx.send(());
-    let _ = heartbeat.join();
-    result
+        if interactive && !previous.is_empty() {
+            eprintln!();
+        }
+        Ok::<(), anyhow::Error>(())
+    })
 }
 
 fn friendly_bind_error(addr: SocketAddr, error: anyhow::Error) -> anyhow::Error {
@@ -1155,7 +1062,7 @@ fn probe_mcp_endpoint(endpoint: &str) -> anyhow::Result<()> {
         health_json["projects_open"].as_u64().unwrap_or_default()
     );
     if health_json["projects_open"].as_u64() == Some(0) {
-        println!("  hint: server is up but no PE is open. Use --open <PE> or call open_project.");
+        println!("  hint: server is up without a target; the MCP agent should call target_open.");
     }
     Ok(())
 }
@@ -1173,7 +1080,7 @@ fn friendly_endpoint_error(endpoint: &str, health: &str, error: ureq::Error) -> 
         )
     } else {
         anyhow::anyhow!(
-            "Nothing usable is listening at {health}. Start it with: windy serve-mcp --open <PE>. The default agent URL is {default_endpoint}. ({error})"
+            "Nothing usable is listening at {health}. Start it with: windy serve-mcp. The default agent URL is {default_endpoint}. ({error})"
         )
     }
 }
@@ -1196,30 +1103,7 @@ fn parse_mcp_response(
     serde_json::from_str(payload).with_context(|| format!("parse {operation} response"))
 }
 
-fn run_gui(data_dir: PathBuf, initial_path: Option<PathBuf>) -> anyhow::Result<()> {
-    let options = NativeOptions {
-        viewport: ViewportBuilder::default()
-            .with_inner_size([1280.0, 900.0])
-            .with_title(build_info::PRODUCT_TITLE),
-        ..Default::default()
-    };
-
-    eframe::run_native(
-        build_info::PRODUCT_TITLE,
-        options,
-        Box::new(move |cc| {
-            Ok(Box::new(app::App::new(
-                cc,
-                data_dir.clone(),
-                initial_path.clone(),
-            )))
-        }),
-    )
-    .map_err(|e| anyhow::anyhow!("eframe error: {e}"))?;
-    Ok(())
-}
-
-#[cfg(feature = "gclsd-archive")]
+#[cfg(any())]
 fn run_emit_contract(output: Option<PathBuf>) -> anyhow::Result<()> {
     let schema = schemars::schema_for!(crate::ir::gclsd::GclsdInput);
     let json = serde_json::to_string_pretty(&schema)?;
@@ -1236,7 +1120,7 @@ fn run_emit_contract(output: Option<PathBuf>) -> anyhow::Result<()> {
     Ok(())
 }
 
-#[cfg(feature = "gclsd-archive")]
+#[cfg(any())]
 fn run_export_gclsd(
     path: PathBuf,
     output: Option<PathBuf>,

@@ -61,7 +61,7 @@ New tools require contract bump or absorption entry.
 |---|---|
 | Verified facts / 1k tokens | **Done** (`eval_metrics`, `eval-agent-loop`) |
 | Degrade-and-recover strip suite | **Partial** (sample.exe + scorecard). **Trigger:** expand gold set when improving decomp |
-| Decompile scorecard vs classical engine | **Done** (`decomp_scorecard`, `decomp-scorecard` CLI) |
+| Decompile scorecard vs classical engine | **Done** (`decomp_scorecard` evaluation module; not shipped in the v0.2 server CLI) |
 | Naive dump baseline | **Done** |
 
 ## §8 Multi-package / scoped assertions
@@ -107,8 +107,8 @@ Museum-specific: CIDOC-CRM, AAT/TGN, condition OCR, crate GiST constraints, regi
   `no_rsp` / `no_stack_home` / `max_assign` / `null_term` / `char_cast`)
 - Engines: Windy `function_decompile_native` vs checked-in Ghidra JSON
   (`gclsd/bench/ghidra_output.json`, `gclsd/bench/complex_ghidra_output.json`)
-- Commands: `windy bench scorecard` and
-  `windy bench scorecard --gold eval/gold/complex_source_gold.json`
+- Evaluation: `cargo test decomp_scorecard`; full report drivers belong under
+  `eval/` and are intentionally absent from the v0.2 server CLI.
 - Tests: `scorecard_on_sample_exe_is_deterministic`,
   `complex_scorecard_shows_ghidra_ahead_when_fixture_present`,
   `quality_gates_prefer_ghidra_clean_over_ssa_stack_homes`

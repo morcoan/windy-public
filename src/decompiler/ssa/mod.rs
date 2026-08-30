@@ -559,13 +559,12 @@ mod tests {
                                 saw_slot = true;
                             }
                         }
-                        SsaOpKind::Pcode(PcodeOp::Load { .. }) => {
+                        SsaOpKind::Pcode(PcodeOp::Load { .. })
                             if o.uses
                                 .iter()
-                                .any(|u| matches!(u.location, Location::StackSlot { .. }))
-                            {
-                                saw_slot = true;
-                            }
+                                .any(|u| matches!(u.location, Location::StackSlot { .. })) =>
+                        {
+                            saw_slot = true;
                         }
                         _ => {}
                     }

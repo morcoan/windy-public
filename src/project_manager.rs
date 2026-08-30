@@ -1,15 +1,14 @@
-//! Multi-project workspace manager for the Windy operator UI and MCP backend.
+//! Multi-target manager for the agent-facing MCP backend.
 //!
-//! Each loaded project lives behind an `ArcSwap` so the UI gets lock-free
-//! reads while a per-project tokio task serializes all writes to a durable
-//! append-only operation journal.
+//! Each loaded project lives behind an `ArcSwap` so concurrent MCP reads stay
+//! lock-free while a per-project task serializes durable mutation operations.
 
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::{Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result, bail};
 use arc_swap::ArcSwap;
@@ -17,6 +16,7 @@ use tokio::runtime::Runtime;
 use tokio::sync::{mpsc, oneshot};
 use uuid::Uuid;
 
+use crate::decompiler::v2::{DecompileArtifact, DecompileMode, DecompileOptions};
 use crate::loader::dump::LoadedDump;
 use crate::project::Project;
 pub use crate::project::activity_log::ActivityEvent;
@@ -44,6 +44,14 @@ pub struct RecentProject {
     pub path: PathBuf,
     pub last_project_id: ProjectId,
     pub last_opened_unix_secs: u64,
+}
+
+#[derive(Clone, Debug, serde::Serialize)]
+pub struct ClosedTarget {
+    pub id: ProjectId,
+    pub kind: String,
+    pub path: PathBuf,
+    pub child_projects: usize,
 }
 
 #[derive(Clone, Debug, serde::Serialize)]
@@ -92,12 +100,65 @@ pub struct ProjectHandle {
     pub path: PathBuf,
     read_state: Arc<ArcSwap<Project>>,
     write_tx: mpsc::UnboundedSender<WriteRequest>,
+    /// Bounded decompile artifact cache (keyed by op_seq so user edits
+    /// invalidate stale entries). Retries and repeat reads are instant.
+    decompile_cache: std::sync::Mutex<VecDeque<DecompileCacheEntry>>,
+}
+
+/// Cache identity for a decompiled function. `lane` combines the
+/// [`DecompileMode`] discriminant with `allow_legacy_fallback`, so `product`
+/// and `pure_v2` (same mode, different fallback policy) never share entries.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+struct DecompileCacheKey {
+    op_seq: u64,
+    va: u64,
+    lane: u8,
+}
+
+struct DecompileCacheEntry {
+    key: DecompileCacheKey,
+    artifact: Arc<DecompileArtifact>,
+}
+
+/// Cap on cached decompile artifacts per project (LRU eviction).
+const DECOMPILE_CACHE_CAP: usize = 64;
+
+fn decompile_cache_discriminant(options: &DecompileOptions) -> u8 {
+    let mode = match options.mode {
+        DecompileMode::Legacy => 0u8,
+        DecompileMode::ShadowV2 => 1,
+        DecompileMode::V2 => 2,
+    };
+    mode * 2 + u8::from(options.allow_legacy_fallback)
 }
 
 impl ProjectHandle {
     /// Lock-free snapshot of the current project state.
     pub fn get(&self) -> Arc<Project> {
         self.read_state.load_full()
+    }
+
+    fn decompile_cache_get(&self, key: DecompileCacheKey) -> Option<Arc<DecompileArtifact>> {
+        let mut cache = self.decompile_cache.lock().unwrap();
+        let position = cache.iter().position(|entry| entry.key == key)?;
+        let entry = cache.remove(position).expect("position was just found");
+        let artifact = entry.artifact.clone();
+        cache.push_back(entry); // LRU: most recently used at the back.
+        Some(artifact)
+    }
+
+    fn decompile_cache_put(&self, key: DecompileCacheKey, artifact: Arc<DecompileArtifact>) {
+        let mut cache = self.decompile_cache.lock().unwrap();
+        cache.retain(|entry| entry.key != key);
+        cache.push_back(DecompileCacheEntry { key, artifact });
+        while cache.len() > DECOMPILE_CACHE_CAP {
+            cache.pop_front();
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn decompile_cache_len(&self) -> usize {
+        self.decompile_cache.lock().unwrap().len()
     }
 }
 
@@ -147,9 +208,25 @@ pub struct ProjectManager {
     recent_projects: Arc<std::sync::Mutex<VecDeque<RecentProject>>>,
     bel_cancel: Arc<AtomicBool>,
     home_dir: PathBuf,
+    /// Limits concurrent decompile jobs so memory stays bounded even when
+    /// several large functions are requested at once.
+    decompile_permits: Arc<tokio::sync::Semaphore>,
     /// Phase 7 E: cross-binary index keyed by workspace id (rebuilt on open).
     cross_project:
         Arc<std::sync::Mutex<BTreeMap<WorkspaceId, crate::cross_project::CrossProjectIndex>>>,
+}
+
+/// Outcome of a guarded decompile request (see
+/// [`ProjectManager::decompile_artifact_guarded`]).
+pub enum DecompileOutcome {
+    /// Artifact ready (cache hit or computed within the deadline).
+    Ready(Arc<DecompileArtifact>),
+    /// Deadline elapsed; computation continues in the background and the
+    /// artifact lands in the cache when finished, so an identical retry
+    /// returns instantly.
+    StillRunning,
+    /// Project/function missing or decompilation failed.
+    NotFound,
 }
 
 impl ProjectManager {
@@ -188,12 +265,23 @@ impl ProjectManager {
             recent_projects: Arc::new(std::sync::Mutex::new(recent_projects)),
             bel_cancel: Arc::new(AtomicBool::new(false)),
             home_dir,
+            decompile_permits: Arc::new(tokio::sync::Semaphore::new(2)),
             cross_project: Arc::new(std::sync::Mutex::new(BTreeMap::new())),
         })
     }
 
     /// Open a PE or user-mode MDMP dump. Dumps become dump-session ids.
     pub fn open(&self, path: impl AsRef<Path>) -> Result<ProjectId> {
+        self.open_with_progress(path, None)
+    }
+
+    /// [`Self::open`] with a coarse stage listener (PE opens only; dump
+    /// opens currently report nothing).
+    pub fn open_with_progress(
+        &self,
+        path: impl AsRef<Path>,
+        progress: Option<crate::project::OpenProgress>,
+    ) -> Result<ProjectId> {
         let requested_path = path.as_ref();
         let normalized_path = normalize_local_path(requested_path);
 
@@ -216,7 +304,7 @@ impl ProjectManager {
             return Ok(existing.id);
         }
 
-        let project = Project::open_with_data_dir(&normalized_path, &self.home_dir)?;
+        let project = Project::open_with_progress(&normalized_path, &self.home_dir, &[], progress)?;
         let id = ProjectId::new_v4();
         let path = project.pe.path.clone();
         let sha256 = project.image_sha256.clone();
@@ -248,58 +336,14 @@ impl ProjectManager {
             path: path.clone(),
             read_state,
             write_tx,
+            decompile_cache: std::sync::Mutex::new(VecDeque::new()),
         });
         self.projects.lock().unwrap().insert(id, handle);
         self.record_recent_project(path, id);
 
-        // Private beta favors first-query latency: build the immutable Binary
-        // Evidence Lattice immediately after structural project open. Public
-        // builds retain deadline-bound lazy construction.
-        if cfg!(feature = "beta") {
-            let project = self.get(id).expect("project was just inserted");
-            let operation = self.begin_operation("building BEL search index");
-            let cancel = self.bel_cancel.clone();
-            self.runtime.spawn_blocking(move || {
-                let started = Instant::now();
-                tracing::info!("Building Binary Evidence Lattice...");
-                let progress = |status: crate::analysis::bel::BelBuildProgress| {
-                    operation.update(format!(
-                        "building BEL: {} ({}/{})",
-                        status.stage, status.completed, status.total
-                    ));
-                    if status.completed == 0 || status.completed == status.total {
-                        tracing::info!(
-                            "BEL {}: {}/{}",
-                            status.stage,
-                            status.completed,
-                            status.total
-                        );
-                    }
-                };
-                let control = crate::analysis::bel::BelBuildControl {
-                    cancel: &cancel,
-                    deadline: None,
-                    progress: Some(&progress),
-                };
-                match crate::analysis::bel::get_or_build(
-                    &project,
-                    crate::analysis::bel::BelConfig::default(),
-                    &control,
-                ) {
-                    Ok(index) => {
-                        let stats = index.stats.clone();
-                        tracing::info!(
-                            "BEL ready in {:.2}s: {} entities, {:.1} MiB estimated",
-                            started.elapsed().as_secs_f64(),
-                            stats.entities,
-                            stats.memory.estimated_total_bytes as f64 / (1024.0 * 1024.0)
-                        );
-                    }
-                    Err(error) => tracing::info!("BEL build stopped: {error}"),
-                }
-                drop(operation);
-            });
-        }
+        // Deep semantic/instruction indexing is intentionally demand-driven.
+        // The first BEL query loads a valid disk cache or builds it through
+        // the existing single-flight cell; ordinary opens never pay the cost.
         Ok(id)
     }
 
@@ -318,6 +362,13 @@ impl ProjectManager {
             id,
             activity: self.server_activity.clone(),
         }
+    }
+
+    /// [`Self::begin_operation`] returning a shared guard, for callers that
+    /// need to update the operation name from inside a progress callback
+    /// (e.g. background opens and analysis sweeps).
+    pub fn begin_operation_shared(&self, name: impl Into<String>) -> Arc<OperationGuard> {
+        Arc::new(self.begin_operation(name))
     }
 
     pub fn server_activity(&self) -> ServerActivitySnapshot {
@@ -382,6 +433,107 @@ impl ProjectManager {
     /// Get the latest snapshot of a project, if it is still open.
     pub fn get(&self, id: ProjectId) -> Option<Arc<Project>> {
         self.projects.lock().unwrap().get(&id).map(|h| h.get())
+    }
+
+    /// Flush and close one PE/module project or dump session.
+    ///
+    /// Closing a dump also closes module projects extracted from it. Durable
+    /// annotations are saved before in-memory mappings are released.
+    pub fn close(&self, id: ProjectId) -> Result<ClosedTarget> {
+        if let Some(handle) = self.projects.lock().unwrap().remove(&id) {
+            let project = handle.get();
+            project.save().context("save project before close")?;
+            return Ok(ClosedTarget {
+                id,
+                kind: project.kind_label().to_string(),
+                path: handle.path.clone(),
+                child_projects: 0,
+            });
+        }
+
+        let Some(session) = self.dump_sessions.lock().unwrap().remove(&id) else {
+            bail!("target not found: {id}");
+        };
+        let child_ids: Vec<_> = session
+            .module_projects
+            .lock()
+            .unwrap()
+            .values()
+            .copied()
+            .collect();
+        let mut child_projects = 0;
+        for child_id in child_ids {
+            if let Some(handle) = self.projects.lock().unwrap().remove(&child_id) {
+                handle
+                    .get()
+                    .save()
+                    .context("save dump module before close")?;
+                child_projects += 1;
+            }
+        }
+        Ok(ClosedTarget {
+            id,
+            kind: "dump_session".to_string(),
+            path: session.path.clone(),
+            child_projects,
+        })
+    }
+
+    /// Decompile with guardrails: per-project LRU artifact cache,
+    /// `spawn_blocking` off the HTTP workers, a concurrency semaphore, and an
+    /// optional hard deadline. Never blocks the MCP server.
+    pub async fn decompile_artifact_guarded(
+        &self,
+        id: ProjectId,
+        va: u64,
+        options: DecompileOptions,
+        deadline: Option<Duration>,
+    ) -> DecompileOutcome {
+        let Some(handle) = self.projects.lock().unwrap().get(&id).cloned() else {
+            return DecompileOutcome::NotFound;
+        };
+        let project = handle.get();
+        if project.function_at(va).is_none() {
+            return DecompileOutcome::NotFound;
+        }
+        let key = DecompileCacheKey {
+            op_seq: project.op_seq,
+            va,
+            lane: decompile_cache_discriminant(&options),
+        };
+        if let Some(artifact) = handle.decompile_cache_get(key) {
+            return DecompileOutcome::Ready(artifact);
+        }
+        let permits = self.decompile_permits.clone();
+        // Acquire the concurrency slot before spawning so queued decompiles
+        // do not pile up in the blocking pool; the permit lives for the whole
+        // computation (including background overruns after a timeout).
+        let permit = match permits.acquire_owned().await {
+            Ok(permit) => permit,
+            Err(_) => return DecompileOutcome::NotFound,
+        };
+        let task = self.runtime.spawn_blocking(move || {
+            let project = handle.get();
+            let _permit = permit;
+            let artifact = Arc::new(project.function_decompile_artifact(va, options)?);
+            handle.decompile_cache_put(key, artifact.clone());
+            Some(artifact)
+        });
+        match deadline {
+            Some(duration) => match tokio::time::timeout(duration, task).await {
+                Ok(Ok(artifact)) => {
+                    artifact.map_or(DecompileOutcome::NotFound, DecompileOutcome::Ready)
+                }
+                Ok(Err(_)) => DecompileOutcome::NotFound,
+                Err(_) => DecompileOutcome::StillRunning,
+            },
+            None => match task.await {
+                Ok(artifact) => {
+                    artifact.map_or(DecompileOutcome::NotFound, DecompileOutcome::Ready)
+                }
+                Err(_) => DecompileOutcome::NotFound,
+            },
+        }
     }
 
     /// Open a user-mode MDMP dump as a process-level session (no PE analysis).
@@ -530,6 +682,7 @@ impl ProjectManager {
             path: path.clone(),
             read_state,
             write_tx,
+            decompile_cache: std::sync::Mutex::new(VecDeque::new()),
         });
         self.projects.lock().unwrap().insert(id, handle);
         self.record_recent_project(path, id);
@@ -558,30 +711,6 @@ impl ProjectManager {
             .lock()
             .unwrap()
             .insert(extracted.identity_key, id);
-
-        // Optional beta BEL for the module only (never the whole dump).
-        if cfg!(feature = "beta") {
-            if let Some(project) = self.get(id) {
-                let operation = self.begin_operation(format!(
-                    "building BEL for dump module {}",
-                    extracted.module_name
-                ));
-                let cancel = self.bel_cancel.clone();
-                self.runtime.spawn_blocking(move || {
-                    let control = crate::analysis::bel::BelBuildControl {
-                        cancel: &cancel,
-                        deadline: None,
-                        progress: None,
-                    };
-                    let _ = crate::analysis::bel::get_or_build(
-                        &project,
-                        crate::analysis::bel::BelConfig::default(),
-                        &control,
-                    );
-                    drop(operation);
-                });
-            }
-        }
 
         Ok(id)
     }
@@ -1353,7 +1482,7 @@ mod tests {
         let manager = ProjectManager::with_home_dir(&tmp).unwrap();
         let id = manager.open(exe).unwrap();
         // Unique VA + text so global IDB residue from prior runs cannot collide.
-        let va = 0x14000_f00du64;
+        let va = 0x0001_4000_f00d_u64;
         let marker = format!("redo-test-{}", Uuid::new_v4());
 
         manager
@@ -1564,7 +1693,7 @@ mod tests {
                 .map(|o| format!("{:#x}", o.module_base))
         );
         assert!(
-            project.functions().len() > 0,
+            !project.functions().is_empty(),
             "expected recovered functions from dump module"
         );
         assert_eq!(project.kind_label(), "dump_module");
@@ -1572,6 +1701,69 @@ mod tests {
         // read_bytes at module base should see MZ
         let mz = project.read_bytes(project.dump_origin.as_ref().unwrap().module_base, 2);
         assert_eq!(mz.as_deref(), Some(&[0x4D, 0x5A][..]));
+
+        fs::remove_dir_all(&tmp).ok();
+    }
+
+    #[test]
+    fn guarded_decompile_caches_artifacts_and_distinguishes_lanes() {
+        let fixture = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("gclsd/bench/sample.exe");
+        if !fixture.exists() {
+            eprintln!("skipping: sample.exe not found");
+            return;
+        }
+        let tmp = std::env::temp_dir().join(format!(
+            "windy-decompile-guard-{}-{}",
+            std::process::id(),
+            Uuid::new_v4()
+        ));
+        let manager = ProjectManager::with_home_dir(&tmp).unwrap();
+        let id = manager.open(&fixture).expect("open sample");
+        let project = manager.get(id).expect("project");
+        let va = project
+            .functions()
+            .iter()
+            .next()
+            .map(|f| f.entry_va)
+            .expect("at least one function");
+
+        let product = DecompileOptions::production();
+        let pure = DecompileOptions::pure_no_fallback();
+        let rt = manager.runtime();
+        let first = rt.block_on(manager.decompile_artifact_guarded(id, va, product.clone(), None));
+        let DecompileOutcome::Ready(first) = first else {
+            panic!("first decompile should complete without a deadline");
+        };
+        assert!(!first.text.is_empty() || first.check_report.accepted);
+
+        // Identical retry must come from the cache (same op_seq/lane).
+        let cached = rt.block_on(manager.decompile_artifact_guarded(id, va, product.clone(), None));
+        let DecompileOutcome::Ready(cached) = cached else {
+            panic!("cache hit should be Ready");
+        };
+        assert_eq!(cached.text, first.text);
+        let handle = manager
+            .projects
+            .lock()
+            .unwrap()
+            .get(&id)
+            .cloned()
+            .expect("handle");
+        assert_eq!(handle.decompile_cache_len(), 1, "one lane cached");
+
+        // pure_v2 is a different lane (same V2 mode, no legacy fallback).
+        let pure_outcome = rt.block_on(manager.decompile_artifact_guarded(id, va, pure, None));
+        assert!(matches!(pure_outcome, DecompileOutcome::Ready(_)));
+        assert_eq!(handle.decompile_cache_len(), 2, "lanes must not collide");
+
+        // NotFound for an unmapped VA is reported without panicking.
+        let missing = rt.block_on(manager.decompile_artifact_guarded(
+            id,
+            0xffff_ffff_0000_0000,
+            product,
+            None,
+        ));
+        assert!(matches!(missing, DecompileOutcome::NotFound));
 
         fs::remove_dir_all(&tmp).ok();
     }

@@ -41,6 +41,71 @@ use demangle::demangle_or_raw;
 use symbols::{SymbolKind, SymbolTable};
 use types::{DataType, DataTypeManager};
 
+/// Coarse open-pipeline stage, reported to progress listeners (GUI banner,
+/// MCP `get_server_status`) while a binary loads.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum OpenStage {
+    Parsing,
+    Symbols,
+    CodeIndex,
+    Functions,
+    Frames,
+    Indirects,
+    Databases,
+    StateReplay,
+    Done,
+}
+
+impl OpenStage {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Parsing => "parsing PE headers",
+            Self::Symbols => "loading symbols (PDB)",
+            Self::CodeIndex => "decoding instructions",
+            Self::Functions => "discovering functions and xrefs",
+            Self::Frames => "recovering stack frames",
+            Self::Indirects => "resolving indirect targets",
+            Self::Databases => "loading signature databases",
+            Self::StateReplay => "replaying saved state",
+            Self::Done => "done",
+        }
+    }
+
+    /// Coarse completion fraction for progress bars. Stages have unequal
+    /// real-world cost (code index + function discovery dominate on huge
+    /// images), so weights are hand-tuned rather than uniform.
+    pub fn fraction(self) -> f32 {
+        match self {
+            Self::Parsing => 0.05,
+            Self::Symbols => 0.15,
+            Self::CodeIndex => 0.40,
+            Self::Functions => 0.65,
+            Self::Frames => 0.75,
+            Self::Indirects => 0.85,
+            Self::Databases => 0.92,
+            Self::StateReplay => 0.98,
+            Self::Done => 1.0,
+        }
+    }
+}
+
+/// Progress listener fed [`OpenStage`] transitions during project open.
+pub type OpenProgress = Arc<dyn Fn(OpenStage) + Send + Sync>;
+
+/// Build an [`OpenProgress`] from a closure.
+pub fn open_progress<F>(callback: F) -> OpenProgress
+where
+    F: Fn(OpenStage) + Send + Sync + 'static,
+{
+    Arc::new(callback)
+}
+
+fn report_open_stage(progress: &Option<OpenProgress>, stage: OpenStage) {
+    if let Some(callback) = progress {
+        callback(stage);
+    }
+}
+
 /// Apply simple C-identifier function names from an adjacent MSVC `.map`.
 ///
 /// Only upgrades existing `FUN_*` / missing symbols so PDB/export names win.
@@ -220,10 +285,22 @@ impl Project {
         data_dir: impl Into<PathBuf>,
         entry_hints: &[u64],
     ) -> Result<Self> {
+        Self::open_with_progress(path, data_dir, entry_hints, None)
+    }
+
+    /// [`Self::open_with_data_dir_and_entry_hints`] with a progress listener
+    /// that receives coarse pipeline stages while the image loads.
+    pub fn open_with_progress(
+        path: impl AsRef<Path>,
+        data_dir: impl Into<PathBuf>,
+        entry_hints: &[u64],
+        progress: Option<OpenProgress>,
+    ) -> Result<Self> {
         let opened_at = Instant::now();
         let data_dir = data_dir.into();
         let path = path.as_ref();
         tracing::info!("Opening {}...", path.display());
+        report_open_stage(&progress, OpenStage::Parsing);
         let pe = LoadedPe::open(path)?;
         tracing::info!(
             "Parsed PE headers, imports, exports, and strings in {:.2}s",
@@ -247,6 +324,7 @@ impl Project {
         SeedSymbolTable::from_triage(&pe, &mut symbols, &address_space, bitness);
 
         // Load PDB symbols/frames/types before analysis so function discovery seeds them.
+        report_open_stage(&progress, OpenStage::Symbols);
         tracing::info!("Checking local symbol sources...");
         let pdb_info = PdbInfo::load_for_pe_in(&pe, &data_dir);
         let mut function_frames: BTreeMap<u64, StackFrame> = BTreeMap::new();
@@ -271,19 +349,17 @@ impl Project {
         );
 
         tracing::info!("Decoding instructions and discovering functions...");
+        report_open_stage(&progress, OpenStage::CodeIndex);
         let analysis_started = Instant::now();
-        let mut analysis = if entry_hints.is_empty() {
-            Analysis::build(&pe.image, &address_space, bitness, entry_va, &symbols)
-        } else {
-            Analysis::build_with_entry_hints(
-                &pe.image,
-                &address_space,
-                bitness,
-                entry_va,
-                &symbols,
-                entry_hints,
-            )
-        };
+        let mut analysis = Analysis::build_with_entry_hints_progress(
+            &pe.image,
+            &address_space,
+            bitness,
+            entry_va,
+            &symbols,
+            entry_hints,
+            progress.as_ref(),
+        );
         tracing::info!(
             "Indexed {} instructions and discovered {} functions in {:.2}s",
             analysis.code_index.len(),
@@ -300,6 +376,7 @@ impl Project {
         }
 
         // Recover stack frames from prologues for functions without PDB data.
+        report_open_stage(&progress, OpenStage::Frames);
         stack_frame::recover_frames(&mut analysis.functions, &analysis.code_index, bitness);
         for func in analysis.functions.iter() {
             if let Some(frame) = &func.stack_frame {
@@ -346,6 +423,7 @@ impl Project {
         }
 
         // Resolve RIP-relative indirect jump tables / switch tables.
+        report_open_stage(&progress, OpenStage::Indirects);
         indirect::resolve_indirect_jumps(
             &mut analysis.functions,
             &analysis.code_index,
@@ -364,6 +442,7 @@ impl Project {
             bitness,
         );
 
+        report_open_stage(&progress, OpenStage::Databases);
         let sig_db = SigDB::load_from(&data_dir);
         let vtable_db = crate::analysis::vtable_sigs::VtableDB::load_from(&data_dir);
 
@@ -391,6 +470,7 @@ impl Project {
             ssa_cache: Arc::new(Mutex::new(HashMap::new())),
         };
 
+        report_open_stage(&progress, OpenStage::StateReplay);
         if let Some(state) =
             ProjectState::load_from(project.data_dir.as_ref(), &project.image_sha256)
         {
@@ -405,6 +485,7 @@ impl Project {
             }
         }
 
+        report_open_stage(&progress, OpenStage::Done);
         tracing::info!(
             "Project ready: {} functions, {} instructions ({:.2}s total)",
             project.functions().len(),
@@ -2667,6 +2748,7 @@ fn resolve_switch_infos(
 }
 
 #[cfg(test)]
+#[allow(clippy::items_after_test_module)]
 mod tests {
     use super::*;
 
@@ -4102,10 +4184,10 @@ mod tests {
 
     fn compile_c_msvc_fixture() -> Option<std::path::PathBuf> {
         let cl = std::env::var_os("VCINSTALLDIR")
-            .and_then(|d| {
+            .map(|d| {
                 let mut p = std::path::PathBuf::from(d);
                 p.push(r"Tools\MSVC");
-                Some(p)
+                p
             })
             .and_then(|tools| {
                 // Find any installed VC toolset and pick its cl.exe.
@@ -4124,9 +4206,7 @@ mod tests {
                 latest
             });
 
-        let Some(cl) = cl else {
-            return None;
-        };
+        let cl = cl?;
 
         let dir = std::env::temp_dir().join(format!("windy-fixture-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).expect("create fixture dir");

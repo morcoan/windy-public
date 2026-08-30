@@ -5,13 +5,16 @@ Windy's north-star metric is `verified_facts_per_1k_tokens`: facts statically su
 ## Reproducibility commands
 
 ```powershell
-windy.exe bench agent-loop --pe gclsd\bench\sample.exe --limit 16
-windy.exe bench scorecard
-windy.exe bench scorecard --gold eval\gold\complex_source_gold.json
-windy.exe bench grand --suite v2-strict --output artifacts\strict-v2.json
+cargo run -p agent-bench -- --root . --limit 12 --profile P0 --profile P1 `
+  --output eval\agent-bench\fixtures\wiring-check-report.json
+cargo test eval_metrics
+cargo test decomp_scorecard
+windy.exe bench bel --pe gclsd\bench\sample.exe --iterations 100
 ```
 
-The hidden v0.1 aliases `eval-agent-loop`, `decomp-scorecard`, and `grand-bench` remain available for older scripts.
+Windy v0.2 deliberately ships no scorecard, Grand, or direct RE query commands.
+Those workflows stay in the evaluation workspace and exercise the product over
+MCP; there are no v0.1 compatibility aliases.
 
 ## Strict V2 lane
 

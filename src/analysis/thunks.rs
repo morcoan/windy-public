@@ -100,11 +100,3 @@ fn memory_target_va(instr: &Instruction, bitness: u32) -> Option<u64> {
 
     None
 }
-
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn thunk_module_exists() {
-        assert!(true);
-    }
-}

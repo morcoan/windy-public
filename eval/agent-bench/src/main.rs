@@ -1,7 +1,7 @@
 //! Agent-loop benchmark harness (outside the windy binary).
 //!
 //! Arms:
-//! - A: windy-evidence (MCP tools: get_function_evidence, search_bel, get_triage, â€¦)
+//! - A: windy-evidence (MCP v2: target_triage, evidence_search, function_inspect, …)
 //! - B: python-tools (bash + scratch dir with pefile/capstone; no Windy)
 //! - C: windy-dump (agent_text + read_va only)
 //!
@@ -674,9 +674,8 @@ fn run_local_task(root: &Path, windy: &Path, arm: Arm, task: &Task) -> TaskResul
 
 /// Deterministic Arm A policy: exercise the real product MCP ladder over HTTP.
 ///
-/// Order mirrors AGENTS.md: list_projects → get_triage → search_bel →
-/// functions_named → get_function_evidence (when a candidate VA exists).
-/// Never a single `agent-query --functions-named` shell-out.
+/// Order mirrors AGENTS.md: target_open → target_triage → evidence_search →
+/// a discovered name capability → function_inspect (when a candidate exists).
 fn local_arm_a_windy_ladder(
     root: &Path,
     windy: &Path,
@@ -696,79 +695,88 @@ fn local_arm_a_windy_ladder(
 
     // Ephemeral free port — never hash-collide with a leftover serve-mcp.
     let bind = free_local_bind("127.0.0.1")?;
-    let mut child = spawn_windy(windy, &bind, pe, &data_dir)?;
+    let mut child = spawn_windy(windy, &bind, &data_dir)?;
     let endpoint = format!("http://{bind}/mcp");
 
     let outcome = (|| -> Result<(String, usize, Vec<String>)> {
-        // Allow serve-mcp to bind and open the PE.
+        // Allow serve-mcp to bind, then open exclusively through MCP.
         wait_for_mcp_ready(&endpoint, Duration::from_secs(45))?;
 
         let mut session = McpSession::connect(&endpoint)?;
         let mut tools_used = Vec::new();
         let mut name_hits: Vec<Value> = Vec::new();
 
-        // 1) Resolve project_id (PE already opened via --open).
-        let projects = session.call("list_projects", &json!({}))?;
-        tools_used.push("list_projects".into());
-        let project_id = extract_project_id(&projects)
-            .context("list_projects returned no project_id (serve-mcp --open failed?)")?;
-        // Guard against talking to a leftover server with a different PE open.
-        if let Some(path) = extract_project_path(&projects) {
-            let want = pe.canonicalize().unwrap_or_else(|_| pe.to_path_buf());
-            let got = PathBuf::from(&path);
-            let got = got.canonicalize().unwrap_or(got);
-            if want != got {
-                bail!(
-                    "MCP project path mismatch: open={} expected={}",
-                    got.display(),
-                    want.display()
-                );
+        // 1) Open, then wait for the catalog job to yield the target id.
+        let opened = session.call("target_open", &json!({ "path": pe }))?;
+        tools_used.push("target_open".into());
+        let job_id = opened
+            .get("job_id")
+            .and_then(Value::as_str)
+            .context("target_open returned no job_id")?;
+        let deadline = Instant::now() + Duration::from_secs(90);
+        let project_id = loop {
+            let status = session.call("server_status", &json!({ "job_id": job_id }))?;
+            let job = status.get("job").context("server_status returned no job")?;
+            match job.get("state").and_then(Value::as_str) {
+                Some("complete") => {
+                    break job
+                        .get("target_id")
+                        .and_then(Value::as_str)
+                        .context("completed open job returned no target_id")?
+                        .to_string();
+                }
+                Some("error") => bail!("target_open failed: {}", job["error"]),
+                _ if Instant::now() >= deadline => bail!("target_open timed out"),
+                _ => thread::sleep(Duration::from_millis(100)),
             }
-        }
+        };
 
         // 2) First-minute triage ranking.
         let triage = session.call(
-            "get_triage",
-            &json!({ "project_id": project_id, "limit": 32 }),
+            "target_triage",
+            &json!({ "target_id": project_id, "limit": 32 }),
         )?;
-        tools_used.push("get_triage".into());
+        tools_used.push("target_triage".into());
         collect_named_hits(&triage, &mut name_hits);
 
         // 3) BEL name/token search (product ranked search surface).
         let bel = session.call(
-            "search_bel",
+            "evidence_search",
             &json!({
-                "project_id": project_id,
+                "target_id": project_id,
                 "query": source,
                 "mode": "substring",
                 "limit": 32,
                 "deadline_ms": 60_000u64,
             }),
         )?;
-        tools_used.push("search_bel".into());
+        tools_used.push("evidence_search".into());
         collect_bel_hits(&bel, source, &mut name_hits);
 
         // 4) Compatibility name list (same core as MCP functions_named).
         let named = session.call(
-            "functions_named",
-            &json!({ "project_id": project_id, "pattern": source }),
+            "capability_execute",
+            &json!({
+                "capability_id": "functions_named",
+                "arguments": { "target_id": project_id, "pattern": source }
+            }),
         )?;
-        tools_used.push("functions_named".into());
+        tools_used.push("capability_execute:functions_named".into());
         collect_named_hits(&named, &mut name_hits);
 
         // 5) Evidence pack on the best current candidate (confirms the ladder step).
         let provisional = pick_name_match(&name_hits, source);
         if let Some(va) = provisional.as_ref() {
             let evidence = session.call(
-                "get_function_evidence",
+                "function_inspect",
                 &json!({
-                    "project_id": project_id,
+                    "target_id": project_id,
                     "va": va,
                     "max_items": 16,
                     "include_agent_text": false,
                 }),
             )?;
-            tools_used.push("get_function_evidence".into());
+            tools_used.push("function_inspect".into());
             // Fold evidence summary name back into the candidate pool.
             if let Some(summary) = evidence
                 .pointer("/summary")
@@ -963,7 +971,7 @@ fn parse_mcp_tool_payload(raw: &str) -> Result<Value> {
                     .map(|s| s.trim())
                     .filter(|s| !s.is_empty() && s.starts_with('{'))
             })
-            .last()
+            .next_back()
             .unwrap_or(raw)
             .to_string()
     } else {
@@ -978,7 +986,7 @@ fn parse_mcp_tool_payload(raw: &str) -> Result<Value> {
         bail!("tool isError: {result}");
     }
     if let Some(sc) = result.get("structuredContent") {
-        return Ok(sc.clone());
+        return Ok(sc.get("data").cloned().unwrap_or_else(|| sc.clone()));
     }
     // Fall back to first text content block (may itself be JSON).
     if let Some(arr) = result.get("content").and_then(|c| c.as_array()) {
@@ -994,35 +1002,6 @@ fn parse_mcp_tool_payload(raw: &str) -> Result<Value> {
         }
     }
     Ok(result)
-}
-
-fn extract_project_id(projects: &Value) -> Option<String> {
-    // list_projects returns a JSON array of project objects.
-    if let Some(arr) = projects.as_array() {
-        return arr
-            .first()
-            .and_then(|p| p.get("project_id"))
-            .and_then(|v| v.as_str())
-            .map(|s| s.to_string());
-    }
-    projects
-        .get("project_id")
-        .and_then(|v| v.as_str())
-        .map(|s| s.to_string())
-}
-
-fn extract_project_path(projects: &Value) -> Option<String> {
-    if let Some(arr) = projects.as_array() {
-        return arr
-            .first()
-            .and_then(|p| p.get("path"))
-            .and_then(|v| v.as_str())
-            .map(|s| s.to_string());
-    }
-    projects
-        .get("path")
-        .and_then(|v| v.as_str())
-        .map(|s| s.to_string())
 }
 
 /// Pull `{va,name}` pairs from triage / functions_named shaped payloads.
@@ -1380,29 +1359,26 @@ fn arm_name(arm: Arm) -> &'static str {
 fn windy_tool_names(arm: Arm) -> &'static [&'static str] {
     match arm {
         Arm::A => &[
-            "open_project",
-            "list_projects",
-            "get_triage",
-            "search_bel",
-            "list_functions",
-            "get_function_evidence",
-            "functions_named",
-            "read_pointers",
-            "walk_list",
-            "read_struct_array",
-            "describe_address",
-            "trace_value",
-            "list_exports",
-            "list_imports",
-            "list_strings",
+            "server_status",
+            "target_open",
+            "target_triage",
+            "evidence_search",
+            "function_inspect",
+            "data_read",
+            "claim_verify",
+            "artifact_read",
+            "capability_search",
+            "capability_execute",
         ],
         Arm::B => &[], // handled by python_scratch_tool_defs
         Arm::C => &[
-            "open_project",
-            "list_functions",
-            "get_function_agent_text",
-            "read_va",
-            "get_fragment",
+            "server_status",
+            "target_open",
+            "function_inspect",
+            "data_read",
+            "artifact_read",
+            "capability_search",
+            "capability_execute",
         ],
     }
 }
@@ -1756,7 +1732,7 @@ fn run_live_windy_arm(
     let _ = fs::create_dir_all(&data_dir);
 
     let bind = unique_bind(&cli.mcp_bind, &task.id);
-    let mut child = match spawn_windy(windy, &bind, &task.pe_path, &data_dir) {
+    let mut child = match spawn_windy(windy, &bind, &data_dir) {
         Ok(c) => c,
         Err(e) => return fail_result(task, arm_name(arm), started, e.to_string()),
     };
@@ -1768,9 +1744,9 @@ fn run_live_windy_arm(
         "You are a reverse engineer using Windy MCP tools only.\n\
          Endpoint: {endpoint}\n\
          Allowed tools: {}\n\
-         Project is already open if serve-mcp --open succeeded; list_projects to get project_id.\n\
+         Open the absolute binary path with target_open and poll server_status for target_id.\n\
          Answer with a single hex VA or the word refuse.\n\
-         Prefer get_triage / search_bel / get_function_evidence / describe_address over raw hex.",
+         Prefer target_triage / evidence_search / function_inspect / data_read over raw bytes.",
         tools.join(", ")
     );
 
@@ -1842,13 +1818,11 @@ fn unique_bind(base: &str, task_id: &str) -> String {
     }
 }
 
-fn spawn_windy(windy: &Path, bind: &str, pe: &Path, data_dir: &Path) -> Result<Child> {
+fn spawn_windy(windy: &Path, bind: &str, data_dir: &Path) -> Result<Child> {
     Command::new(windy)
         .arg("serve-mcp")
         .arg("--bind")
         .arg(bind)
-        .arg("--open")
-        .arg(pe)
         .arg("--data-dir")
         .arg(data_dir)
         .stdin(Stdio::null())
@@ -2699,7 +2673,7 @@ mod tests {
     /// baselines must be reported per family.
     #[test]
     fn always_refuse_ties_half_on_balanced_split() {
-        let tasks = vec![
+        let tasks = [
             t("locate", "0x140001000"),
             t("locate", "0x140002000"),
             t("abstain", "refuse"),
@@ -2753,24 +2727,23 @@ mod tests {
 
     #[test]
     fn parse_mcp_tool_payload_sse_structured() {
-        let raw = "data: \nid: 0/0\n\ndata: {\"jsonrpc\":\"2.0\",\"id\":2,\"result\":{\"content\":[{\"type\":\"text\",\"text\":\"[]\"}],\"structuredContent\":[{\"project_id\":\"abc\",\"path\":\"x.exe\"}],\"isError\":false}}\nid: 1/0\n";
+        let raw = "data: \nid: 0/0\n\ndata: {\"jsonrpc\":\"2.0\",\"id\":2,\"result\":{\"content\":[{\"type\":\"text\",\"text\":\"server_status: complete\"}],\"structuredContent\":{\"v\":\"2\",\"data\":[{\"project_id\":\"abc\",\"path\":\"x.exe\"}]},\"isError\":false}}\nid: 1/0\n";
         let v = parse_mcp_tool_payload(raw).expect("parse");
         assert_eq!(v[0]["project_id"], "abc");
     }
 
     #[test]
     fn local_arm_a_source_mentions_mcp_ladder_not_single_query() {
-        // Structural guard: the shipped local Arm A policy must call the MCP
-        // ladder helpers, not only agent-query --functions-named.
+        // Structural guard: local Arm A must call the MCP v2 ladder.
         let src = include_str!("main.rs");
         assert!(
             src.contains("local_arm_a_windy_ladder"),
             "local Arm A entry point missing"
         );
         assert!(
-            src.contains("get_triage")
-                && src.contains("search_bel")
-                && src.contains("get_function_evidence"),
+            src.contains("target_triage")
+                && src.contains("evidence_search")
+                && src.contains("function_inspect"),
             "MCP ladder tools missing from harness source"
         );
         // The Arm A local policy body must not be a single agent-query shell-out.

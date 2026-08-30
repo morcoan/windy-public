@@ -225,7 +225,7 @@ mod tests {
         let sem = SemanticModel::from_ssa(&ssa);
         let contracts = ContractBundle::from_semantic(&ssa, &sem, &switches);
         assert!(
-            !contracts.cases.is_empty() || matches!(sem.terminators.get(1), Some(_)),
+            !contracts.cases.is_empty() || sem.terminators.get(1).is_some(),
             "expected switch contract or terminator: {:?}",
             contracts
         );

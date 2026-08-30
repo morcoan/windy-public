@@ -1,16 +1,19 @@
-# Windy v0.1.2 for Windows x64
+# Windy v0.2 for Windows x64
 
-Windy is a portable static PE reverse-engineering GUI and local MCP server. No installer or external decompiler service is required. v0.1.2 adds the agent evidence substrate (BEL), structured reads, and user-mode Windows dump analysis on the same MCP endpoint.
+Windy is a portable, terminal-hosted MCP server for agent-driven static PE and
+user-mode minidump analysis. This release removes the GUI and embedded model
+runner, advertises twelve budgeted MCP tools, and makes deep indexing
+demand-driven.
 
 ```powershell
 .\windy.exe doctor
-.\windy.exe C:\path\to\target.exe
-.\windy.exe serve-mcp --open C:\path\to\target.exe
-.\windy.exe serve-mcp --open C:\path\to\crash.dmp
+.\windy.exe
+# or: .\windy.exe serve-mcp
 ```
 
-Configure your MCP client for `http://127.0.0.1:8765/mcp`. The server is intentionally loopback-only. Full setup and usage documentation is available in the project README at https://github.com/morcoan/windy-public.
+Configure the MCP client for `http://127.0.0.1:8765/mcp`. The terminal only
+shows server statistics; the agent opens targets with `target_open` and closes
+them with `target_close`. The server is intentionally loopback-only.
 
-See `SETUP.md` in this archive for verified Codex, Claude Code, Cursor, and OpenCode configuration examples.
-
-The archive checksum is published beside the ZIP. Dependency and license metadata is in `windy.cdx.json` and `THIRD_PARTY_NOTICES.md`.
+See `SETUP.md`, `docs/MCP.md`, and `docs/MCP_V2_MIGRATION.md`. Dependency and
+license metadata is in `windy.cdx.json` and `THIRD_PARTY_NOTICES.md`.

@@ -549,6 +549,6 @@ mod tests {
         let src = include_str!("../../../eval/grand/src/a01_signed_rel.c");
         let fns = parse_all_functions(src);
         let names: Vec<_> = fns.iter().map(|f| f.name.as_str()).collect();
-        assert!(names.iter().any(|n| *n == "signed_lt"), "names={names:?}");
+        assert!(names.contains(&"signed_lt"), "names={names:?}");
     }
 }

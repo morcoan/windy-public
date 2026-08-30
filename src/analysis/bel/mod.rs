@@ -6,6 +6,7 @@
 //! Query execution lives in [`query`] and never spawns background work.
 
 use std::collections::BTreeMap;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex, OnceLock};
 use std::time::Instant;
@@ -14,7 +15,7 @@ use ahash::{AHashMap, AHashSet};
 use fst::{Map, MapBuilder};
 use iced_x86::{FlowControl, Formatter as _, IntelFormatter, OpKind, SymbolResolver};
 use roaring::RoaringBitmap;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use crate::disasm::TableResolver;
@@ -29,11 +30,34 @@ pub type EntityId = u32;
 
 /// Single-flight index cell. A beta warmup and an arriving agent query share
 /// one construction instead of multiplying CPU and peak memory.
-#[derive(Debug, Default)]
 pub struct BelIndexCell {
     ready: OnceLock<Arc<BelIndex>>,
     building: Mutex<bool>,
     changed: Condvar,
+    /// One-shot disk-cache probe per project lifetime; a valid on-disk index
+    /// installed here skips full reconstruction after a server restart.
+    disk_probe: AtomicBool,
+}
+
+impl std::fmt::Debug for BelIndexCell {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("BelIndexCell")
+            .field("ready", &self.ready.get().is_some())
+            .field("building", &self.is_building())
+            .finish_non_exhaustive()
+    }
+}
+
+impl Default for BelIndexCell {
+    fn default() -> Self {
+        Self {
+            ready: OnceLock::new(),
+            building: Mutex::new(false),
+            changed: Condvar::new(),
+            disk_probe: AtomicBool::new(true),
+        }
+    }
 }
 
 impl BelIndexCell {
@@ -137,7 +161,7 @@ pub struct NumericIndex {
     pub sorted: Vec<(u64, EntityId)>,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SparseFunctionSignature {
     pub bits: Vec<u64>,
 }
@@ -206,7 +230,7 @@ pub struct MotifIndex {
     pub entities: BTreeMap<Arc<str>, EntityId>,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 enum SlotKind {
     Symbol,
     AddressComment,
@@ -216,7 +240,7 @@ enum SlotKind {
     FunctionType,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 struct SlotKey {
     kind: SlotKind,
     va: u64,
@@ -501,7 +525,7 @@ impl SearchIndex for BelRuntime {
     }
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct BelMemoryBreakdown {
     pub entities_bytes: u64,
     pub normalized_bytes: u64,
@@ -514,7 +538,7 @@ pub struct BelMemoryBreakdown {
     pub estimated_total_bytes: u64,
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct BelStats {
     pub entities: usize,
     pub functions: usize,
@@ -569,7 +593,7 @@ impl std::fmt::Debug for BelIndex {
     }
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct BelConfig {
     pub syncmer_k: u8,
     pub syncmer_s: u8,
@@ -857,6 +881,315 @@ impl BelIndex {
     }
 }
 
+/// Disk-cache cap: indexes above this estimated size are not persisted (the
+/// rebuild-on-open path is cheaper than a multi-hundred-MB write).
+const BEL_DISK_CACHE_MAX_BYTES: u64 = 512 * 1024 * 1024;
+/// Wire format version; bump when the persisted layout changes.
+const BEL_DISK_FORMAT_VERSION: u32 = 1;
+
+/// Path of the persistent BEL index for a project image.
+pub fn bel_cache_path(data_dir: &Path, sha256: &str) -> PathBuf {
+    data_dir.join("bel").join(format!("{sha256}.bel"))
+}
+
+/// Postcard wire models (plain strings/pairs; the in-memory index uses
+/// `Arc<str>` and AHashMap which are not serde-shaped).
+#[derive(Serialize, Deserialize)]
+struct WireEntity {
+    id: EntityId,
+    kind: EntityKind,
+    display: String,
+    va: Option<u64>,
+    file_offset: Option<usize>,
+    func_entry: Option<u64>,
+}
+
+#[derive(Serialize, Deserialize, Default)]
+struct WirePropagation {
+    surface_to_funcs: Vec<(EntityId, RoaringBitmap)>,
+    hot_table: Vec<(EntityId, RoaringBitmap)>,
+    function_neighbors: Vec<(EntityId, RoaringBitmap)>,
+}
+
+#[derive(Serialize, Deserialize, Default)]
+struct WireOntology {
+    classes: Vec<(String, EntityId)>,
+    edges: Vec<(EntityId, Vec<EntityId>)>,
+    func_labels: Vec<(EntityId, RoaringBitmap)>,
+}
+
+#[derive(Serialize, Deserialize, Default)]
+struct WireMotifs {
+    tokens: Vec<(String, RoaringBitmap)>,
+    entities: Vec<(String, EntityId)>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct BelDiskIndex {
+    format_version: u32,
+    config: BelConfig,
+    generation: u64,
+    base_op_seq: u64,
+    entities: Vec<WireEntity>,
+    normalized: Vec<String>,
+    name_fst_bytes: Vec<u8>,
+    name_postings: Vec<RoaringBitmap>,
+    sorted_ids: Vec<EntityId>,
+    kind_postings: Vec<(EntityKind, RoaringBitmap)>,
+    token_map: Vec<(String, RoaringBitmap)>,
+    syncmer_map: Vec<(u64, RoaringBitmap)>,
+    syncmer_k: u8,
+    syncmer_s: u8,
+    syncmer_complete: bool,
+    numeric_sorted: Vec<(u64, EntityId)>,
+    signatures: Vec<SparseFunctionSignature>,
+    rare_vocab: Vec<EntityId>,
+    rare_lookup: RoaringBitmap,
+    signature_width_bits: usize,
+    propagation: WirePropagation,
+    ontology: WireOntology,
+    motifs: WireMotifs,
+    function_by_va: Vec<(u64, EntityId)>,
+    slots: Vec<(SlotKey, EntityId)>,
+    stats: BelStats,
+}
+
+impl BelDiskIndex {
+    fn validate(&self, requested_config: &BelConfig) -> anyhow::Result<()> {
+        if self.format_version != BEL_DISK_FORMAT_VERSION {
+            anyhow::bail!(
+                "BEL cache format v{} is not supported (expected v{BEL_DISK_FORMAT_VERSION})",
+                self.format_version
+            );
+        }
+        if &self.config != requested_config {
+            anyhow::bail!("BEL cache config mismatch; rebuild required");
+        }
+        self.config.validate()?;
+        if self.entities.len() != self.normalized.len() {
+            anyhow::bail!("BEL cache entity/normalized alignment broken");
+        }
+        if self.entities.len() != self.stats.entities {
+            anyhow::bail!("BEL cache stats/entity count mismatch");
+        }
+        Ok(())
+    }
+}
+
+impl BelIndex {
+    /// Persist this index to `path`. Returns `Ok(false)` when the index
+    /// exceeds the disk-cache cap (caching skipped, never an error).
+    pub fn save_to(&self, path: &Path) -> std::io::Result<bool> {
+        if self.stats.memory.estimated_total_bytes > BEL_DISK_CACHE_MAX_BYTES {
+            return Ok(false);
+        }
+        let wire = BelDiskIndex {
+            format_version: BEL_DISK_FORMAT_VERSION,
+            config: self.config.clone(),
+            generation: self.generation,
+            base_op_seq: self.base_op_seq,
+            entities: self
+                .entities
+                .iter()
+                .map(|entity| WireEntity {
+                    id: entity.id,
+                    kind: entity.kind,
+                    display: entity.display.to_string(),
+                    va: entity.va,
+                    file_offset: entity.file_offset,
+                    func_entry: entity.func_entry,
+                })
+                .collect(),
+            normalized: self.normalized.iter().map(|s| s.to_string()).collect(),
+            name_fst_bytes: self.name_fst.map.as_fst().as_bytes().to_vec(),
+            name_postings: self.name_fst.postings.clone(),
+            sorted_ids: self.name_fst.sorted_ids.clone(),
+            kind_postings: self
+                .kind_postings
+                .iter()
+                .map(|(k, v)| (*k, v.clone()))
+                .collect(),
+            token_map: self
+                .token_postings
+                .map
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.clone()))
+                .collect(),
+            syncmer_map: self
+                .syncmer_postings
+                .map
+                .iter()
+                .map(|(k, v)| (*k, v.clone()))
+                .collect(),
+            syncmer_k: self.syncmer_postings.k,
+            syncmer_s: self.syncmer_postings.s,
+            syncmer_complete: self.syncmer_postings.complete,
+            numeric_sorted: self.numeric.sorted.clone(),
+            signatures: self.signatures.signatures.clone(),
+            rare_vocab: self.signatures.rare_vocab.clone(),
+            rare_lookup: self.signatures.rare_lookup.clone(),
+            signature_width_bits: self.signatures.width_bits,
+            propagation: WirePropagation {
+                surface_to_funcs: self
+                    .propagation
+                    .surface_to_funcs
+                    .iter()
+                    .map(|(k, v)| (*k, v.clone()))
+                    .collect(),
+                hot_table: self
+                    .propagation
+                    .hot_table
+                    .iter()
+                    .map(|(k, v)| (*k, v.clone()))
+                    .collect(),
+                function_neighbors: self
+                    .propagation
+                    .function_neighbors
+                    .iter()
+                    .map(|(k, v)| (*k, v.clone()))
+                    .collect(),
+            },
+            ontology: WireOntology {
+                classes: self
+                    .ontology
+                    .classes
+                    .iter()
+                    .map(|(k, v)| (k.to_string(), *v))
+                    .collect(),
+                edges: self
+                    .ontology
+                    .edges
+                    .iter()
+                    .map(|(k, v)| (*k, v.clone()))
+                    .collect(),
+                func_labels: self
+                    .ontology
+                    .func_labels
+                    .iter()
+                    .map(|(k, v)| (*k, v.clone()))
+                    .collect(),
+            },
+            motifs: WireMotifs {
+                tokens: self
+                    .motifs
+                    .tokens
+                    .iter()
+                    .map(|(k, v)| (k.to_string(), v.clone()))
+                    .collect(),
+                entities: self
+                    .motifs
+                    .entities
+                    .iter()
+                    .map(|(k, v)| (k.to_string(), *v))
+                    .collect(),
+            },
+            function_by_va: self.function_by_va.iter().map(|(k, v)| (*k, *v)).collect(),
+            slots: self.slots.iter().map(|(k, v)| (*k, *v)).collect(),
+            stats: self.stats.clone(),
+        };
+        let bytes = postcard::to_allocvec(&wire)
+            .map_err(|error| std::io::Error::other(error.to_string()))?;
+        if bytes.len() as u64 > BEL_DISK_CACHE_MAX_BYTES {
+            return Ok(false);
+        }
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        std::fs::write(path, bytes)?;
+        Ok(true)
+    }
+
+    /// Load an index previously saved with [`Self::save_to`]. Errors on
+    /// corrupt/foreign files; callers rebuild in that case.
+    pub fn load_from(path: &Path, requested_config: &BelConfig) -> anyhow::Result<Self> {
+        let bytes = std::fs::read(path)?;
+        let wire: BelDiskIndex = postcard::from_bytes(&bytes)
+            .map_err(|error| anyhow::anyhow!("BEL cache decode failed: {error}"))?;
+        wire.validate(requested_config)?;
+        let name_fst = NameFst {
+            map: Map::new(wire.name_fst_bytes)
+                .map_err(|error| anyhow::anyhow!("BEL cache FST decode failed: {error}"))?,
+            postings: wire.name_postings,
+            sorted_ids: wire.sorted_ids,
+        };
+        Ok(Self {
+            entities: wire
+                .entities
+                .into_iter()
+                .map(|entity| Entity {
+                    id: entity.id,
+                    kind: entity.kind,
+                    display: entity.display.into(),
+                    va: entity.va,
+                    file_offset: entity.file_offset,
+                    func_entry: entity.func_entry,
+                })
+                .collect(),
+            normalized: wire.normalized.into_iter().map(Into::into).collect(),
+            name_fst,
+            kind_postings: wire.kind_postings.into_iter().collect(),
+            token_postings: TokenPostings {
+                map: wire
+                    .token_map
+                    .into_iter()
+                    .map(|(key, value)| (key.into(), value))
+                    .collect(),
+            },
+            syncmer_postings: SyncmerPostings {
+                map: wire.syncmer_map.into_iter().collect(),
+                k: wire.syncmer_k,
+                s: wire.syncmer_s,
+                complete: wire.syncmer_complete,
+            },
+            numeric: NumericIndex {
+                sorted: wire.numeric_sorted,
+            },
+            signatures: SignatureStore {
+                signatures: wire.signatures,
+                rare_vocab: wire.rare_vocab,
+                rare_lookup: wire.rare_lookup,
+                width_bits: wire.signature_width_bits,
+            },
+            propagation: Propagation {
+                surface_to_funcs: wire.propagation.surface_to_funcs.into_iter().collect(),
+                hot_table: wire.propagation.hot_table.into_iter().collect(),
+                function_neighbors: wire.propagation.function_neighbors.into_iter().collect(),
+            },
+            ontology: EvidenceOntology {
+                classes: wire
+                    .ontology
+                    .classes
+                    .into_iter()
+                    .map(|(key, value)| (key.into(), value))
+                    .collect(),
+                edges: wire.ontology.edges.into_iter().collect(),
+                func_labels: wire.ontology.func_labels.into_iter().collect(),
+            },
+            motifs: MotifIndex {
+                tokens: wire
+                    .motifs
+                    .tokens
+                    .into_iter()
+                    .map(|(key, value)| (key.into(), value))
+                    .collect(),
+                entities: wire
+                    .motifs
+                    .entities
+                    .into_iter()
+                    .map(|(key, value)| (key.into(), value))
+                    .collect(),
+            },
+            function_by_va: wire.function_by_va.into_iter().collect(),
+            slots: wire.slots.into_iter().collect(),
+            config: wire.config,
+            generation: wire.generation,
+            base_op_seq: wire.base_op_seq,
+            stats: wire.stats,
+            overlay_cache: Mutex::new(None),
+        })
+    }
+}
+
 /// Return the shared index or cooperatively build and install it. Concurrent
 /// callers join one single-flight construction and observe the same immutable
 /// snapshot when it completes.
@@ -867,6 +1200,35 @@ pub fn get_or_build(
 ) -> Result<Arc<BelIndex>, BelBuildError> {
     if let Some(index) = project.analysis.bel.get() {
         return Ok(index.clone());
+    }
+    // Disk fast path: one probe per project lifetime. A valid persisted
+    // index makes `bel_ready` instant after a server restart; corrupt or
+    // oversized caches simply fall through to construction.
+    if project
+        .analysis
+        .bel
+        .disk_probe
+        .swap(false, Ordering::SeqCst)
+    {
+        let path = bel_cache_path(project.data_dir(), &project.image_sha256);
+        match BelIndex::load_from(&path, &config) {
+            Ok(loaded) => {
+                tracing::info!(
+                    "BEL loaded from disk cache ({:.1} MiB): {} entities",
+                    path.metadata()
+                        .map(|m| m.len() as f64 / (1024.0 * 1024.0))
+                        .unwrap_or(0.0),
+                    loaded.stats.entities
+                );
+                let built = Arc::new(loaded);
+                if project.analysis.bel.ready.set(built).is_ok() {
+                    return Ok(project.analysis.bel.get().cloned().expect("just installed"));
+                }
+            }
+            Err(error) => {
+                tracing::debug!("BEL disk cache miss ({error}); building from scratch");
+            }
+        }
     }
     let mut building = project.analysis.bel.building.lock().unwrap();
     loop {
@@ -904,7 +1266,19 @@ pub fn get_or_build(
     }
     drop(lease);
     let built = result?;
-    Ok(project.analysis.bel.get().cloned().unwrap_or(built))
+    let installed = project.analysis.bel.get().cloned().unwrap_or(built);
+    // Persist in the background so reopen-after-restart is instant; the
+    // caller's query deadline is never charged for the write.
+    {
+        let index = installed.clone();
+        let path = bel_cache_path(project.data_dir(), &project.image_sha256);
+        std::thread::spawn(move || match index.save_to(&path) {
+            Ok(true) => tracing::debug!("BEL disk cache written to {}", path.display()),
+            Ok(false) => tracing::debug!("BEL disk cache skipped (over size cap)"),
+            Err(error) => tracing::debug!("BEL disk cache write failed: {error}"),
+        });
+    }
+    Ok(installed)
 }
 
 struct IndexBuilder<'a> {
@@ -1957,7 +2331,7 @@ fn is_closed_syncmer(window: &[u8], s: usize) -> bool {
     &window[..s] == minimum || &window[window.len() - s..] == minimum
 }
 
-pub(crate) fn stable_u64_hash(bytes: &[u8]) -> u64 {
+pub fn stable_u64_hash(bytes: &[u8]) -> u64 {
     const OFFSET: u64 = 0xcbf2_9ce4_8422_2325;
     const PRIME: u64 = 0x0000_0100_0000_01b3;
     bytes.iter().fold(OFFSET, |hash, byte| {
@@ -2055,8 +2429,10 @@ mod tests {
             .join(name);
         let project = Project::open(path).expect("open BEL fixture");
         let cancel = AtomicBool::new(false);
-        let mut config = BelConfig::default();
-        config.safety_cardinality = 1_000_000;
+        let config = BelConfig {
+            safety_cardinality: 1_000_000,
+            ..BelConfig::default()
+        };
         let control = BelBuildControl {
             cancel: &cancel,
             deadline: None,
@@ -2197,8 +2573,10 @@ mod tests {
         project.analysis.bel.changed.notify_all();
 
         let cancel = AtomicBool::new(false);
-        let mut config = BelConfig::default();
-        config.safety_cardinality = 2;
+        let config = BelConfig {
+            safety_cardinality: 2,
+            ..BelConfig::default()
+        };
         let control = BelBuildControl {
             cancel: &cancel,
             deadline: None,
@@ -2721,5 +3099,104 @@ mod tests {
         )
         .expect("multi-evidence search");
         assert!(multi.hits.iter().any(|hit| hit.entity_id == target_id));
+    }
+
+    #[test]
+    fn disk_cache_roundtrip_preserves_search_behavior() {
+        let (project, index, overlay) = fixture_index("sample.exe");
+        let path = std::env::temp_dir().join(format!(
+            "windy-bel-roundtrip-{}-{}",
+            std::process::id(),
+            index.generation
+        ));
+        let saved = index
+            .save_to(&path)
+            .expect("BEL disk cache write must succeed");
+        assert!(saved, "sample.exe index is far below the size cap");
+        let loaded =
+            BelIndex::load_from(&path, &index.config).expect("BEL disk cache read must succeed");
+        let _ = std::fs::remove_file(&path);
+
+        // Structural equality of the persisted state.
+        assert_eq!(loaded.stats.entities, index.stats.entities);
+        assert_eq!(loaded.entities.len(), index.entities.len());
+        assert_eq!(loaded.normalized.len(), index.normalized.len());
+        assert_eq!(loaded.function_by_va.len(), index.function_by_va.len());
+        assert_eq!(loaded.stats.tokens, index.stats.tokens);
+        assert_eq!(loaded.generation, index.generation);
+        assert_eq!(loaded.base_op_seq, index.base_op_seq);
+
+        // Query equivalence: same hits for substring, token, and numeric.
+        let loaded_overlay = loaded.overlay(&project);
+        for (mode, text) in [
+            (SearchMode::Substring, "mov"),
+            (SearchMode::Token, "mov"),
+            (SearchMode::Numeric, "100"),
+        ] {
+            let query = Query {
+                text: text.to_string(),
+                mode,
+                evidence: Vec::new(),
+                quorum: None,
+                relationship_depth: 1,
+                kinds: Vec::new(),
+            };
+            let before = search(
+                &index,
+                &overlay,
+                &query,
+                512,
+                None,
+                Instant::now() + Duration::from_secs(20),
+            )
+            .expect("original search");
+            let after = search(
+                &loaded,
+                &loaded_overlay,
+                &query,
+                512,
+                None,
+                Instant::now() + Duration::from_secs(20),
+            )
+            .expect("loaded search");
+            assert_eq!(
+                result_ids(&after),
+                result_ids(&before),
+                "disk cache changed search results for mode={mode:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn corrupt_disk_cache_falls_back_to_build() {
+        let tmp = std::env::temp_dir().join(format!(
+            "windy-bel-corrupt-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("clock")
+                .as_nanos()
+        ));
+        // Redirect the process-wide data dir (no-op if another test already
+        // pinned it) so the background cache write stays in the temp dir.
+        let _ = crate::project::persistence::set_process_windy_home(tmp.clone());
+        let (project, _index, _overlay) = fixture_index("sample.exe");
+        let path = bel_cache_path(project.data_dir(), &project.image_sha256);
+        std::fs::create_dir_all(path.parent().expect("cache parent")).expect("create cache dir");
+        std::fs::write(&path, b"not a postcard index at all").expect("write garbage cache");
+        let config = BelConfig::default();
+        let loaded = BelIndex::load_from(&path, &config);
+        assert!(loaded.is_err(), "garbage cache must be rejected");
+
+        // get_or_build must ignore the corrupt file and construct normally.
+        let cancel = AtomicBool::new(false);
+        let control = BelBuildControl {
+            cancel: &cancel,
+            deadline: None,
+            progress: None,
+        };
+        let built = get_or_build(&project, config, &control).expect("rebuild after corrupt cache");
+        assert!(!built.entities.is_empty());
+        let _ = std::fs::remove_dir_all(&tmp);
     }
 }

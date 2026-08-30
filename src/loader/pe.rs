@@ -20,6 +20,17 @@ pub struct LoadedPe {
 
 impl LoadedPe {
     pub fn open(path: impl AsRef<Path>) -> Result<Self> {
+        Self::open_profile(path, true)
+    }
+
+    /// Essential PE catalog for demand-driven target admission. This avoids
+    /// whole-file strings, hashes, resources, overlays, and Authenticode; the
+    /// full profile remains available when a function/global stage is promoted.
+    pub fn open_catalog(path: impl AsRef<Path>) -> Result<Self> {
+        Self::open_profile(path, false)
+    }
+
+    fn open_profile(path: impl AsRef<Path>, full: bool) -> Result<Self> {
         let path = path.as_ref();
         let label = path.display().to_string();
         let image = MappedImage::open(path)?;
@@ -27,18 +38,19 @@ impl LoadedPe {
         let (gob_pe, warning) = parse_pe_lenient(&image, &label)
             .map_err(|e| anyhow::anyhow!("PE parse failed: {e}"))?;
 
-        // Show everything in the triage summary; low string threshold for the UI.
+        // The catalog profile intentionally touches only structural tables.
+        // Full triage remains demand-driven behind analysis promotion.
         let opts = AnalysisOptions {
             show_headers: true,
             show_sections: true,
             show_imports: true,
             show_exports: true,
-            show_strings: true,
-            show_hashes: true,
-            show_overlay: true,
-            show_resources: true,
-            show_authenticode: true,
-            show_all: true,
+            show_strings: full,
+            show_hashes: full,
+            show_overlay: full,
+            show_resources: full,
+            show_authenticode: full,
+            show_all: full,
             min_str_len: 4,
             file_name: label,
             opsec_strict: false,
@@ -68,7 +80,7 @@ mod tests {
 
         let pe = LoadedPe::open(path).expect("should load notepad.exe");
         assert!(!pe.path.as_os_str().is_empty());
-        assert!(pe.image.len() > 0);
-        assert!(pe.triage.sections.as_ref().map_or(false, |s| !s.is_empty()));
+        assert!(!pe.image.is_empty());
+        assert!(pe.triage.sections.as_ref().is_some_and(|s| !s.is_empty()));
     }
 }
