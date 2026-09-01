@@ -53,6 +53,9 @@ See the [MCP v3 contract](docs/MCP.md), [quickstart](docs/QUICKSTART.md),
   deep stages only when an investigation requires them.
 - Structural partitions are SHA-addressed, checksummed, ABI-versioned, and
   bounded by a 5 GiB LRU.
+- Huge PE images use a bounded resident sketch shortlist plus a streamed,
+  disk-backed whole-executable instruction index; they never promote to the
+  legacy whole-image decoded graph.
 - PE, DLL, SYS, user-mode MDMP, dump-module, and multi-binary workspace
   analysis remain supported.
 - Addresses are returned as hexadecimal strings and incomplete indexes are

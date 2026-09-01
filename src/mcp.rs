@@ -44,6 +44,10 @@ const INVESTIGATION_TTL: Duration = Duration::from_secs(30 * 60);
 const MAX_EDIT_RESULTS: usize = 1_024;
 const MAX_OPEN_JOBS: usize = 256;
 const MAX_INVESTIGATIONS: usize = 256;
+/// Beyond either threshold the v3 surface stays on mmap + bounded/disk-backed
+/// analysis instead of constructing the legacy whole-image `Project` graph.
+const BOUNDED_PIPELINE_IMAGE_BYTES: u64 = 512 * 1024 * 1024;
+const BOUNDED_PIPELINE_EXECUTABLE_BYTES: u64 = 64 * 1024 * 1024;
 
 static HTTP_REQUESTS: AtomicU64 = AtomicU64::new(0);
 static HTTP_RESPONSE_BYTES: AtomicU64 = AtomicU64::new(0);
@@ -108,6 +112,8 @@ struct CatalogSnapshot {
     elapsed_ms: u128,
     image_sha256: String,
     bytes: u64,
+    #[serde(default)]
+    executable_bytes: u64,
     bitness: u32,
     sections: usize,
     imports: usize,
@@ -3981,6 +3987,22 @@ impl WindyMcp {
     }
 
     fn promote_analysis(&self, job_id: &str) {
+        let bounded = self
+            .shared
+            .open_jobs
+            .lock()
+            .unwrap()
+            .get(job_id)
+            .and_then(|job| match &job.state {
+                OpenJobState::CatalogReady { catalog }
+                | OpenJobState::SketchReady { catalog, .. } => Some(uses_bounded_pipeline(catalog)),
+                _ => None,
+            })
+            .unwrap_or(false);
+        if bounded {
+            self.promote_sketch(job_id);
+            return;
+        }
         let path = {
             let mut jobs = self.shared.open_jobs.lock().unwrap();
             let Some(job) = jobs.get_mut(job_id) else {
@@ -4556,10 +4578,22 @@ impl WindyMcp {
             "target_id":target_handle,
             "revision":0,
             "stage":"sketch",
-            "sketch_metrics":{"functions":sketch_image.sketches.len(),"decoded":sketch_image.decoded_instructions,"elapsed_ms":sketch_image.elapsed_ms},
+            "sketch_metrics":{
+                "resident_functions":sketch_image.sketches.len(),
+                "decoded":sketch_image.decoded_instructions,
+                "candidate_limit":sketch_image.candidate_limit,
+                "candidate_limit_reached":sketch_image.candidate_limit_reached,
+                "elapsed_ms":sketch_image.elapsed_ms
+            },
             "evidence_delta":ranked_delta,
             "omitted":0,
-            "uncertainty":if actions.is_empty() { "no matching sketch; unsupported rather than guessed" } else { "ranked structural evidence; inspect only if more proof is required" },
+            "uncertainty":if sketch_image.candidate_limit_reached {
+                "resident candidate shortlist reached its RAM cap; whole-image instruction metadata remains available in the disk-backed deep index and exact addresses remain queryable"
+            } else if actions.is_empty() {
+                "no matching sketch; unsupported rather than guessed"
+            } else {
+                "ranked structural evidence; inspect only if more proof is required"
+            },
             "next_actions":actions,
         }))
     }
@@ -4679,7 +4713,20 @@ impl WindyMcp {
             let job_path = job.as_ref().map(|job| job.path.clone()).unwrap_or_default();
             return match job.map(|job| job.state) {
                 Some(OpenJobState::SketchReady { sketch, .. }) => {
-                    if investigation_requires_full_project(&investigation) {
+                    let bounded = self
+                        .shared
+                        .open_jobs
+                        .lock()
+                        .unwrap()
+                        .get(&job_id)
+                        .and_then(|job| match &job.state {
+                            OpenJobState::SketchReady { catalog, .. } => {
+                                Some(uses_bounded_pipeline(catalog))
+                            }
+                            _ => None,
+                        })
+                        .unwrap_or(false);
+                    if investigation_requires_full_project(&investigation) && !bounded {
                         self.promote_analysis(&job_id);
                         StepPlan::Immediate(success_json(&json!({
                             "state":"pending",
@@ -4738,7 +4785,7 @@ impl WindyMcp {
                     } else {
                         let requires_full_project =
                             investigation_requires_full_project(&investigation);
-                        if requires_full_project {
+                        if requires_full_project && !uses_bounded_pipeline(&catalog) {
                             self.promote_analysis(&job_id);
                         } else {
                             self.promote_sketch(&job_id);
@@ -4903,7 +4950,9 @@ impl WindyMcp {
                                 "id":format!("deep:{target_handle}"),"kind":"compact_instruction_index",
                                 "instructions":index.instructions,"sections":index.sections.len(),
                                 "record_bytes":std::mem::size_of::<crate::analysis::compact_index::InstrMeta>(),
-                                "retained_bytes":index.instructions * std::mem::size_of::<crate::analysis::compact_index::InstrMeta>(),
+                                "resident_bytes":index.sections.len() * std::mem::size_of::<crate::analysis::compact_index::SectionIndex>(),
+                                "disk_bytes":index.disk_bytes,
+                                "storage":"disk_backed",
                                 "elapsed_ms":index.elapsed_ms,"cache_hit":index.cache_hit,
                             }],
                             "uncertainty":"none","next_actions":[],
@@ -5007,15 +5056,37 @@ impl WindyMcp {
                 .unwrap()
                 .get(target_handle)
                 .map(|job| job.state.clone());
-            if let (Some(va), Some(OpenJobState::SketchReady { sketch, .. })) = (va, state)
-                && let Some(fact) = sketch.sketches.iter().find(|value| value.va == va)
-            {
+            let resident = match (va, &state) {
+                (Some(va), Some(OpenJobState::SketchReady { sketch, .. })) => {
+                    sketch.sketches.iter().find(|value| value.va == va).cloned()
+                }
+                _ => None,
+            };
+            let decoded = if resident.is_some() {
+                resident
+            } else if let Some(va) = va {
+                let path = self
+                    .shared
+                    .open_jobs
+                    .lock()
+                    .unwrap()
+                    .get(target_handle)
+                    .map(|job| job.path.clone());
+                path.and_then(|path| {
+                    crate::analysis::sketch::sketch_at_path(std::path::Path::new(&path), va)
+                        .ok()
+                        .flatten()
+                })
+            } else {
+                None
+            };
+            if let Some(fact) = decoded {
                 return StepPlan::Immediate(success_json(&json!({
                     "state":"complete",
                     "investigation_id":investigation_id,
                     "target_id":target_handle,
                     "stage":"function",
-                    "evidence_delta":[sketch_fact_delta(fact, 0, vec!["bounded function window".to_string()])],
+                    "evidence_delta":[sketch_fact_delta(&fact, 0, vec!["bounded function window".to_string()])],
                     "uncertainty":"instruction window was summarized into typed structural facts",
                     "next_actions":[],
                 })));
@@ -5410,7 +5481,9 @@ fn open_job_json(job: &OpenJob) -> serde_json::Value {
         },
         "sketch":match &job.state {
             OpenJobState::SketchReady { sketch, .. } => Some(json!({
-                "functions":sketch.sketches.len(),"decoded":sketch.decoded_instructions,
+                "resident_functions":sketch.sketches.len(),"decoded":sketch.decoded_instructions,
+                "candidate_limit":sketch.candidate_limit,
+                "candidate_limit_reached":sketch.candidate_limit_reached,
                 "elapsed_ms":sketch.elapsed_ms,"cache_hit":sketch.cache_hit
             })),
             _ => None,
@@ -5425,7 +5498,7 @@ fn build_catalog_cached(
     let started = Instant::now();
     let image_sha256 = crate::analysis::structural_cache::hash_path_memoized(path, cache_root)?;
     let bitness = crate::analysis::structural_cache::pe_bitness(path)?;
-    let abi = format!("v3-catalog-2-{bitness}-default");
+    let abi = format!("v3-catalog-3-{bitness}-bounded-routing");
     let cache_path = crate::analysis::structural_cache::partition_path(
         cache_root,
         "catalog",
@@ -5477,6 +5550,15 @@ fn build_catalog(path: &std::path::Path, image_sha256: String) -> anyhow::Result
         })
         .unwrap_or_default();
     let strings = pe.triage.strings.as_deref().unwrap_or_default();
+    let executable_bytes = pe
+        .triage
+        .sections
+        .as_deref()
+        .unwrap_or_default()
+        .iter()
+        .filter(|section| section.characteristics & 0x2000_0000 != 0)
+        .map(|section| u64::from(section.raw_size))
+        .sum();
     let mut security_markers = Vec::new();
     if let Some(entries) = &pe.triage.imports {
         for entry in entries {
@@ -5518,6 +5600,7 @@ fn build_catalog(path: &std::path::Path, image_sha256: String) -> anyhow::Result
         elapsed_ms: started.elapsed().as_millis(),
         image_sha256,
         bytes: std::fs::metadata(path)?.len(),
+        executable_bytes,
         bitness: if magic.contains('+') { 64 } else { 32 },
         sections: pe.triage.sections.as_deref().unwrap_or_default().len(),
         imports,
@@ -5527,6 +5610,11 @@ fn build_catalog(path: &std::path::Path, image_sha256: String) -> anyhow::Result
         security_markers,
         cache_hit: false,
     })
+}
+
+fn uses_bounded_pipeline(catalog: &CatalogSnapshot) -> bool {
+    catalog.bytes >= BOUNDED_PIPELINE_IMAGE_BYTES
+        || catalog.executable_bytes >= BOUNDED_PIPELINE_EXECUTABLE_BYTES
 }
 
 fn prune_open_jobs(jobs: &mut HashMap<String, OpenJob>) {
@@ -6531,6 +6619,33 @@ mod http_tests {
         assert!(is_single_missing_ascii_char("ample.exe", "sample.exe"));
         assert!(!is_single_missing_ascii_char("sample.exe", "simple.exe"));
         assert!(!is_single_missing_ascii_char("mple.exe", "sample.exe.bak"));
+    }
+
+    #[test]
+    fn huge_images_route_to_the_bounded_pipeline() {
+        let base = CatalogSnapshot {
+            elapsed_ms: 0,
+            image_sha256: "0".repeat(64),
+            bytes: 32 * 1024 * 1024,
+            executable_bytes: 8 * 1024 * 1024,
+            bitness: 64,
+            sections: 1,
+            imports: 0,
+            import_items: Vec::new(),
+            exports: 0,
+            strings: 0,
+            security_markers: Vec::new(),
+            cache_hit: false,
+        };
+        assert!(!uses_bounded_pipeline(&base));
+        assert!(uses_bounded_pipeline(&CatalogSnapshot {
+            executable_bytes: BOUNDED_PIPELINE_EXECUTABLE_BYTES,
+            ..base.clone()
+        }));
+        assert!(uses_bounded_pipeline(&CatalogSnapshot {
+            bytes: BOUNDED_PIPELINE_IMAGE_BYTES,
+            ..base
+        }));
     }
 
     #[test]

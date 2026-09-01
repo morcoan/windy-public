@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.3.2 — Huge-binary bounded analysis hotfix
+
+- Streamed the whole-image eight-byte instruction index to an atomic disk
+  sidecar instead of retaining every decoded record in RAM.
+- Bounded resident function sketches to 65,536 candidates while preserving
+  whole executable-section instruction coverage in the disk-backed index.
+- Routed images at or above 512 MiB, or with at least 64 MiB of executable
+  bytes, away from the legacy whole-project graph and into bounded analysis.
+- Added exact-address mmap decoding for functions outside the resident
+  shortlist and made cache pruning account for deep-index sidecars.
+- Large-target validation details: REDACTED.
+
 ## 0.3.1 — Bounded capability hotfix
 
 - Kept capability discovery on the compact catalog path instead of promoting

@@ -46,10 +46,19 @@ pub struct RankedSketch {
 pub struct SketchImage {
     pub sketches: Vec<FunctionSketch>,
     pub decoded_instructions: usize,
+    #[serde(default)]
+    pub candidate_limit_reached: bool,
+    #[serde(default)]
+    pub candidate_limit: usize,
     pub elapsed_ms: u128,
     #[serde(default)]
     pub cache_hit: bool,
 }
+
+/// Maximum function summaries retained in RAM by the compact path. Whole-image
+/// instruction coverage remains available through the disk-backed deep index;
+/// arbitrary addresses can be decoded with [`sketch_at_path`].
+pub const MAX_RESIDENT_SKETCHES: usize = 65_536;
 
 pub fn sketches(project: &Project) -> &[FunctionSketch] {
     project
@@ -267,7 +276,7 @@ pub fn load_or_build_cached(
     bitness: u32,
 ) -> anyhow::Result<SketchImage> {
     let started = std::time::Instant::now();
-    let abi = format!("v3-sketch-1-{bitness}-default");
+    let abi = format!("v3-sketch-2-{bitness}-bounded");
     let cache_path =
         crate::analysis::structural_cache::partition_path(cache_root, "sketch", image_sha256, &abi);
     if let Some(mut cached) =
@@ -313,15 +322,19 @@ pub fn build_from_path(path: &std::path::Path) -> anyhow::Result<SketchImage> {
         crate::analysis::unwind::RuntimeFunctionTable::default()
     };
     let mut ranges = std::collections::BTreeMap::<u64, u64>::new();
-    for entry in runtime.entries {
-        ranges.insert(entry.begin_va, entry.end_va);
-    }
     ranges
         .entry(entry_va)
         .or_insert(entry_va.saturating_add(4096));
+    let mut candidate_limit_reached = false;
+    for entry in runtime.entries {
+        if ranges.len() >= MAX_RESIDENT_SKETCHES && !ranges.contains_key(&entry.begin_va) {
+            candidate_limit_reached = true;
+            continue;
+        }
+        ranges.insert(entry.begin_va, entry.end_va);
+    }
 
     let mut decoded_instructions = 0usize;
-    let mut call_targets = BTreeSet::new();
     for section in address_space.exec_sections() {
         let start = section.raw_addr as usize;
         let end = start
@@ -342,13 +355,14 @@ pub fn build_from_path(path: &std::path::Path) -> anyhow::Result<SketchImage> {
             if instruction.flow_control() == FlowControl::Call {
                 let target = instruction.near_branch_target();
                 if address_space.is_executable_va(target) {
-                    call_targets.insert(target);
+                    if ranges.len() < MAX_RESIDENT_SKETCHES || ranges.contains_key(&target) {
+                        ranges.entry(target).or_insert(target.saturating_add(4096));
+                    } else {
+                        candidate_limit_reached = true;
+                    }
                 }
             }
         }
-    }
-    for target in call_targets {
-        ranges.entry(target).or_insert(target.saturating_add(4096));
     }
 
     let starts: Vec<_> = ranges.keys().copied().collect();
@@ -367,9 +381,33 @@ pub fn build_from_path(path: &std::path::Path) -> anyhow::Result<SketchImage> {
     Ok(SketchImage {
         sketches: result,
         decoded_instructions,
+        candidate_limit_reached,
+        candidate_limit: MAX_RESIDENT_SKETCHES,
         elapsed_ms: started.elapsed().as_millis(),
         cache_hit: false,
     })
+}
+
+/// Decode one bounded window without constructing a whole-image project. This
+/// is the random-access escape hatch for addresses omitted from the resident
+/// sketch shortlist on very large binaries.
+pub fn sketch_at_path(path: &std::path::Path, va: u64) -> anyhow::Result<Option<FunctionSketch>> {
+    let pe = crate::loader::pe::LoadedPe::open_catalog(path)?;
+    let optional = pe.triage.optional_header.as_ref();
+    let sections = pe.triage.sections.as_deref().unwrap_or_default();
+    let image_base = optional.map(|header| header.image_base).unwrap_or_default();
+    let address_space = crate::loader::address_space::AddressSpace::new(image_base, sections);
+    let magic = optional
+        .map(|header| header.magic.as_str())
+        .unwrap_or("PE32");
+    let bitness = address_space.bitness(magic);
+    Ok(sketch_range(
+        &pe.image,
+        &address_space,
+        bitness,
+        va,
+        va.saturating_add(64 * 1024),
+    ))
 }
 
 fn sketch_range(

@@ -157,7 +157,8 @@ fn run_compact_index_bench(pe: PathBuf) -> anyhow::Result<()> {
             "elapsed_ms":index.elapsed_ms,
             "instructions":index.instructions,
             "sections":index.sections.len(),
-            "retained_bytes_estimate":index.instructions * std::mem::size_of::<analysis::compact_index::InstrMeta>(),
+            "resident_manifest_bytes_estimate":index.sections.len() * std::mem::size_of::<analysis::compact_index::SectionIndex>(),
+            "disk_bytes":index.disk_bytes,
             "record_bytes":std::mem::size_of::<analysis::compact_index::InstrMeta>(),
         }))?
     );

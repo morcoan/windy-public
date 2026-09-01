@@ -169,7 +169,10 @@ pub fn store<T: Serialize>(path: &Path, abi: &str, image_sha256: &str, value: &T
 }
 
 pub fn prune_lru(root: &Path, max_bytes: u64) -> Result<(u64, usize)> {
-    fn visit(directory: &Path, files: &mut Vec<(SystemTime, u64, PathBuf)>) -> Result<()> {
+    fn visit(
+        directory: &Path,
+        files: &mut Vec<(SystemTime, u64, PathBuf, Option<PathBuf>)>,
+    ) -> Result<()> {
         if !directory.exists() {
             return Ok(());
         }
@@ -183,10 +186,13 @@ pub fn prune_lru(root: &Path, max_bytes: u64) -> Result<(u64, usize)> {
                 .extension()
                 .is_some_and(|extension| extension == "postcard")
             {
+                let sidecar = path.with_extension("bin");
+                let sidecar_bytes = sidecar.metadata().map(|value| value.len()).unwrap_or(0);
                 files.push((
                     metadata.modified().unwrap_or(SystemTime::UNIX_EPOCH),
-                    metadata.len(),
+                    metadata.len().saturating_add(sidecar_bytes),
                     path,
+                    sidecar.exists().then_some(sidecar),
                 ));
             }
         }
@@ -195,14 +201,17 @@ pub fn prune_lru(root: &Path, max_bytes: u64) -> Result<(u64, usize)> {
 
     let mut files = Vec::new();
     visit(root, &mut files)?;
-    files.sort_unstable_by_key(|(modified, _, _)| *modified);
-    let mut bytes: u64 = files.iter().map(|(_, size, _)| size).sum();
+    files.sort_unstable_by_key(|(modified, _, _, _)| *modified);
+    let mut bytes: u64 = files.iter().map(|(_, size, _, _)| size).sum();
     let mut removed = 0usize;
-    for (_, size, path) in files {
+    for (_, size, path, sidecar) in files {
         if bytes <= max_bytes {
             break;
         }
         if fs::remove_file(&path).is_ok() {
+            if let Some(sidecar) = sidecar {
+                let _ = fs::remove_file(sidecar);
+            }
             bytes = bytes.saturating_sub(size);
             removed += 1;
         }
@@ -226,6 +235,22 @@ mod tests {
         assert!(load::<Vec<u32>>(&path, "abi2", "abc").unwrap().is_none());
         fs::write(&path, b"corrupt").unwrap();
         assert!(load::<Vec<u32>>(&path, "abi1", "abc").unwrap().is_none());
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn lru_pruning_counts_and_removes_binary_sidecars() {
+        let root =
+            std::env::temp_dir().join(format!("windy-cache-sidecar-test-{}", Uuid::new_v4()));
+        let path = partition_path(&root, "deep", "abc", "abi1");
+        store(&path, "abi1", "abc", &1u8).unwrap();
+        let sidecar = path.with_extension("bin");
+        fs::write(&sidecar, vec![0u8; 4096]).unwrap();
+        let (remaining, removed) = prune_lru(&root.join("structural"), 0).unwrap();
+        assert_eq!(remaining, 0);
+        assert_eq!(removed, 1);
+        assert!(!path.exists());
+        assert!(!sidecar.exists());
         let _ = fs::remove_dir_all(root);
     }
 }
