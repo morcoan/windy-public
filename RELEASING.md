@@ -30,12 +30,12 @@ without source identity, target hashes, repetitions, and hardware context.
 
 ```powershell
 cargo install cargo-cyclonedx --locked
-.\scripts\package-release.ps1 -Version 0.3.0
+.\scripts\package-release.ps1 -Version 0.3.1
 ```
 
 The script builds the locked MSVC release binary, generates a CycloneDX SBOM,
 runs the packaged MCP smoke, and creates
-`dist\windy-v0.3.0-windows-x64.zip` plus its SHA-256 file. The archive contains
+`dist\windy-v0.3.1-windows-x64.zip` plus its SHA-256 file. The archive contains
 the executable, README, setup guide, licenses, third-party notice, and SBOM.
 
 Code signing is opt-in through `-Sign`, `WINDY_SIGN_CERT_SHA1`, and optionally

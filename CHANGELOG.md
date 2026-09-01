@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.3.1 — Bounded capability hotfix
+
+- Kept capability discovery on the compact catalog path instead of promoting
+  large PE targets into the full instruction-decoding pipeline.
+- Added executable, paginated `list_imports` action tickets backed by cached PE
+  catalog data.
+- Added an MCP regression proving catalog capability execution does not create
+  a full `Project`.
+
 ## 0.3.0 — Evidence Query VM
 
 - Replaced the v0.2 surface with six agent-only MCP tools and opaque,
