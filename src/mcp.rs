@@ -98,6 +98,12 @@ enum OpenJobState {
 }
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+struct CatalogImport {
+    dll: String,
+    name: String,
+}
+
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 struct CatalogSnapshot {
     elapsed_ms: u128,
     image_sha256: String,
@@ -105,6 +111,8 @@ struct CatalogSnapshot {
     bitness: u32,
     sections: usize,
     imports: usize,
+    #[serde(default)]
+    import_items: Vec<CatalogImport>,
     exports: usize,
     strings: usize,
     security_markers: Vec<String>,
@@ -4391,14 +4399,29 @@ impl WindyMcp {
 
         if matches!(intent, "capability" | "dump") {
             let result = self.search_capabilities(&investigation.question, 3);
+            let mut capability_actions = Vec::new();
+            if capability_ids(&result).contains(&"list_imports") {
+                let mut arguments = serde_json::Map::new();
+                arguments.insert("project_id".into(), json!(target_id.to_string()));
+                arguments.insert("offset".into(), json!(0));
+                arguments.insert("limit".into(), json!(32));
+                let ticket = self.bind_action(
+                    investigation,
+                    "list PE imports",
+                    "list_imports",
+                    arguments,
+                    Some(revision),
+                );
+                capability_actions.push(action_json(&ticket, true));
+            }
             return success_json(&json!({
                 "state":"partial",
                 "investigation_id":investigation.id,
                 "target_id":target_id,
                 "revision":revision,
                 "evidence_delta":result.structured_content,
-                "next_actions":actions,
-                "uncertainty":"specialized operation requires an action ticket",
+                "next_actions":capability_actions,
+                "uncertainty":if capability_actions.is_empty() { "matching capability requires inputs or a deeper target stage" } else { "execute the bound action ticket to obtain evidence" },
             }));
         }
 
@@ -4458,6 +4481,9 @@ impl WindyMcp {
                 "uncertainty":"deep index is not built until its action is executed",
                 "next_actions":[action_json(&action, true)],
             }));
+        }
+        if investigation.intent == "capability" {
+            return self.run_compact_capability_investigation(investigation, target_handle);
         }
         if investigation.intent == "verify"
             && let Some(va) = first_hex_address(&investigation.question)
@@ -4535,6 +4561,39 @@ impl WindyMcp {
             "omitted":0,
             "uncertainty":if actions.is_empty() { "no matching sketch; unsupported rather than guessed" } else { "ranked structural evidence; inspect only if more proof is required" },
             "next_actions":actions,
+        }))
+    }
+
+    fn run_compact_capability_investigation(
+        &self,
+        investigation: &Investigation,
+        target_handle: &str,
+    ) -> CallToolResult {
+        let result = self.search_capabilities(&investigation.question, 3);
+        let mut actions = Vec::new();
+        if capability_ids(&result).contains(&"list_imports") {
+            let mut arguments = serde_json::Map::new();
+            arguments.insert("target_handle".into(), json!(target_handle));
+            arguments.insert("offset".into(), json!(0));
+            arguments.insert("limit".into(), json!(32));
+            let ticket = self.bind_action(
+                investigation,
+                "list PE imports from the compact catalog",
+                "__catalog_list_imports",
+                arguments,
+                None,
+            );
+            actions.push(action_json(&ticket, true));
+        }
+        success_json(&json!({
+            "state":"partial",
+            "investigation_id":investigation.id,
+            "target_id":target_handle,
+            "revision":0,
+            "stage":"catalog",
+            "evidence_delta":result.structured_content,
+            "next_actions":actions,
+            "uncertainty":if actions.is_empty() { "matching capability requires inputs or a deeper target stage" } else { "execute the bound action ticket to obtain evidence" },
         }))
     }
 
@@ -4650,6 +4709,14 @@ impl WindyMcp {
                     StepPlan::Immediate(self.run_investigation(&investigation))
                 }
                 Some(OpenJobState::CatalogReady { catalog }) => {
+                    let lower_question = investigation.question.to_ascii_lowercase();
+                    if investigation.intent == "capability"
+                        && !(lower_question.contains("deep") && lower_question.contains("index"))
+                    {
+                        return StepPlan::Immediate(
+                            self.run_compact_capability_investigation(&investigation, &job_id),
+                        );
+                    }
                     let crypto_query = ["aes", "gcm", "encrypt", "cryptographic"]
                         .iter()
                         .any(|term| investigation.question.to_ascii_lowercase().contains(term));
@@ -4861,6 +4928,66 @@ impl WindyMcp {
                     _ => tokio::time::sleep(Duration::from_millis(10)).await,
                 }
             }
+        }
+        if ticket.capability == "__catalog_list_imports" {
+            let target_handle = ticket
+                .arguments
+                .get("target_handle")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or_default();
+            let offset = inputs
+                .get("offset")
+                .or_else(|| ticket.arguments.get("offset"))
+                .and_then(serde_json::Value::as_u64)
+                .and_then(|value| usize::try_from(value).ok())
+                .unwrap_or_default();
+            let limit = inputs
+                .get("limit")
+                .or_else(|| ticket.arguments.get("limit"))
+                .and_then(serde_json::Value::as_u64)
+                .and_then(|value| usize::try_from(value).ok())
+                .unwrap_or(32)
+                .clamp(1, 128);
+            let catalog = self
+                .shared
+                .open_jobs
+                .lock()
+                .unwrap()
+                .get(target_handle)
+                .and_then(|job| match &job.state {
+                    OpenJobState::CatalogReady { catalog }
+                    | OpenJobState::SketchReady { catalog, .. } => Some(catalog.clone()),
+                    _ => None,
+                });
+            let Some(catalog) = catalog else {
+                return StepPlan::Immediate(tool_error_json(
+                    "CATALOG_NOT_READY",
+                    "compact import catalog is missing or expired",
+                    json!({"repair":[{"tool":"investigation_start","reuse_question":true}]}),
+                    true,
+                ));
+            };
+            let page: Vec<_> = catalog
+                .import_items
+                .iter()
+                .skip(offset)
+                .take(limit)
+                .map(|item| json!({"dll":item.dll,"name":item.name}))
+                .collect();
+            let next = offset.saturating_add(page.len());
+            return StepPlan::Immediate(success_json(&json!({
+                "state":"complete",
+                "investigation_id":investigation_id,
+                "target_id":target_handle,
+                "stage":"catalog",
+                "imports":page,
+                "total":catalog.import_items.len(),
+                "offset":offset,
+                "next_offset":if next < catalog.import_items.len() { Some(next) } else { None::<usize> },
+                "evidence_delta":[{"id":format!("imports:{target_handle}:{offset}"),"kind":"pe_imports","count":page.len()}],
+                "uncertainty":"none",
+                "next_actions":[],
+            })));
         }
         if ticket.capability == "__inspect_window" {
             let target_handle = ticket
@@ -5298,7 +5425,7 @@ fn build_catalog_cached(
     let started = Instant::now();
     let image_sha256 = crate::analysis::structural_cache::hash_path_memoized(path, cache_root)?;
     let bitness = crate::analysis::structural_cache::pe_bitness(path)?;
-    let abi = format!("v3-catalog-1-{bitness}-default");
+    let abi = format!("v3-catalog-2-{bitness}-default");
     let cache_path = crate::analysis::structural_cache::partition_path(
         cache_root,
         "catalog",
@@ -5327,14 +5454,20 @@ fn build_catalog_cached(
 fn build_catalog(path: &std::path::Path, image_sha256: String) -> anyhow::Result<CatalogSnapshot> {
     let started = Instant::now();
     let pe = crate::loader::pe::LoadedPe::open_catalog(path)?;
-    let imports = pe
+    let import_items: Vec<_> = pe
         .triage
         .imports
         .as_deref()
         .unwrap_or_default()
         .iter()
-        .map(|entry| entry.functions.len())
-        .sum();
+        .flat_map(|entry| {
+            entry.functions.iter().map(|function| CatalogImport {
+                dll: entry.dll.clone(),
+                name: function.name.clone(),
+            })
+        })
+        .collect();
+    let imports = import_items.len();
     let exports = serde_json::to_value(&pe.triage.exports)
         .ok()
         .map(|value| {
@@ -5388,6 +5521,7 @@ fn build_catalog(path: &std::path::Path, image_sha256: String) -> anyhow::Result
         bitness: if magic.contains('+') { 64 } else { 32 },
         sections: pe.triage.sections.as_deref().unwrap_or_default().len(),
         imports,
+        import_items,
         exports,
         strings: strings.len(),
         security_markers,
@@ -5609,12 +5743,22 @@ fn canonical_investigation_input(intent: &str, question: &str) -> (String, Strin
 }
 
 fn investigation_requires_full_project(investigation: &Investigation) -> bool {
-    let lower = investigation.question.to_ascii_lowercase();
     investigation.intent == "edit"
         || investigation.intent == "dump"
-        || (investigation.intent == "capability"
-            && !(lower.contains("deep") && lower.contains("index")))
         || (investigation.intent == "verify" && is_persistence_query(&investigation.question))
+}
+
+fn capability_ids(result: &CallToolResult) -> Vec<&str> {
+    result
+        .structured_content
+        .as_ref()
+        .and_then(|value| value.get("capabilities"))
+        .and_then(serde_json::Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|value| value.get("capability_id"))
+        .filter_map(serde_json::Value::as_str)
+        .collect()
 }
 
 fn expected_persisted_symbol(question: &str) -> Option<String> {
@@ -7034,6 +7178,43 @@ mod http_tests {
             manager.list().is_empty(),
             "sketch stage must not build a Project"
         );
+
+        let capability = client.call(
+            "investigation_start",
+            json!({
+                "target_id":target_handle,
+                "intent":"capability",
+                "question":"perform list_imports",
+                "budget":"tiny"
+            }),
+        );
+        let capability_data = structured(&capability);
+        let capability_poll =
+            capability_data["next_actions"][0]["execute"]["arguments"]["action_id"]
+                .as_str()
+                .expect("capability continuation")
+                .to_string();
+        let discovered = client.call("investigation_step", json!({"action_id":capability_poll}));
+        let discovered_data = structured(&discovered);
+        assert_eq!(discovered_data["stage"], "catalog", "{discovered:#}");
+        let import_action = discovered_data["next_actions"][0]["execute"]["arguments"]["action_id"]
+            .as_str()
+            .expect("bound list_imports action")
+            .to_string();
+        let imported = client.call(
+            "investigation_step",
+            json!({"action_id":import_action,"inputs":{"limit":1}}),
+        );
+        let imported_data = structured(&imported);
+        assert_eq!(imported_data["state"], "complete", "{imported:#}");
+        assert_eq!(imported_data["stage"], "catalog", "{imported:#}");
+        assert!(imported_data["imports"].is_array(), "{imported:#}");
+        assert!(imported_data["total"].as_u64().is_some(), "{imported:#}");
+        assert!(
+            manager.list().is_empty(),
+            "catalog capability must not promote a full Project"
+        );
+
         let pe = crate::loader::pe::LoadedPe::open_catalog(&fixture).unwrap();
         let optional = pe.triage.optional_header.as_ref().unwrap();
         let va = format!(
